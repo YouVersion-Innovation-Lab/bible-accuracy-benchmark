@@ -1,0 +1,4 @@
+# beta environment overrides (deployed from the `beta` branch)
+
+[results]
+gcs_bucket = "biblelabs-bible-bench-results-beta"

@@ -1,0 +1,13 @@
+# Non-secret configuration shared by all environments.
+# Secrets (API header values, keys) come from env vars / Secret Manager only.
+
+[bench]
+scoring_version = "1.0.0"
+dataset_spec = "dataset/spec-v1.json"
+
+[yv_api]
+max_concurrency = 8      # politeness ceiling for Bible API calls
+timeout_seconds = 30
+
+[web]
+cache_ttl_seconds = 300

@@ -1,0 +1,52 @@
+[project]
+name = "bible-bench"
+version = "0.1.0"
+description = "Bible Accuracy Benchmark — measures how accurately LLMs quote the Bible"
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.27",
+    "openai>=1.0",
+    "rapidfuzz>=3.9",
+    "beautifulsoup4>=4.12",
+    "lxml>=5.0",
+    "pydantic>=2.7",
+    "python-dotenv>=1.0",
+    "regex>=2024.0",
+    "rich>=13.0",
+]
+
+[project.optional-dependencies]
+api = [
+    "fastapi>=0.111",
+    "uvicorn[standard]>=0.30",
+    "google-cloud-storage>=2.16",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.5",
+]
+
+[project.scripts]
+bible-bench = "bible_bench.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "live: tests that hit the live Bible API (skipped unless YV_CORE_* env vars are set)",
+]

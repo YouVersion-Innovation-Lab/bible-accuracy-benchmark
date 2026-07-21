@@ -1,0 +1,30 @@
+# Secrets and local config — never commit
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+
+# Node / web
+node_modules/
+web/dist/
+
+# Local eval results (may contain fetched verse text — never commit)
+results/
+runs/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

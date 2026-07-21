@@ -1,0 +1,4 @@
+# release environment overrides (deployed from the `release` branch)
+
+[results]
+gcs_bucket = "biblelabs-bible-bench-results-release"
