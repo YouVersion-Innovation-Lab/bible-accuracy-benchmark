@@ -28,3 +28,6 @@ runs/
 .DS_Store
 .idea/
 .vscode/
+
+# Stray shell redirect artifacts (e.g. a file literally named "1" or "2")
+/[0-9]

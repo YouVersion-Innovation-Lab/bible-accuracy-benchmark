@@ -36,7 +36,9 @@ _MAX_RETRIES = 5
 
 
 class BibleApiError(RuntimeError):
-    pass
+    def __init__(self, message: str, status: int | None = None):
+        super().__init__(message)
+        self.status = status
 
 
 @dataclass(frozen=True)
@@ -144,10 +146,13 @@ class BibleClient:
                 async with self._sem:
                     resp = await self._http.get(endpoint, params=params)
                 if resp.status_code in _RETRYABLE_STATUSES:
-                    raise BibleApiError(f"{endpoint} -> HTTP {resp.status_code}")
+                    raise BibleApiError(
+                        f"{endpoint} -> HTTP {resp.status_code}", status=resp.status_code
+                    )
                 if resp.status_code != 200:
                     raise BibleApiError(
-                        f"Bible API {endpoint} {params} -> HTTP {resp.status_code}"
+                        f"Bible API {endpoint} {params} -> HTTP {resp.status_code}",
+                        status=resp.status_code,
                     )
                 data = resp.json().get("response", {}).get("data")
                 if data is None:
@@ -155,10 +160,13 @@ class BibleClient:
                 return data
             except (httpx.TransportError, BibleApiError) as e:
                 last_err = e
-                if isinstance(e, BibleApiError) and "HTTP" in str(e):
-                    status = str(e).rsplit(" ", 1)[-1]
-                    if status.isdigit() and int(status) not in _RETRYABLE_STATUSES:
-                        raise
+                non_retryable = (
+                    isinstance(e, BibleApiError)
+                    and e.status is not None
+                    and e.status not in _RETRYABLE_STATUSES
+                )
+                if non_retryable:
+                    raise
                 await asyncio.sleep((2**attempt) + random.random())
         raise BibleApiError(
             f"Bible API {endpoint} failed after {_MAX_RETRIES} retries"
@@ -194,11 +202,20 @@ class BibleClient:
         key = (version_id, chapter_usfm.upper())
         async with self._lock(key):
             if key not in self._chapters:
-                data = await self._get(
-                    "chapter.json", {"id": version_id, "reference": key[1]}
-                )
-                spans = parse_spans(data.get("content", ""))
-                self._chapters[key] = {s.anchor: s for s in spans}
+                try:
+                    data = await self._get(
+                        "chapter.json", {"id": version_id, "reference": key[1]}
+                    )
+                    spans = parse_spans(data.get("content", ""))
+                    self._chapters[key] = {s.anchor: s for s in spans}
+                except BibleApiError as e:
+                    # A chapter absent from this version (e.g. an NT-only
+                    # edition, or a differing canon) returns 404 — treat it as
+                    # "no verses here" rather than a fatal error.
+                    if e.status == 404:
+                        self._chapters[key] = {}
+                    else:
+                        raise
         return self._chapters[key]
 
     async def verse(self, version_id: int, usfm: str) -> VerseSpan | None:
