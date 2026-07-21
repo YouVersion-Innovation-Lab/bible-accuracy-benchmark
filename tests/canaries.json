@@ -1,0 +1,102 @@
+[
+  {
+    "version_id": 111,
+    "usfm": "GEN.1.1",
+    "sha256_loose": "5e292678fb6fb229a6d63c3d7dfb701cecb82abdafdc76c49be9fc02bc0c506b"
+  },
+  {
+    "version_id": 111,
+    "usfm": "JHN.3.16",
+    "sha256_loose": "30fe10b1bce560ffc2ee7b274174d760115d037b52e3b7d2d0642defbbdbdd4c"
+  },
+  {
+    "version_id": 111,
+    "usfm": "PSA.23.1",
+    "sha256_loose": "c3d5930a67c71b1e4085d736d4b24a3d95f6525db05b0d75c60ea35343ecb7a6"
+  },
+  {
+    "version_id": 111,
+    "usfm": "EST.8.9",
+    "sha256_loose": "58e4abc597111346bed159c37915e99a36413a1156c143dbdd44da9d66dd617e"
+  },
+  {
+    "version_id": 111,
+    "usfm": "REV.22.21",
+    "sha256_loose": "d39ebcc8624afeb618a0fa604fda7523f8fb691235df2297b4ea22252c934757"
+  },
+  {
+    "version_id": 1,
+    "usfm": "JHN.3.16",
+    "sha256_loose": "fc708d7bbd4877aef367e2020c86bd760adeb6a2f47402f276a0335c9d0fa539"
+  },
+  {
+    "version_id": 1,
+    "usfm": "PSA.119.105",
+    "sha256_loose": "bb2d3232b852cf21d4358e1142e4be7fa4d936467f0cfd615967fc2452abc9be"
+  },
+  {
+    "version_id": 116,
+    "usfm": "ROM.8.28",
+    "sha256_loose": "5407c9273f9e57175885e0e232887267d94eae3c62c8e49b20447ba9fb8460a1"
+  },
+  {
+    "version_id": 116,
+    "usfm": "PHP.4.13",
+    "sha256_loose": "28b06c9f09969242d939da22d335c22b2ef037f0e2d09f29af68b1bf31cecb86"
+  },
+  {
+    "version_id": 149,
+    "usfm": "JHN.3.16",
+    "sha256_loose": "2b68748dc2fdf673a07f8819901ae4672cf3b50a15c83767b1809f2c44d6736d"
+  },
+  {
+    "version_id": 129,
+    "usfm": "JHN.3.16",
+    "sha256_loose": "df65d2394ecbac917fe340b700347e38682d84c5b7e00be63c790519f8a4793b"
+  },
+  {
+    "version_id": 93,
+    "usfm": "JHN.3.16",
+    "sha256_loose": "cb9011c5d87e5d7c0410b29dae4261893dc3323b7be9f15efc2bac6c8bda8a27"
+  },
+  {
+    "version_id": 157,
+    "usfm": "JHN.3.16",
+    "sha256_loose": "3d05dd1814dc81aa1dac6d522f2d4cc2d2ee02974a434f1b5926c7036745ff28"
+  },
+  {
+    "version_id": 101,
+    "usfm": "JHN.3.16",
+    "sha256_loose": "967794a6180880644865856d1066fa6907a8cc2bac8a1189044f8d666d4602dd"
+  },
+  {
+    "version_id": 88,
+    "usfm": "JHN.3.16",
+    "sha256_loose": "f171a68f79e967d55d421a7ad781181c0fe1c922b18f28a55769ffa57394d467"
+  },
+  {
+    "version_id": 46,
+    "usfm": "JHN.3.16",
+    "sha256_loose": "457e102645b955b92cb8ab47f10aa1facb77b54b129e00a4865e136485631c7e"
+  },
+  {
+    "version_id": 1819,
+    "usfm": "JHN.3.16",
+    "sha256_loose": "93f31cf500c27adc77ed68cf35464f19300112870d123c79d81c07e76d567868"
+  },
+  {
+    "version_id": 174,
+    "usfm": "JHN.3.16",
+    "sha256_loose": "4d7693976837d541e7ae0988d67575231fe50e918e8bb2fc24a91727c0e5b8cf"
+  },
+  {
+    "version_id": 37,
+    "usfm": "PSA.23.1",
+    "sha256_loose": "c3d5930a67c71b1e4085d736d4b24a3d95f6525db05b0d75c60ea35343ecb7a6"
+  },
+  {
+    "version_id": 59,
+    "usfm": "JHN.3.16",
+    "sha256_loose": "1bd574df17c1a8af76a40645c9e3233b934365c8064b8e60a2e2ac4f353f2fe6"
+  }
+]

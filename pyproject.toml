@@ -47,6 +47,8 @@ select = ["E", "F", "W", "I", "UP", "B"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "module"
+asyncio_default_test_loop_scope = "module"
 markers = [
     "live: tests that hit the live Bible API (skipped unless YV_CORE_* env vars are set)",
 ]
