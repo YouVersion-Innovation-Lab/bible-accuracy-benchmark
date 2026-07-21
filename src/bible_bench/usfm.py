@@ -61,6 +61,13 @@ class UsfmError(ValueError):
     pass
 
 
+def is_standard_verse_usfm(usfm: str) -> bool:
+    """True for clean BOOK.CH.V references. Some editions emit split-chapter or
+    subdivided anchors (e.g. 'PSA.106_1.1') the benchmark doesn't sample."""
+    m = _VERSE_USFM_RE.match(usfm.strip().upper())
+    return bool(m) and m.group(1) in _CANON_SET
+
+
 @dataclass(frozen=True, order=True)
 class VerseRef:
     """A single-verse USFM reference like JHN.3.16."""

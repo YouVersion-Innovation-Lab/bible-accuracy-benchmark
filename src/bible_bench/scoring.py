@@ -53,6 +53,28 @@ _TRAILING_DASH_ATTR = regex.compile(r"([.!?։。」”\"'])\s*[—–-]\s*[^\n]{
 _TRAILING_REF_LINE = regex.compile(r"\n[^\n]{0,50}\d{1,3}\s*[:.]\s*\d{1,3}[^\n]{0,20}\s*$")
 _QUOTED_SPAN = regex.compile(r'"([^"\n]{10,})"')
 
+# Common refusal / inability markers across the benchmark's languages. Used
+# only to keep an explicit refusal classified as no_attempt rather than
+# fabricated; it never affects the accuracy score (both are 0).
+_REFUSAL_MARKERS = (
+    "i cannot", "i can't", "i can not", "i'm unable", "i am unable", "i'm not able",
+    "i am not able", "i'm sorry", "i am sorry", "i apologize", "cannot provide",
+    "can't provide", "unable to provide", "as an ai", "i don't have",
+    "no puedo", "lo siento", "je ne peux", "désolé", "ich kann nicht",
+    "не могу", "извините", "죄송", "제공할 수 없", "申し訳", "できません",
+    "抱歉", "无法", "無法", "ขออภัย", "ไม่สามารถ", "لا أستطيع", "عذرا", "عذراً",
+    "नहीं कर सकता", "क्षमा",
+)
+
+
+def _looks_like_refusal(text: str) -> bool:
+    low = text.lower()
+    return any(marker in low for marker in _REFUSAL_MARKERS)
+
+
+def _nonspace_len(text: str) -> int:
+    return len(regex.sub(r"\s", "", text))
+
 
 def qer(attempt: str, truth: str) -> float:
     """Quote Error Rate on already-normalized strings. May exceed 1.0."""
@@ -241,6 +263,19 @@ def score_item(
         infix_sim, _ = _best_infix_similarity(truth_loose, ex.trivial_loose)
         overquote = infix_sim >= MINOR_SIM
 
+    # Did the model produce verse-shaped content at all? Script-agnostic:
+    # substantial non-whitespace length, or an explicit quoted span, and not an
+    # explicit refusal. This separates "confidently wrong" (fabricated) from
+    # "declined / no clear attempt" (no_attempt) even in unspaced scripts where
+    # there are no quote marks to key on.
+    attempt_chars = _nonspace_len(ex.trivial_loose or "")
+    truth_chars = _nonspace_len(truth_loose)
+    substantial = attempt_chars >= max(10, 0.4 * truth_chars)
+    attempted = (
+        not _looks_like_refusal(response)
+        and (substantial or bool(_QUOTED_SPAN.search(normalize(response, "strict"))))
+    )
+
     # Severity decision tree (sequential; first match wins).
     d_sim = best_d[1] if best_d else 0.0
     n_sim = best_n[1] if best_n else 0.0
@@ -256,9 +291,7 @@ def score_item(
         grade = "wrong_version"
     elif n_sim >= WRONG_VERSE_SIM and sim_t < WRONG_VERSE_TARGET_MAX:
         grade = "wrong_verse"
-    elif max(sim_t, d_sim, n_sim) >= ATTEMPT_SIM_FLOOR or _QUOTED_SPAN.search(
-        normalize(response, "strict")
-    ):
+    elif attempted or max(sim_t, d_sim, n_sim) >= ATTEMPT_SIM_FLOOR:
         grade = "fabricated"
     else:
         grade = "no_attempt"

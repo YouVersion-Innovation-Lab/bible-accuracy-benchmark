@@ -27,7 +27,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 from .config import BibleApiConfig
-from .usfm import SINGLE_CHAPTER_BOOKS, VerseRef
+from .usfm import SINGLE_CHAPTER_BOOKS, VerseRef, is_standard_verse_usfm
 
 _WS = re.compile(r"\s+")
 
@@ -234,9 +234,16 @@ class BibleClient:
         return span
 
     async def chapter_verses(self, version_id: int, chapter_usfm: str) -> dict[str, str]:
-        """Single-verse spans of a chapter as {usfm: text} (merged spans skipped)."""
+        """Single-verse spans of a chapter as {usfm: text}.
+
+        Merged spans (extent > 1) and non-standard anchors (split-chapter or
+        subdivided identifiers like ``PSA.106_1.1``) are skipped."""
         spans = await self.chapter(version_id, chapter_usfm)
-        return {s.anchor: s.text for s in spans.values() if s.extent == 1}
+        return {
+            s.anchor: s.text
+            for s in spans.values()
+            if s.extent == 1 and is_standard_verse_usfm(s.anchor)
+        }
 
     async def human_reference(self, version_id: int, usfm: str) -> str:
         """Localized human-readable reference using the version's own book

@@ -87,6 +87,25 @@ def test_refusal_is_no_attempt():
     assert s.item_score == 0.0
 
 
+def test_wrong_content_in_unspaced_script_is_fabricated_not_refusal():
+    # A confidently-wrong CJK "quote" (no ASCII quote marks, low similarity)
+    # must be graded fabricated, not no_attempt — it is not a refusal.
+    wrong_cjk = "第七季，牧人走过田野，数着天上的星辰，因为夜晚的册子要求忠实的记录。"
+    s = score_item(wrong_cjk, CJK, {}, {})
+    assert s.grade == "fabricated"
+    assert s.item_score == 0.0
+
+
+def test_refusal_in_other_language_is_no_attempt():
+    s = score_item("죄송하지만 그 구절을 제공할 수 없습니다.", CJK, {}, {})
+    assert s.grade == "no_attempt"
+
+
+def test_empty_response_is_no_attempt():
+    s = score_item("", LATIN, DISTRACTORS, NEIGHBORS)
+    assert s.grade == "no_attempt"
+
+
 def test_quote_buried_in_commentary_loses_format_not_accuracy():
     response = (
         "What a wonderful passage this is. The text reads: "
