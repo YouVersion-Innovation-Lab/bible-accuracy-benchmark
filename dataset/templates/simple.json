@@ -1,0 +1,13 @@
+{
+  "description": "Simple-track prompt templates. {reference} is the localized human reference (from the version's own book names); {version_title} and {version_abbrev} come from version.json. Native-language wording is machine-drafted and pending human localization review (see docs).",
+  "templates": {
+    "quote_exact": {
+      "eng": "Quote {reference} from the {version_title} ({version_abbrev}) translation of the Bible. Respond with the verse text only — no reference, no quotation marks, no commentary.",
+      "spa": "Cita {reference} de la traducción {version_title} ({version_abbrev}) de la Biblia. Responde únicamente con el texto del versículo, sin la referencia, sin comillas y sin comentarios.",
+      "kor": "성경 {version_title}({version_abbrev}) 번역에서 {reference}을(를) 인용해 주세요. 구절 본문만 답하고, 참조 표기나 따옴표, 설명은 넣지 마세요.",
+      "tha": "โปรดยกข้อพระคัมภีร์ {reference} จากฉบับแปล {version_title} ({version_abbrev}) ตอบเฉพาะเนื้อความของข้อพระคัมภีร์เท่านั้น ไม่ต้องใส่การอ้างอิง เครื่องหมายคำพูด หรือคำอธิบาย",
+      "arb": "اقتبس {reference} من ترجمة {version_title} ({version_abbrev}) للكتاب المقدس. أجب بنص الآية فقط، دون الإشارة المرجعية ودون علامات اقتباس ودون أي تعليق."
+    }
+  },
+  "english_instruction_fallback": "Quote {reference} from the {version_title} ({version_abbrev}) translation of the Bible. Respond with the verse text only — no reference, no quotation marks, no commentary."
+}

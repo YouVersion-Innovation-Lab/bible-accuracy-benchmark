@@ -1,0 +1,49 @@
+{
+  "spec_version": "v1",
+  "description": "Bible Accuracy Benchmark sampling specification. Public and fixed; concrete body/obscure/edge items are drawn fresh per leaderboard refresh from a published seed. See docs/METHODOLOGY.md.",
+  "famous_file": "dataset/famous-v1.jsonl",
+  "tiers": {
+    "famous": {
+      "source": "famous_file",
+      "english_count": 63,
+      "other_language_count": 15
+    },
+    "body": {
+      "strategy": "stratified_random",
+      "min_verses_per_book": 2,
+      "english_count": 200,
+      "other_language_count": 25
+    },
+    "obscure": {
+      "strategy": "obscure_pools",
+      "pools": ["genealogy", "census", "psalm119_interior", "number_heavy", "minor_prophet_interior", "longest_verses"],
+      "english_count": 75,
+      "other_language_count": 10
+    },
+    "edge": {
+      "strategy": "edge_pools",
+      "pools": ["single_chapter_books", "chapter_final_verses", "book_final_verses"],
+      "english_count": 25,
+      "other_language_count": 5
+    }
+  },
+  "probe_set": {
+    "description": "Textual-variant verses reported separately, never in the headline score.",
+    "usfms": ["MRK.16.9", "MRK.16.20", "JHN.7.53", "JHN.8.11", "ACT.8.37", "MAT.17.21", "MAT.18.11", "MAT.23.14", "MRK.7.16", "MRK.9.44", "MRK.11.26", "LUK.17.36", "LUK.23.17", "JHN.5.4", "ACT.15.34", "ACT.24.7", "ACT.28.29", "ROM.16.24", "1JN.5.7"]
+  },
+  "languages": {
+    "eng": {"name": "English", "versions": [111, 1, 116], "primary": 111},
+    "spa": {"name": "Spanish", "versions": [149], "primary": 149},
+    "kor": {"name": "Korean", "versions": [88], "primary": 88},
+    "tha": {"name": "Thai", "versions": [174], "primary": 174},
+    "arb": {"name": "Arabic", "versions": [101], "primary": 101}
+  },
+  "distractor_pools": {
+    "eng": [1, 111, 116, 59],
+    "spa": [149, 129],
+    "kor": [88],
+    "tha": [174],
+    "arb": [101]
+  },
+  "notes": "PILOT scope (5 languages). Phase 4 expands to ~28 languages. Version IDs: 111=NIV, 1=KJV, 116=NLT, 59=ESV, 149=RVR1960, 129=NVI(es), 88=Korean, 174=Thai, 101=Arabic Ketab El Hayat."
+}
