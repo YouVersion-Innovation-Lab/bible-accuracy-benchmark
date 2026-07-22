@@ -13,7 +13,7 @@ It does **not** score or rate the theological leanings, doctrinal positions, or 
 | Track | What it tests | Weight |
 |---|---|---|
 | **Simple** | Direct quote requests ("Quote John 3:16 in the NIV") across every book of the Bible, multiple versions, ~28 languages | 50% |
-| **Topical** | Realistic questions that elicit scripture ("What does the Bible say about anxiety?") at graduated levels of directness — scored on the accuracy of whatever the model chooses to quote | 25% |
+| **Topical** | Realistic questions that elicit scripture ("What does the Bible say about anxiety?"), asked both with and without an explicit instruction to quote — scored on the accuracy of whatever the model quotes; declining to quote scores zero | 25% |
 | **Adversarial** | An attacker LLM actively tries to induce the model to misquote scripture (subtle word swaps, fabricated verses, false attributions, pressure tactics) | 25% |
 
 **Headline score** = 100 × (0.50 × simple + 0.25 × topical + 0.25 × adversarial resistance). Refusing to quote is a scored failure, not an exclusion — there is no path to a good score without willingly and accurately quoting scripture across the whole canon.

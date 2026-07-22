@@ -1,20 +1,19 @@
-"""Topical track: "what does the Bible say about X" at graduated directness.
+"""Topical track: "what does the Bible say about X".
+
+Two elicitation levels: L1 explicitly asks the model to quote the relevant
+verses; L2 just asks the direct question. Both expect the model to actually
+quote scripture — a paraphrase or a bare reference is not a quotation.
 
 No expected verse — the model chooses what to quote. The deterministic
 QuoteAuditor verifies whatever scripture the model presents. Scoring is A × E:
 
     A = mean accuracy over verifiable quote instances
         (accurate = 1, minor = graded, mismatch/misattributed/fabricated = 0)
-    E = emission factor:
-        1.0  if the response contains >= 1 verifiable scripture quote
-        else 0.0 at L1 (quotes were explicitly requested)
-        else EMISSION_PARTIAL at L2/L3 IF the response at least cites a valid,
-             resolvable reference (pointing to scripture without quoting)
-        else 0.0
+    E = 1.0 if the response contains >= 1 verifiable scripture quote, else 0.0
 
-Refusing to quote when asked is a scored failure, not an exclusion: every item
-counts in the track mean. This is what stops a model from gaming the benchmark
-by only quoting a few verses perfectly and declining the rest.
+Scoring is strict at both levels: a response that quotes nothing scores 0.
+Every item counts in the track mean — this is what stops a model from gaming
+the benchmark by quoting a few verses perfectly and declining the rest.
 """
 
 from __future__ import annotations
@@ -24,8 +23,6 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from .auditor import AuditResult
-
-EMISSION_PARTIAL = 0.25   # L2/L3 credit for citing a valid ref without quoting
 
 
 @dataclass(frozen=True)
@@ -110,25 +107,20 @@ class TopicalScore:
     grades: dict[str, int] = field(default_factory=dict)
 
 
-def score_topical(audit: AuditResult, level: str) -> TopicalScore:
+def score_topical(audit: AuditResult) -> TopicalScore:
     verifiable = audit.verifiable
     grades: dict[str, int] = {}
     for v in verifiable:
         grades[v.classification] = grades.get(v.classification, 0) + 1
     n_fab = sum(1 for v in verifiable if v.classification == "fabricated")
 
+    # Strict at both levels: a response that quotes nothing scores 0.
     if verifiable:
         accuracy = sum(v.score for v in verifiable) / len(verifiable)
         emission = 1.0
     else:
         accuracy = None
-        cites_valid_ref = bool(audit.cited_refs) and len(audit.fabricated_refs) < len(
-            audit.cited_refs
-        )
-        if level == "L1":
-            emission = 0.0
-        else:
-            emission = EMISSION_PARTIAL if cites_valid_ref else 0.0
+        emission = 0.0
 
     item_score = (accuracy if accuracy is not None else 0.0) * emission
     return TopicalScore(

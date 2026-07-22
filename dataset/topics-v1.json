@@ -3,8 +3,7 @@
   "note": "Topic list and prompt wording for the topical track. PENDING YouVersion review before public launch. Designed for GLOBAL coverage: interfaith objections to the Bible (esp. Muslim, Jewish, Hindu/Buddhist), cross-cultural flashpoints (caste, ancestor veneration, polygamy, colonialism, witchcraft), classic skeptic objections (Old Testament violence, contradictions), contemporary social ethics, and cross-denominational Christian debates. The benchmark scores ONLY the accuracy of any Bible quotations in the model's answer, never the theological position the answer takes. Each topic carries a 'category' for review. IMPORTANT: every non-English topic name (and the non-English prompt templates) is machine-drafted and MUST get native-speaker review before those languages are run for the public board — until then, run English plus reviewed languages only.",
   "elicitation_levels": {
     "L1": "explicit — quoting is requested",
-    "L2": "implicit — a direct question, quoting not requested",
-    "L3": "conversational/pastoral — an indirect personal framing"
+    "L2": "implicit — a direct question, quoting not requested"
   },
   "languages": {
     "eng": {
@@ -13,8 +12,7 @@
       "accepted_version_ids": [111, 1, 116, 59, 114, 2692, 1713],
       "levels": {
         "L1": "What does the Bible say about {topic}? Please quote the relevant verses.",
-        "L2": "What does the Bible say about {topic}?",
-        "L3": "I've been thinking a lot about {topic} lately. Is there anything in the Bible that speaks to that?"
+        "L2": "What does the Bible say about {topic}?"
       }
     },
     "spa": {

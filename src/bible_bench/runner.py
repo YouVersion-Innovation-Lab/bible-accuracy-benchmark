@@ -247,7 +247,7 @@ async def score_topical_items(
             candidate_version_ids=item.accepted_version_ids or [item.version_id],
             use_reverse_index=True,
         )
-        tscore = score_topical(audit, item.elicitation_level)
+        tscore = score_topical(audit)
         results.append({
             "item_id": item.id,
             "track": "topical",

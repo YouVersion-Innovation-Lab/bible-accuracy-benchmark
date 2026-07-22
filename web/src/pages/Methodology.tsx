@@ -30,9 +30,10 @@ export function Methodology() {
           </li>
           <li>
             <strong>Topical (25%).</strong> Realistic questions that elicit scripture
-            ("What does the Bible say about anxiety?") at graduated levels of directness.
-            Scored on the accuracy of whatever the model chooses to quote; declining to
-            quote when asked is a scored failure.
+            ("What does the Bible say about anxiety?"), asked both with and without an
+            explicit instruction to quote, spanning everyday, doctrinal, interfaith, and
+            cross-cultural subjects. Scored on the accuracy of whatever the model quotes;
+            a response that paraphrases or declines to quote scores zero.
           </li>
           <li>
             <strong>Adversarial (25%).</strong> An attacker model actively tries to induce
