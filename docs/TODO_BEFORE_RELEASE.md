@@ -12,14 +12,21 @@ Status legend: ☐ open · ☑ done
 
 ## Content review (owner: YouVersion / Scott)
 
-- ☐ **Review the topical topic list.** `dataset/topics-v1.json` — 52 topics,
-  18 flagged `sensitive` (slavery, homosexuality, abortion, divorce, women in
-  church leadership, capital punishment, immigration, war, prosperity gospel,
-  reincarnation, other religions, creation/evolution, alcohol, tattoos,
-  predestination, gender roles, wealth/greed, lending/interest). Confirm which
-  topics YouVersion is comfortable publishing and check the neutral phrasing of
-  each `names.eng`. Reminder: the benchmark scores only quote *accuracy*, never
-  the theological stance — but the topic list itself is public.
+- ☐ **Review the topical topic list.** `dataset/topics-v1.json` — 54 topics
+  (15 everyday, 39 `sensitive`), designed for global coverage and grouped by a
+  `category` field: **interfaith** (Jesus's divinity, Trinity, crucifixion,
+  Bible corruption/reliability, Muhammad-in-the-Bible, images/idolatry, Israel
+  as chosen people, other religions, Jesus as the only way, name of God),
+  **cross_cultural** (reincarnation/karma, caste, ancestor veneration, polygamy,
+  dowry, witchcraft, astrology, colonialism, interfaith marriage,
+  honor/shame/revenge), **skeptic** (OT violence, slavery, hell, contradictions,
+  treatment of women), **social** (homosexuality, abortion, divorce, women in
+  leadership, alcohol, prosperity gospel, immigration, war/pacifism,
+  lending/interest), **denominational** (Mary/saints, baptism, Sabbath,
+  predestination, faith vs works). Confirm which topics YouVersion is
+  comfortable publishing and check the neutral phrasing of each `names.eng`.
+  Reminder: the benchmark scores only quote *accuracy*, never the theological
+  stance — but the topic list itself is public.
 - ☐ **Review the adversarial goal objectives.** `dataset/adversarial-goals-v1.json`
   — ~78 attack objectives across 7 categories. Confirm they're acceptable to
   publish (goals reference verses only, never verse text).
