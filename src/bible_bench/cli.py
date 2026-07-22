@@ -72,8 +72,24 @@ def _cache_dir(args) -> str | None:
     return getattr(args, "cache_dir", None) or os.environ.get("BENCH_CACHE_DIR") or None
 
 
-def _bible_client(args) -> BibleClient:
-    return BibleClient(load_bible_api_config(), cache_dir=_cache_dir(args))
+def _bible_client(args, offline: bool = False) -> BibleClient:
+    return BibleClient(load_bible_api_config(), cache_dir=_cache_dir(args), offline=offline)
+
+
+def _require_cache(args) -> str:
+    """Evaluations run offline against the local cache. Fail hard and fast if
+    it isn't there — never silently fetch or prefetch mid-run."""
+    cache = _cache_dir(args)
+    if not cache:
+        console.print("[red]No Bible-text cache configured.[/red] Set BENCH_CACHE_DIR "
+                      "(or pass --cache-dir), then run: [bold]bible-bench prefetch[/bold]")
+        raise SystemExit(2)
+    p = Path(cache)
+    if not p.is_dir() or not any(p.glob("v*/version.json")):
+        console.print(f"[red]Bible-text cache at {cache} is missing or empty.[/red] "
+                      "Run: [bold]bible-bench prefetch[/bold] first.")
+        raise SystemExit(2)
+    return cache
 
 
 def _store_from_args(args) -> ResultsStore:
@@ -121,6 +137,8 @@ async def cmd_run(args) -> int:
         console.print(f"[red]{e}[/red]")
         return 2
 
+    _require_cache(args)  # runs read only from the local cache; fail fast if absent
+
     api_key = os.environ.get(args.api_key_env, "")
     if not api_key and not args.dummy:
         api_key = getpass.getpass(f"API key for {args.model} (input hidden): ").strip()
@@ -132,7 +150,7 @@ async def cmd_run(args) -> int:
         base_url=args.base_url, api_key=api_key, model=args.model, label=args.label or args.model
     )
     store = _store_from_args(args)
-    client = BibleClient(bible_cfg, cache_dir=_cache_dir(args))
+    client = BibleClient(bible_cfg, cache_dir=_cache_dir(args), offline=True)
     model = LlmClient(model_cfg, dummy=args.dummy)
 
     tracks = {t.strip() for t in args.tracks.split(",") if t.strip()}
@@ -339,7 +357,8 @@ async def cmd_score(args) -> int:
     if not manifest:
         console.print(f"[red]No manifest for run {args.run_id}[/red]")
         return 2
-    client = _bible_client(args)
+    _require_cache(args)  # scoring reads only from the local cache
+    client = _bible_client(args, offline=True)
     items = _items_from_json(manifest.get("items", []))
     topical_items = _topical_items_from_json(manifest.get("topical_items", []))
     no_usage = SimpleNamespace(usage=SimpleNamespace(input_tokens=0, output_tokens=0, calls=0))

@@ -7,7 +7,7 @@ import json
 import pytest
 
 from bible_bench.config import BibleApiConfig
-from bible_bench.yv_client import BibleClient
+from bible_bench.yv_client import BibleClient, CacheMissError
 
 # Minimal fake chapter.json HTML with one verse span (invented text).
 _HTML = (
@@ -23,8 +23,9 @@ _VERSION_JSON = {
 class _StubClient(BibleClient):
     """BibleClient whose _get is stubbed to count calls and return fakes."""
 
-    def __init__(self, cache_dir):
-        super().__init__(BibleApiConfig(base_url="x", headers={}), cache_dir=cache_dir)
+    def __init__(self, cache_dir, offline=False):
+        super().__init__(BibleApiConfig(base_url="x", headers={}),
+                         cache_dir=cache_dir, offline=offline)
         self.calls = 0
 
     async def _get(self, endpoint, params):  # type: ignore[override]
@@ -81,4 +82,34 @@ async def test_verse_lookup_works_both_modes(tmp_path, cache):
     c = _StubClient(tmp_path if cache else None)
     v = await c.verse(111, "GEN.1.1")
     assert v is not None and v.text.startswith("fake opening")
+    await c.aclose()
+
+
+async def test_offline_requires_cache_dir():
+    with pytest.raises(CacheMissError):
+        _StubClient(None, offline=True)
+
+
+async def test_offline_miss_raises_not_fetches(tmp_path):
+    # Nothing prefetched → offline reads must fail, never hit the network.
+    c = _StubClient(tmp_path, offline=True)
+    with pytest.raises(CacheMissError):
+        await c.chapter(111, "GEN.1")
+    with pytest.raises(CacheMissError):
+        await c.version(111)
+    assert c.calls == 0
+    await c.aclose()
+
+
+async def test_offline_serves_prefetched(tmp_path):
+    # Prefetch online, then read offline with zero network.
+    warm = _StubClient(tmp_path)
+    await warm.chapter(111, "GEN.1")
+    await warm.version(111)
+    await warm.aclose()
+
+    c = _StubClient(tmp_path, offline=True)
+    spans = await c.chapter(111, "GEN.1")
+    assert spans["GEN.1.1"].text.startswith("fake opening")
+    assert c.calls == 0
     await c.aclose()

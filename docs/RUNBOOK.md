@@ -12,11 +12,12 @@ Operational guide for running the benchmark and publishing results.
 - To write to the live buckets: `gcloud auth application-default login` as a
   principal with `storage.objectAdmin` on the results bucket.
 
-## Prefetch Bible text (recommended before local runs)
+## Prefetch Bible text (required before any run)
 
-The topical track builds a whole-Bible reverse index per language, so a cold run
-fetches a lot from the Core API. Fetch it once into a local cache and every run
-reuses it:
+Evaluations run **offline against the local cache** — `run` and `score` never
+fetch from the Core API and have no in-memory fallback. If the cache is missing
+or empty they **fail fast** (exit 2) telling you to prefetch. Fetch it once and
+every run reuses it:
 
 ```bash
 export BENCH_CACHE_DIR=./bible-cache      # or pass --cache-dir to each command
@@ -33,8 +34,9 @@ bible-bench run … --cache-dir ./bible-cache      # or set BENCH_CACHE_DIR
 ```
 
 The cache is a local operator convenience only — it is gitignored (`bible-cache/`),
-never committed, and never used by the deployed website. With no cache dir set,
-the client stays in-memory-only and writes nothing to disk.
+never committed, and never used by the deployed website. (The client still
+supports an in-memory-only mode with no cache dir — used by tests and the
+`prefetch`/`build-dataset` tools — but `run` and `score` require the cache.)
 
 ## Run an evaluation
 

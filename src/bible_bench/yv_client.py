@@ -46,6 +46,13 @@ class BibleApiError(RuntimeError):
         self.status = status
 
 
+class CacheMissError(RuntimeError):
+    """Raised in offline mode when required verse text isn't in the local
+    cache. Evaluations run offline against the prefetched cache — a miss means
+    `bible-bench prefetch` needs to be (re)run, not that we should silently
+    hit the API."""
+
+
 @dataclass(frozen=True)
 class VersionMeta:
     id: int
@@ -130,7 +137,12 @@ class BibleClient:
     writes nothing to disk.
     """
 
-    def __init__(self, cfg: BibleApiConfig, cache_dir: str | Path | None = None):
+    def __init__(
+        self,
+        cfg: BibleApiConfig,
+        cache_dir: str | Path | None = None,
+        offline: bool = False,
+    ):
         self._cfg = cfg
         self._http = httpx.AsyncClient(
             base_url=cfg.base_url,
@@ -144,6 +156,11 @@ class BibleClient:
         self._versions: dict[int, dict] = {}
         self._locks: dict[object, asyncio.Lock] = {}
         self._cache_dir = Path(cache_dir) if cache_dir else None
+        # Offline: serve only from the local cache; a miss raises instead of
+        # hitting the API. Used by evaluations so a run never silently fetches.
+        self._offline = offline
+        if offline and not self._cache_dir:
+            raise CacheMissError("offline mode requires a cache_dir")
 
     async def aclose(self) -> None:
         await self._http.aclose()
@@ -230,6 +247,11 @@ class BibleClient:
             if version_id not in self._versions:
                 if self._cache_dir and (p := self._version_path(version_id)).exists():
                     self._versions[version_id] = json.loads(p.read_text(encoding="utf-8"))
+                elif self._offline:
+                    raise CacheMissError(
+                        f"version {version_id} not in cache ({self._cache_dir}); "
+                        f"run `bible-bench prefetch` first"
+                    )
                 else:
                     data = await self._get("version.json", {"id": version_id})
                     self._versions[version_id] = data
@@ -247,6 +269,11 @@ class BibleClient:
             if key not in self._chapters:
                 if self._cache_dir and (disk := self._load_chapter_disk(*key)) is not None:
                     self._chapters[key] = disk
+                elif self._offline:
+                    raise CacheMissError(
+                        f"{key[1]} (version {version_id}) not in cache ({self._cache_dir}); "
+                        f"run `bible-bench prefetch` first"
+                    )
                 else:
                     try:
                         data = await self._get(
