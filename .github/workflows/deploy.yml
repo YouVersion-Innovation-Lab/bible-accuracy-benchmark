@@ -1,0 +1,53 @@
+name: Deploy
+
+# Branch model (see docs/GITHUB_CICD.md):
+#   main    = development; does NOT deploy.
+#   beta    = merging main -> beta auto-deploys bible-bench-web-beta.
+#   release = merging beta -> release auto-deploys bible-bench-web-release.
+#
+# Keyless auth: GitHub OIDC -> GCP Workload Identity Federation -> the
+# bible-bench-ci-deploy service account. No GitHub secrets required.
+on:
+  push:
+    branches: [beta, release]
+
+permissions:
+  contents: read
+  id-token: write   # mint the GitHub OIDC token for WIF
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  beta:
+    if: github.ref == 'refs/heads/beta'
+    runs-on: ubuntu-latest
+    environment: beta
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: google-github-actions/auth@v2
+        with:
+          project_id: biblelabs-222720
+          workload_identity_provider: projects/424554024955/locations/global/workloadIdentityPools/github-pool/providers/bible-bench
+          service_account: bible-bench-ci-deploy@biblelabs-222720.iam.gserviceaccount.com
+      - uses: google-github-actions/setup-gcloud@v2
+      - run: bash scripts/ci/gh-deploy.sh beta
+
+  release:
+    if: github.ref == 'refs/heads/release'
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: google-github-actions/auth@v2
+        with:
+          project_id: biblelabs-222720
+          workload_identity_provider: projects/424554024955/locations/global/workloadIdentityPools/github-pool/providers/bible-bench
+          service_account: bible-bench-ci-deploy@biblelabs-222720.iam.gserviceaccount.com
+      - uses: google-github-actions/setup-gcloud@v2
+      - run: bash scripts/ci/gh-deploy.sh release

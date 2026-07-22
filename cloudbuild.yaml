@@ -1,0 +1,18 @@
+# Build the container and push to Artifact Registry (Container Registry / gcr.io
+# is shut down — use Artifact Registry). Invoked by scripts/ci/gh-deploy.sh.
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -t
+      - ${_IMAGE}:${COMMIT_SHA}
+      - -t
+      - ${_IMAGE}:latest
+      - .
+images:
+  - ${_IMAGE}:${COMMIT_SHA}
+  - ${_IMAGE}:latest
+substitutions:
+  _IMAGE: us-central1-docker.pkg.dev/biblelabs-222720/bible-bench/app
+options:
+  logging: CLOUD_LOGGING_ONLY
