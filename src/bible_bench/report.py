@@ -68,6 +68,50 @@ def summarize_simple(items: list[dict]) -> dict:
     }
 
 
+def summarize_topical(items: list[dict]) -> dict:
+    """Per-language macro-average of A×E item scores, plus emission/fabrication
+    rates by elicitation level and a sensitive-topic slice."""
+    by_lang: dict[str, list[float]] = defaultdict(list)
+    by_level: dict[str, list[float]] = defaultdict(list)
+    by_topic: dict[str, list[float]] = defaultdict(list)
+    emission_by_level: dict[str, list[float]] = defaultdict(list)
+    sensitive_scores: list[float] = []
+    nonsensitive_scores: list[float] = []
+    fabricated_refs = 0
+    fabricated_quotes = 0
+    total = 0
+
+    for it in items:
+        s = it["topical_score"]
+        total += 1
+        by_lang[it["language_tag"]].append(s["item_score"])
+        by_level[it["elicitation_level"]].append(s["item_score"])
+        by_topic[it["topic_id"]].append(s["item_score"])
+        emission_by_level[it["elicitation_level"]].append(s["emission"])
+        (sensitive_scores if it["sensitive"] else nonsensitive_scores).append(s["item_score"])
+        fabricated_refs += s["n_fabricated_refs"]
+        fabricated_quotes += s["n_fabricated"]
+
+    lang_means = {lang: _mean(v) for lang, v in by_lang.items()}
+    macro = _mean(list(lang_means.values()))
+    return {
+        "track_score": round(macro, 4),
+        "n": total,
+        "by_language": {k: round(v, 4) for k, v in sorted(lang_means.items())},
+        "by_level": {k: round(_mean(v), 4) for k, v in sorted(by_level.items())},
+        "by_topic": {k: round(_mean(v), 4) for k, v in sorted(by_topic.items())},
+        "emission_rate_by_level": {
+            k: round(_mean(v), 4) for k, v in sorted(emission_by_level.items())
+        },
+        "sensitive_topic_score": round(_mean(sensitive_scores), 4) if sensitive_scores else None,
+        "nonsensitive_topic_score": (
+            round(_mean(nonsensitive_scores), 4) if nonsensitive_scores else None
+        ),
+        "fabricated_ref_count": fabricated_refs,
+        "fabricated_quote_count": fabricated_quotes,
+    }
+
+
 def build_summary(track_summaries: dict[str, dict], usage: dict | None = None) -> dict:
     """Combine per-track summaries into the run summary with composite score."""
     present = {t: track_summaries[t] for t in TRACK_WEIGHTS if t in track_summaries}

@@ -30,16 +30,24 @@ from rich.table import Table
 from .config import ConfigError, LlmEndpointConfig, load_bible_api_config
 from .dataset import BenchmarkItem, DatasetSampler, load_spec
 from .llm import LlmClient
-from .report import build_summary, summarize_simple
+from .report import build_summary, summarize_simple, summarize_topical
 from .results_store import (
     GcsResultsStore,
     LocalResultsStore,
     ResultsStore,
     rebuild_leaderboard,
 )
-from .runner import generate_simple, score_simple
+from .runner import (
+    generate_simple,
+    generate_topical,
+    score_simple,
+    score_topical_items,
+)
 from .scoring import SCORING_VERSION
+from .topical import TopicalItem, build_topical_items, load_topics
 from .yv_client import BibleClient
+
+DEFAULT_TRACKS = "simple,topical"
 
 console = Console()
 
@@ -58,6 +66,10 @@ def _store_from_args(args) -> ResultsStore:
 
 def _items_from_json(rows: list[dict]) -> list[BenchmarkItem]:
     return [BenchmarkItem(**r) for r in rows]
+
+
+def _topical_items_from_json(rows: list[dict]) -> list[TopicalItem]:
+    return [TopicalItem(**r) for r in rows]
 
 
 async def _sample_items(client: BibleClient, spec_path: str, seed: str, scale: float
@@ -88,26 +100,41 @@ async def cmd_run(args) -> int:
     client = BibleClient(bible_cfg)
     model = LlmClient(model_cfg, dummy=args.dummy)
 
+    tracks = {t.strip() for t in args.tracks.split(",") if t.strip()}
     run_id = args.run_id or f"{datetime.now(UTC):%Y%m%dT%H%M%SZ}-{_slug(model_cfg.label)}"
     run_dir = f"runs/{run_id}"
+    tracks_str = ",".join(sorted(tracks))
     console.print(f"[bold]Run:[/bold] {run_id}  ·  model [cyan]{model_cfg.label}[/cyan]  ·  "
-                  f"seed [cyan]{args.seed}[/cyan]")
+                  f"seed [cyan]{args.seed}[/cyan]  ·  tracks [cyan]{tracks_str}[/cyan]")
 
     try:
-        # 1. Fix the item set once: reuse it on resume, else sample and persist
+        # 1. Fix the item set once: reuse on resume, else sample/build and persist
         #    the manifest immediately (so an interrupted run resumes the same set).
         manifest = store.read_json(f"{run_dir}/manifest.json")
-        if manifest and manifest.get("items"):
-            items = _items_from_json(manifest["items"])
-            console.print(f"Resuming with {len(items)} items from existing manifest.")
+        if manifest and (manifest.get("items") or manifest.get("topical_items")):
+            items = _items_from_json(manifest.get("items", []))
+            topical_items = _topical_items_from_json(manifest.get("topical_items", []))
+            console.print(f"Resuming: {len(items)} simple + {len(topical_items)} topical items.")
         else:
-            with console.status("Sampling benchmark items from spec…"):
-                items = await _sample_items(client, args.spec, args.seed, args.scale)
-            console.print(f"Sampled [bold]{len(items)}[/bold] items across "
-                          f"{len({i.language_tag for i in items})} languages.")
+            items = []
+            topical_items = []
+            if "simple" in tracks:
+                with console.status("Sampling simple-track items from spec…"):
+                    items = await _sample_items(client, args.spec, args.seed, args.scale)
+                console.print(f"Sampled [bold]{len(items)}[/bold] simple items across "
+                              f"{len({i.language_tag for i in items})} languages.")
+            if "topical" in tracks:
+                cfg = load_topics(args.topics)
+                topical_items = build_topical_items(cfg)
+                if args.scale < 1.0:
+                    keep = max(1, int(len(topical_items) * args.scale))
+                    topical_items = topical_items[:keep]
+                console.print(f"Built [bold]{len(topical_items)}[/bold] topical items.")
             manifest = {
                 "run_id": run_id,
                 "dataset_spec": args.spec,
+                "topics_file": args.topics,
+                "tracks": sorted(tracks),
                 "seed": args.seed,
                 "scale": args.scale,
                 "scoring_version": SCORING_VERSION,
@@ -120,36 +147,29 @@ async def cmd_run(args) -> int:
                 "finished_at": None,
                 "published": False,
                 "items": [i.to_json() for i in items],
+                "topical_items": [i.to_json() for i in topical_items],
             }
             store.write_json(f"{run_dir}/manifest.json", manifest)
 
-        # 2. Generation pass (resumable via already-written responses).
-        prior = store.read_jsonl(f"{run_dir}/responses.jsonl")
-        done = {r["item_id"] for r in prior}
-        if done:
-            console.print(f"{len(done)} responses already present; continuing.")
-
-        with _progress("Querying model") as (prog, task):
-            prog.update(task, total=len([i for i in items if i.id not in done]))
-
-            def write_checkpoint(new_records: list[dict]) -> None:
-                lines = "\n".join(
-                    json.dumps(r, ensure_ascii=False) for r in prior + new_records
-                )
-                store.write_text(f"{run_dir}/responses.jsonl", lines + "\n")
-
-            def tick(ev: dict) -> None:
-                if ev["phase"] == "generate":
-                    prog.update(task, completed=ev["completed"])
-
-            await generate_simple(items, client, model, already_done=done,
-                                  checkpoint=write_checkpoint, progress=tick)
+        # 2. Generation passes (resumable via already-written responses).
+        if items:
+            await _generate_track(
+                store, run_dir, "responses.jsonl", "Querying model (simple)",
+                lambda done, cp, tick: generate_simple(
+                    items, client, model, already_done=done, checkpoint=cp, progress=tick),
+            )
+        if topical_items:
+            await _generate_track(
+                store, run_dir, "responses_topical.jsonl", "Querying model (topical)",
+                lambda done, cp, tick: generate_topical(
+                    topical_items, model, already_done=done, checkpoint=cp, progress=tick),
+            )
 
         manifest["finished_at"] = _now()
         store.write_json(f"{run_dir}/manifest.json", manifest)
 
         # 3. Scoring pass.
-        await _score_and_summarize(store, run_dir, items, client, model)
+        await _score_and_summarize(store, run_dir, items, topical_items, client, model)
     finally:
         await client.aclose()
 
@@ -158,24 +178,64 @@ async def cmd_run(args) -> int:
     return 0
 
 
-async def _score_and_summarize(store, run_dir, items, client, model) -> None:
-    items_by_id = {i.id: i for i in items}
-    responses = store.read_jsonl(f"{run_dir}/responses.jsonl")
-    with _progress("Scoring") as (prog, task):
-        prog.update(task, total=len(responses))
+async def _generate_track(store, run_dir, filename, desc, gen) -> None:
+    """Run one generation pass with a resumable checkpoint + progress bar."""
+    prior = store.read_jsonl(f"{run_dir}/{filename}")
+    done = {r["item_id"] for r in prior}
+    if done:
+        console.print(f"{len(done)} responses already present in {filename}; continuing.")
+    with _progress(desc) as (prog, task):
+        def write_checkpoint(new_records: list[dict]) -> None:
+            lines = "\n".join(json.dumps(r, ensure_ascii=False) for r in prior + new_records)
+            store.write_text(f"{run_dir}/{filename}", lines + "\n")
 
         def tick(ev: dict) -> None:
-            if ev["phase"] == "score":
-                prog.update(task, completed=ev["completed"])
+            if ev["phase"] == "generate":
+                prog.update(task, total=ev["total"], completed=ev["completed"])
 
-        scored = await score_simple(items_by_id, responses, client, progress=tick)
-    store.write_text(
-        f"{run_dir}/items.jsonl",
-        "\n".join(json.dumps(r, ensure_ascii=False) for r in scored) + "\n",
-    )
-    simple = [r for r in scored if r["track"] == "simple"]
+        await gen(done, write_checkpoint, tick)
+
+
+async def _score_and_summarize(store, run_dir, items, topical_items, client, model) -> None:
+    track_summaries: dict[str, dict] = {}
+
+    if items:
+        responses = store.read_jsonl(f"{run_dir}/responses.jsonl")
+        with _progress("Scoring (simple)") as (prog, task):
+            prog.update(task, total=len(responses))
+
+            def tick(ev: dict) -> None:
+                if ev["phase"] == "score":
+                    prog.update(task, completed=ev["completed"])
+
+            scored = await score_simple({i.id: i for i in items}, responses, client, progress=tick)
+        store.write_text(
+            f"{run_dir}/items.jsonl",
+            "\n".join(json.dumps(r, ensure_ascii=False) for r in scored) + "\n",
+        )
+        if scored:
+            track_summaries["simple"] = summarize_simple(scored)
+
+    if topical_items:
+        responses = store.read_jsonl(f"{run_dir}/responses_topical.jsonl")
+        with _progress("Scoring (topical)") as (prog, task):
+            prog.update(task, total=len(responses))
+
+            def tick(ev: dict) -> None:
+                if ev["phase"] == "score":
+                    prog.update(task, completed=ev["completed"])
+
+            scored_t = await score_topical_items(
+                {i.id: i for i in topical_items}, responses, client, progress=tick)
+        store.write_text(
+            f"{run_dir}/items_topical.jsonl",
+            "\n".join(json.dumps(r, ensure_ascii=False) for r in scored_t) + "\n",
+        )
+        if scored_t:
+            track_summaries["topical"] = summarize_topical(scored_t)
+
     summary = build_summary(
-        {"simple": summarize_simple(simple)} if simple else {},
+        track_summaries,
         usage={
             "input_tokens": model.usage.input_tokens,
             "output_tokens": model.usage.output_tokens,
@@ -194,10 +254,11 @@ async def cmd_score(args) -> int:
         console.print(f"[red]No manifest for run {args.run_id}[/red]")
         return 2
     client = BibleClient(load_bible_api_config())
-    items = _items_from_json(manifest["items"])
+    items = _items_from_json(manifest.get("items", []))
+    topical_items = _topical_items_from_json(manifest.get("topical_items", []))
     no_usage = SimpleNamespace(usage=SimpleNamespace(input_tokens=0, output_tokens=0, calls=0))
     try:
-        await _score_and_summarize(store, run_dir, items, client, no_usage)
+        await _score_and_summarize(store, run_dir, items, topical_items, client, no_usage)
     finally:
         await client.aclose()
     return 0
@@ -272,6 +333,14 @@ def _print_summary(summary: dict) -> None:
         t.add_row("Fabrication rate", f"{100 * simple['fabrication_rate']:.1f}%")
         t.add_row("Refusal rate", f"{100 * simple['refusal_rate']:.1f}%")
         t.add_row("Wrong-version rate", f"{100 * simple['wrong_version_rate']:.1f}%")
+    topical = summary.get("tracks", {}).get("topical")
+    if topical:
+        emit = topical.get("emission_rate_by_level", {})
+        t.add_row("Topical emission (by level)",
+                  ", ".join(f"{k}={100 * v:.0f}%" for k, v in emit.items()) or "—")
+        if topical.get("sensitive_topic_score") is not None:
+            t.add_row("Sensitive-topic score", f"{100 * topical['sensitive_topic_score']:.1f}")
+        t.add_row("Topical fabricated quotes", str(topical.get("fabricated_quote_count", 0)))
     console.print(t)
     console.print(f"[dim]{summary['scoring_scope_note']}[/dim]")
 
@@ -296,6 +365,9 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--api-key-env", default="TARGET_API_KEY",
                    help="Env var holding the API key (default TARGET_API_KEY)")
     r.add_argument("--spec", default="dataset/spec-v1.json")
+    r.add_argument("--topics", default="dataset/topics-v1.json")
+    r.add_argument("--tracks", default=DEFAULT_TRACKS,
+                   help="Comma-separated tracks to run (default: simple,topical)")
     r.add_argument("--seed", default="2026-pilot")
     r.add_argument("--scale", type=float, default=1.0,
                    help="Scale factor on per-tier counts (use <1 for quick pilots)")

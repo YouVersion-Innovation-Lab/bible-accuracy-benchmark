@@ -12,11 +12,13 @@ import hashlib
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict
 
+from .auditor import QuoteAuditor
 from .dataset import BenchmarkItem
 from .llm import LlmClient
 from .normalize import normalize
 from .prompts import render_simple_prompt
 from .scoring import score_item
+from .topical import TopicalItem, score_topical
 from .yv_client import BibleClient
 
 ProgressCb = Callable[[dict], None]
@@ -157,6 +159,117 @@ async def _score_one(item: BenchmarkItem | None, resp: dict, client: BibleClient
         },
         "error": resp.get("error"),
     }
+
+
+async def generate_topical(
+    items: list[TopicalItem],
+    model: LlmClient,
+    *,
+    concurrency: int = 12,
+    already_done: set[str] | None = None,
+    checkpoint: CheckpointCb | None = None,
+    progress: ProgressCb | None = None,
+) -> list[dict]:
+    """Query the model for each topical item (prompt is precomputed on the item).
+
+    Topical answers are long-form, so a larger token budget than the simple
+    track. Mirrors ``generate_simple``'s resume/checkpoint semantics."""
+    done = already_done or set()
+    todo = [it for it in items if it.id not in done]
+    sem = asyncio.Semaphore(concurrency)
+    lock = asyncio.Lock()
+    collected: list[dict] = []
+
+    async def one(item: TopicalItem) -> None:
+        error = None
+        text = ""
+        in_tok = out_tok = 0
+        async with sem:
+            try:
+                async with lock:
+                    before_in = model.usage.input_tokens
+                    before_out = model.usage.output_tokens
+                text = await model.complete(
+                    [{"role": "user", "content": item.prompt}], max_tokens=1024
+                )
+                async with lock:
+                    in_tok = model.usage.input_tokens - before_in
+                    out_tok = model.usage.output_tokens - before_out
+            except Exception as e:  # noqa: BLE001
+                error = f"{type(e).__name__}: {e}"
+        rec = {
+            "item_id": item.id,
+            "prompt": item.prompt,
+            "response_text": text,
+            "input_tokens": in_tok,
+            "output_tokens": out_tok,
+            "error": error,
+        }
+        async with lock:
+            collected.append(rec)
+            if progress:
+                progress({"phase": "generate", "completed": len(collected),
+                          "total": len(todo), "error": bool(error)})
+            if checkpoint and len(collected) % _CHECKPOINT_EVERY == 0:
+                await _maybe_await(checkpoint(list(collected)))
+
+    await asyncio.gather(*(one(it) for it in todo))
+    if checkpoint:
+        await _maybe_await(checkpoint(list(collected)))
+    return collected
+
+
+async def score_topical_items(
+    items_by_id: dict[str, TopicalItem],
+    responses: list[dict],
+    client: BibleClient,
+    *,
+    progress: ProgressCb | None = None,
+) -> list[dict]:
+    """Audit each topical response deterministically and apply A×E scoring.
+
+    Serialized per item because the auditor builds per-version reverse indexes
+    lazily; the BibleClient's own concurrency ceiling still parallelizes the
+    underlying verse fetches."""
+    auditor = QuoteAuditor(client)
+    results: list[dict] = []
+    for i, resp in enumerate(responses, 1):
+        item = items_by_id.get(resp["item_id"])
+        if item is None:
+            continue
+        text = resp.get("response_text") or ""
+        audit = await auditor.audit(
+            text,
+            item.version_id,
+            candidate_version_ids=item.accepted_version_ids or [item.version_id],
+            use_reverse_index=True,
+        )
+        tscore = score_topical(audit, item.elicitation_level)
+        results.append({
+            "item_id": item.id,
+            "track": "topical",
+            "language_tag": item.language_tag,
+            "version_id": item.version_id,
+            "version_abbrev": item.version_abbrev,
+            "topic_id": item.topic_id,
+            "topic_name": item.topic_name,
+            "elicitation_level": item.elicitation_level,
+            "sensitive": item.sensitive,
+            "response_text": text,
+            "topical_score": asdict(tscore),
+            "quotes": [asdict(v) for v in audit.verdicts],
+            "cited_refs": audit.cited_refs,
+            "fabricated_refs": audit.fabricated_refs,
+            "usage": {
+                "input_tokens": resp.get("input_tokens", 0),
+                "output_tokens": resp.get("output_tokens", 0),
+            },
+            "error": resp.get("error"),
+        })
+        if progress:
+            progress({"phase": "score", "completed": i, "total": len(responses)})
+    results.sort(key=lambda r: r["item_id"])
+    return results
 
 
 async def _maybe_await(maybe) -> None:
