@@ -1,5 +1,13 @@
 // Typed client for the public results API.
 
+export interface VersionScore {
+  version_id: number;
+  language_tag: string;
+  version_abbrev: string;
+  score: number; // 0..1
+  n: number;
+}
+
 export interface LeaderboardEntry {
   run_id: string;
   run_version: string | null;
@@ -10,6 +18,7 @@ export interface LeaderboardEntry {
   headline_score: number | null;
   by_track: Record<string, number>;
   by_language: Record<string, number>;
+  versions: VersionScore[];
   fabrication_rate: number | null;
   refusal_rate: number | null;
 }

@@ -138,6 +138,8 @@ def rebuild_leaderboard(store: ResultsStore) -> dict:
                 "by_track": summary.get("by_track", {}),
                 # Per-language direct-quote accuracy powers the landing matrix.
                 "by_language": simple.get("by_language", {}),
+                # Per-version detail powers the language + Bible-version filter.
+                "versions": simple.get("versions", []),
                 # A couple of plain-language trust signals for callouts.
                 "fabrication_rate": simple.get("fabrication_rate"),
                 "refusal_rate": simple.get("refusal_rate"),

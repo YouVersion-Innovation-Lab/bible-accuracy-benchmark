@@ -27,6 +27,7 @@ def summarize_simple(items: list[dict]) -> dict:
     by_lang: dict[str, list[float]] = defaultdict(list)
     by_tier: dict[str, list[float]] = defaultdict(list)
     by_version: dict[str, list[float]] = defaultdict(list)
+    version_meta: dict[str, dict] = {}  # version_id -> {language_tag, version_abbrev}
     grades: dict[str, int] = defaultdict(int)
     verbatim = 0
     near = 0
@@ -41,7 +42,16 @@ def summarize_simple(items: list[dict]) -> dict:
         total += 1
         by_lang[it["language_tag"]].append(s["item_score"])
         by_tier[it["tier"]].append(s["item_score"])
-        by_version[str(it["version_id"])].append(s["item_score"])
+        vid = str(it["version_id"])
+        by_version[vid].append(s["item_score"])
+        version_meta.setdefault(
+            vid,
+            {
+                "version_id": it["version_id"],
+                "language_tag": it["language_tag"],
+                "version_abbrev": it.get("version_abbrev", ""),
+            },
+        )
         grades[s["grade"]] += 1
         verbatim += int(s["verbatim_strict"])
         near += int(s["grade"] in ("perfect", "near_perfect"))
@@ -52,12 +62,19 @@ def summarize_simple(items: list[dict]) -> dict:
 
     lang_means = {lang: _mean(v) for lang, v in by_lang.items()}
     macro = _mean(list(lang_means.values()))
+    # Per-version detail (each version_id belongs to exactly one language) so the
+    # website can filter the leaderboard by language and Bible version.
+    versions = [
+        {**version_meta[vid], "score": round(_mean(scores), 4), "n": len(scores)}
+        for vid, scores in sorted(by_version.items())
+    ]
     return {
         "track_score": round(macro, 4),
         "n": total,
         "by_language": {k: round(v, 4) for k, v in sorted(lang_means.items())},
         "by_tier": {k: round(_mean(v), 4) for k, v in sorted(by_tier.items())},
         "by_version": {k: round(_mean(v), 4) for k, v in sorted(by_version.items())},
+        "versions": versions,
         "grades": dict(sorted(grades.items())),
         "verbatim_rate": round(verbatim / total, 4) if total else 0.0,
         "near_verbatim_rate": round(near / total, 4) if total else 0.0,
