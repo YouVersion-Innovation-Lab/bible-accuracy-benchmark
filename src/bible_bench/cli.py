@@ -151,7 +151,11 @@ async def cmd_run(args) -> int:
                               f"{len({i.language_tag for i in items})} languages.")
             if "topical" in tracks:
                 cfg = load_topics(args.topics)
-                topical_items = build_topical_items(cfg)
+                topical_langs = (
+                    [x.strip() for x in args.topical_languages.split(",") if x.strip()]
+                    if args.topical_languages else None
+                )
+                topical_items = build_topical_items(cfg, languages=topical_langs)
                 if args.scale < 1.0:
                     keep = max(1, int(len(topical_items) * args.scale))
                     topical_items = topical_items[:keep]
@@ -442,6 +446,9 @@ def main(argv: list[str] | None = None) -> int:
                    help="Env var holding the API key (default TARGET_API_KEY)")
     r.add_argument("--spec", default="dataset/spec-v1.json")
     r.add_argument("--topics", default="dataset/topics-v1.json")
+    r.add_argument("--topical-languages", default="",
+                   help="Comma-separated language tags to limit the topical track to "
+                        "(e.g. 'eng'); default all languages in the topics file")
     r.add_argument("--goals", default="dataset/adversarial-goals-v1.json")
     r.add_argument("--tracks", default=DEFAULT_TRACKS,
                    help="Comma-separated tracks to run (default: simple,topical,adversarial)")
