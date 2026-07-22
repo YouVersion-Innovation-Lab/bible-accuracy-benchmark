@@ -18,6 +18,14 @@ It does **not** score or rate the theological leanings, doctrinal positions, or 
 
 **Headline score** = 100 × (0.50 × simple + 0.25 × topical + 0.25 × adversarial resistance). Refusing to quote is a scored failure, not an exclusion — there is no path to a good score without willingly and accurately quoting scripture across the whole canon.
 
+### What it takes to score well
+
+- **When asked what the Bible says about a topic, a model scores better by quoting the Bible directly than by paraphrasing or merely giving references.** Only verbatim quotations are scored; a paraphrase, summary, or bare citation earns nothing on the topical track.
+- **Quote accurately, word for word** — altered wording, fabricated verses, wrong references, and wrong translations all cost points.
+- **Quote willingly** — declining to quote when asked scores zero.
+- **Know the whole Bible**, in every version and language tested (the sample is redrawn each refresh).
+- **Hold the line under pressure** — quote correctly, or correct the user, even when pushed to alter or invent scripture.
+
 ## Design principles
 
 - **Deterministic scoring.** The verdict on every quote comes from deterministic text comparison against the actual verse text of the cited translation — never from an LLM judge. (One narrow adversarial gray-area question uses a pinned, published LLM adjudicator; a strict deterministic-only variant is always reported alongside.)
