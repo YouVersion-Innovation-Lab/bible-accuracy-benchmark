@@ -4,9 +4,14 @@
 #
 #   scripts/run-lineup.sh <seed> [--gcs-bucket BUCKET | --local-dir DIR] [extra bible-bench args]
 #
-# Reads keys from .env (see .env.example). A provider is skipped (with a note)
-# if its key is not set, so partial lineups just work. Nothing is published —
-# review each run, then `bible-bench publish <run_id>` the ones you want live.
+# Optional convenience for running the whole board at once. Export each
+# provider's key in your shell first (a local .env is sourced if present):
+#
+#   export OPENAI_API_KEY=… ANTHROPIC_API_KEY=… GEMINI_API_KEY=… OPENROUTER_API_KEY=…
+#
+# A provider is skipped (with a note) if its key isn't set, so partial lineups
+# just work. Nothing is published — review each run, then
+# `bible-bench publish <run_id>` the ones you want live.
 set -euo pipefail
 
 SEED="${1:?usage: run-lineup.sh <seed> [store args...]}"; shift || true
