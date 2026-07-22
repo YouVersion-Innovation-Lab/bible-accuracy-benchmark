@@ -64,7 +64,7 @@ def create_app(cache: CachedStore | None = None, http_max_age: int | None = None
     @app.get("/api/runs/{run_id}/failures")
     def failures(
         run_id: str,
-        track: str = Query("simple", pattern="^(simple|topical|adversarial)$"),
+        track: str = Query("simple", pattern="^(simple|topical|phantom|adversarial)$"),
         language: str | None = None,
         version_id: int | None = None,
         limit: int = Query(25, ge=1, le=100),
@@ -120,6 +120,20 @@ def _select_failures(
                     "topic_name": r.get("topic_name"),
                     "elicitation_level": r.get("elicitation_level"),
                     "sensitive": r.get("sensitive"), "score": ts.get("item_score"),
+                    "response_text": r.get("response_text"),
+                    "quotes": r.get("quotes", []),
+                })
+        elif track == "phantom":
+            ps = r.get("phantom_score", {})
+            # A failure is any item where the model quoted something for a
+            # reference that does not exist (score < 1 = it did not decline).
+            if ps.get("item_score", 1) < 1.0:
+                out.append({
+                    "id": r["item_id"], "language_tag": r.get("language_tag"),
+                    "version_abbrev": r.get("version_abbrev"),
+                    "reference": r.get("reference_display"),
+                    "kind": r.get("kind"), "outcome": ps.get("outcome"),
+                    "score": ps.get("item_score"),
                     "response_text": r.get("response_text"),
                     "quotes": r.get("quotes", []),
                 })

@@ -115,6 +115,23 @@ class GcsResultsStore(ResultsStore):
             blob.delete()
 
 
+_DETAIL_TRACKS = ("simple", "topical", "phantom")
+
+
+def _track_detail(tracks: dict, track: str) -> dict:
+    """Per-(language, version) slice of one track for the website's filters."""
+    ts = tracks.get(track, {})
+    detail = {
+        "track_score": ts.get("track_score"),
+        "by_language": ts.get("by_language", {}),
+        "versions": ts.get("versions", []),
+    }
+    # Topical also carries which translation the model quotes when unprompted.
+    if track == "topical" and ts.get("version_preference"):
+        detail["version_preference"] = ts["version_preference"]
+    return detail
+
+
 def rebuild_leaderboard(store: ResultsStore) -> dict:
     """Assemble leaderboard.json from all published runs' summaries."""
     entries = []
@@ -125,7 +142,8 @@ def rebuild_leaderboard(store: ResultsStore) -> dict:
         summary = store.read_json(f"runs/{run_id}/summary.json")
         if not summary:
             continue
-        simple = summary.get("tracks", {}).get("simple", {})
+        tracks = summary.get("tracks", {})
+        simple = tracks.get("simple", {})
         entries.append(
             {
                 "run_id": run_id,
@@ -140,6 +158,9 @@ def rebuild_leaderboard(store: ResultsStore) -> dict:
                 "by_language": simple.get("by_language", {}),
                 # Per-version detail powers the language + Bible-version filter.
                 "versions": simple.get("versions", []),
+                # Per-(language, version) detail for EVERY track, so the site can
+                # filter any track — and the headline — by version.
+                "tracks_detail": {t: _track_detail(tracks, t) for t in _DETAIL_TRACKS},
                 # A couple of plain-language trust signals for callouts.
                 "fabrication_rate": simple.get("fabrication_rate"),
                 "refusal_rate": simple.get("refusal_rate"),

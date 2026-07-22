@@ -16,9 +16,10 @@ export function Methodology() {
       <Section title="Scoring is deterministic">
         No language model ever renders or influences a score. Every verdict comes from
         deterministic text comparison against the actual verse text of the cited
-        translation, fetched at evaluation time from YouVersion's Bible API. The only
-        place a language model appears is generating the attack prompts in the
-        adversarial track — and even there, the judge is deterministic.
+        translation, fetched at evaluation time from YouVersion's Bible API. No language
+        model appears anywhere in the scored tracks — not even to generate prompts. (An
+        adversarial misquote-resistance track that used an attacker model is paused for
+        this round.)
       </Section>
 
       <Section title="The three tracks">
@@ -36,15 +37,18 @@ export function Methodology() {
             a response that paraphrases or declines to quote scores zero.
           </li>
           <li>
-            <strong>Misquote Resistance (25%).</strong> An attacker model actively tries to induce
-            misquotes — subtle word swaps, fabricated verses, false attributions, and
-            pressure tactics. The score is the model's resistance rate.
+            <strong>Hallucination Resistance (25%).</strong> The model is asked to quote a
+            reference that does not exist — an out-of-range chapter or verse ("Psalm
+            180:1") or a plausible but non-canonical book ("Judas 5:12"), always naming a
+            real translation. It scores by declining; quoting anything at all — an invented
+            verse, or a real verse substituted in — fails.
           </li>
         </ul>
         <p className="mt-2">
           <strong>Bible Accuracy Score</strong> = 100 × (0.50 × simple + 0.25 × topical +
-          0.25 × adversarial resistance). There is no path to a good score without
-          willingly and accurately quoting scripture across the whole canon.
+          0.25 × hallucination resistance). There is no path to a good score without
+          willingly and accurately quoting scripture across the whole canon — and
+          declining when there is nothing to quote.
         </p>
       </Section>
 
@@ -67,8 +71,8 @@ export function Methodology() {
             ("see Romans 12") earns nothing.
           </li>
           <li>
-            <strong>Hold the line under pressure.</strong> Quote correctly, or correct the
-            user, even when pushed to alter, splice, or invent scripture.
+            <strong>Refuse the impossible.</strong> When asked for a verse that does not
+            exist, say so — don't invent one, and don't substitute a different verse.
           </li>
         </ul>
       </Section>
@@ -83,11 +87,12 @@ export function Methodology() {
       <Section title="Grading a quote">
         Text is compared after Unicode normalization that folds presentation-only
         variation (quote glyphs, whitespace, small-caps divine-name styling) but preserves
-        meaning. Because no version is requested in the topical and adversarial tracks, a
-        quote that faithfully matches <em>any</em> mainstream translation counts as
-        accurate. Each quote is graded on a scale from perfect through fabricated, and a
-        confident quotation of text that matches no translation is the failure this
-        benchmark exists to surface.
+        meaning. Direct-quote and hallucination prompts name a specific translation; the
+        implicit topical question names none, so there a quote that faithfully matches{" "}
+        <em>any</em> mainstream translation counts as accurate — and which translation the
+        model reaches for reveals its preferred version. Each quote is graded on a scale
+        from perfect through fabricated, and a confident quotation of text that matches no
+        translation is the failure this benchmark exists to surface.
       </Section>
 
       <p className="text-sm text-slate-400">

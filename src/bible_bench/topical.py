@@ -76,19 +76,21 @@ def build_topical_items(
             name = topic["names"].get(lang)
             if not name:
                 continue
+            abbrev = block.get("version_abbrev", "")
             for level, template in block["levels"].items():
+                prompt = template.replace("{topic}", name).replace("{version}", abbrev)
                 items.append(
                     TopicalItem(
                         id=f"t-{lang}-{topic['id']}-{level}",
                         track="topical",
                         language_tag=lang,
                         version_id=block["version_id"],
-                        version_abbrev=block.get("version_abbrev", ""),
+                        version_abbrev=abbrev,
                         topic_id=topic["id"],
                         topic_name=name,
                         elicitation_level=level,
                         sensitive=bool(topic.get("sensitive")),
-                        prompt=template.replace("{topic}", name),
+                        prompt=prompt,
                         accepted_version_ids=list(accepted),
                     )
                 )

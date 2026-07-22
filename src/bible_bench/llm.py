@@ -12,12 +12,19 @@ import asyncio
 import json
 import re
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 from openai import AsyncOpenAI
 
 from .config import LlmEndpointConfig
 
 _JSON_FENCE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
+
+
+def _is_openrouter(base_url: str) -> bool:
+    """True iff the endpoint is OpenRouter — the only host we send `provider` to."""
+    host = (urlparse(base_url).hostname or "").lower()
+    return host == "openrouter.ai" or host.endswith(".openrouter.ai")
 
 
 @dataclass
@@ -110,6 +117,11 @@ class LlmClient:
                 }
                 if max_tokens is not None:
                     kwargs["max_tokens"] = max_tokens
+                # OpenRouter-only: forward upstream routing (pin provider/quantization)
+                # for reproducible scoring. Never sent to native endpoints — their
+                # OpenAI-compat layers reject unknown body fields (Gemini especially).
+                if self.cfg.provider_routing and _is_openrouter(self.cfg.base_url):
+                    kwargs["extra_body"] = {"provider": self.cfg.provider_routing}
                 resp = await asyncio.wait_for(
                     self._client.chat.completions.create(**kwargs), timeout=self.timeout
                 )

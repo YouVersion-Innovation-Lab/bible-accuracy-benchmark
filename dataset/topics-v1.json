@@ -2,8 +2,8 @@
   "version": "v1",
   "note": "Topic list and prompt wording for the topical track. PENDING YouVersion review before public launch. Designed for GLOBAL coverage: interfaith objections to the Bible (esp. Muslim, Jewish, Hindu/Buddhist), cross-cultural flashpoints (caste, ancestor veneration, polygamy, colonialism, witchcraft), classic skeptic objections (Old Testament violence, contradictions), contemporary social ethics, and cross-denominational Christian debates. The benchmark scores ONLY the accuracy of any Bible quotations in the model's answer, never the theological position the answer takes. Each topic carries a 'category' for review. IMPORTANT: every non-English topic name (and the non-English prompt templates) is machine-drafted and MUST get native-speaker review before those languages are run for the public board — until then, run English plus reviewed languages only.",
   "elicitation_levels": {
-    "L1": "explicit — quoting is requested",
-    "L2": "implicit — a direct question, quoting not requested"
+    "L1": "explicit — quoting from a named Bible version is requested",
+    "L2": "implicit — a direct question; quoting not requested and no version named, so the version the model chooses to quote reveals its spontaneous preference"
   },
   "languages": {
     "eng": {
@@ -11,7 +11,7 @@
       "version_abbrev": "NIV",
       "accepted_version_ids": [111, 1, 116, 59, 114, 2692, 1713],
       "levels": {
-        "L1": "What does the Bible say about {topic}? Please quote the relevant verses.",
+        "L1": "What does the Bible say about {topic}? Please quote the relevant verses from the {version} translation.",
         "L2": "What does the Bible say about {topic}?"
       }
     },
@@ -19,7 +19,7 @@
       "version_id": 128,
       "version_abbrev": "NVI",
       "levels": {
-        "L1": "¿Qué dice la Biblia sobre {topic}? Por favor, cita los versículos relevantes.",
+        "L1": "¿Qué dice la Biblia sobre {topic}? Por favor, cita los versículos relevantes de la versión {version}.",
         "L2": "¿Qué dice la Biblia sobre {topic}?"
       }
     },
@@ -27,7 +27,7 @@
       "version_id": 129,
       "version_abbrev": "NVI-PT",
       "levels": {
-        "L1": "O que a Bíblia diz sobre {topic}? Por favor, cite os versículos relevantes.",
+        "L1": "O que a Bíblia diz sobre {topic}? Por favor, cite os versículos relevantes da versão {version}.",
         "L2": "O que a Bíblia diz sobre {topic}?"
       }
     },
@@ -35,7 +35,7 @@
       "version_id": 93,
       "version_abbrev": "LSG",
       "levels": {
-        "L1": "Que dit la Bible au sujet de {topic} ? Merci de citer les versets concernés.",
+        "L1": "Que dit la Bible au sujet de {topic} ? Merci de citer les versets concernés dans la version {version}.",
         "L2": "Que dit la Bible au sujet de {topic} ?"
       }
     },
@@ -43,7 +43,7 @@
       "version_id": 51,
       "version_abbrev": "LUT",
       "levels": {
-        "L1": "Was sagt die Bibel über {topic}? Bitte zitiere die entsprechenden Verse.",
+        "L1": "Was sagt die Bibel über {topic}? Bitte zitiere die entsprechenden Verse aus der {version}-Übersetzung.",
         "L2": "Was sagt die Bibel über {topic}?"
       }
     },
@@ -51,7 +51,7 @@
       "version_id": 88,
       "version_abbrev": "KOR",
       "levels": {
-        "L1": "성경은 {topic}에 대해 무엇이라고 말합니까? 관련 구절을 인용해 주세요.",
+        "L1": "성경은 {topic}에 대해 무엇이라고 말합니까? {version} 번역으로 관련 구절을 인용해 주세요.",
         "L2": "성경은 {topic}에 대해 무엇이라고 말합니까?"
       }
     },
@@ -59,7 +59,7 @@
       "version_id": 48,
       "version_abbrev": "CUNP",
       "levels": {
-        "L1": "圣经关于{topic}说了什么？请引用相关经文。",
+        "L1": "圣经关于{topic}说了什么？请引用{version}译本中的相关经文。",
         "L2": "圣经关于{topic}说了什么？"
       }
     },
@@ -67,7 +67,7 @@
       "version_id": 400,
       "version_abbrev": "SYNO",
       "levels": {
-        "L1": "Что Библия говорит о {topic}? Пожалуйста, процитируйте соответствующие стихи.",
+        "L1": "Что Библия говорит о {topic}? Пожалуйста, процитируйте соответствующие стихи из перевода {version}.",
         "L2": "Что Библия говорит о {topic}?"
       }
     },
@@ -75,7 +75,7 @@
       "version_id": 306,
       "version_abbrev": "TB",
       "levels": {
-        "L1": "Apa yang Alkitab katakan tentang {topic}? Tolong kutip ayat-ayat yang relevan.",
+        "L1": "Apa yang Alkitab katakan tentang {topic}? Tolong kutip ayat-ayat yang relevan dari terjemahan {version}.",
         "L2": "Apa yang Alkitab katakan tentang {topic}?"
       }
     },
@@ -83,7 +83,7 @@
       "version_id": 1819,
       "version_abbrev": "HINCLBSI",
       "levels": {
-        "L1": "बाइबल {topic} के बारे में क्या कहती है? कृपया संबंधित पद उद्धृत करें।",
+        "L1": "बाइबल {topic} के बारे में क्या कहती है? कृपया {version} अनुवाद से संबंधित पद उद्धृत करें।",
         "L2": "बाइबल {topic} के बारे में क्या कहती है?"
       }
     },
@@ -91,7 +91,7 @@
       "version_id": 101,
       "version_abbrev": "AVD",
       "levels": {
-        "L1": "ماذا يقول الكتاب المقدس عن {topic}؟ من فضلك اقتبس الآيات ذات الصلة.",
+        "L1": "ماذا يقول الكتاب المقدس عن {topic}؟ من فضلك اقتبس الآيات ذات الصلة من ترجمة {version}.",
         "L2": "ماذا يقول الكتاب المقدس عن {topic}؟"
       }
     }

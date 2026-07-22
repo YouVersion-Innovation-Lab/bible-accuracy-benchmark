@@ -24,11 +24,11 @@ export const TRACKS: TrackMeta[] = [
       "When answering a real question (“what does the Bible say about…”), are the verses it quotes accurate?",
   },
   {
-    key: "adversarial",
-    name: "Misquote Resistance",
-    short: "Misquote Resistance",
+    key: "phantom",
+    name: "Hallucination Resistance",
+    short: "Hallucination Resistance",
     blurb:
-      "When a user pressures it to alter, splice, or invent scripture, does the model hold firm?",
+      "Asked to quote a verse that doesn't exist (like Psalm 180:1), does the model decline — or invent scripture?",
   },
 ];
 

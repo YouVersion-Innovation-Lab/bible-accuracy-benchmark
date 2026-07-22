@@ -19,6 +19,7 @@ from .auditor import QuoteAuditor
 from .dataset import BenchmarkItem
 from .llm import LlmClient
 from .normalize import normalize
+from .phantom import PhantomItem, score_phantom
 from .prompts import render_simple_prompt
 from .scoring import score_item
 from .topical import TopicalItem, score_topical
@@ -262,6 +263,111 @@ async def score_topical_items(
             "topical_score": asdict(tscore),
             "quotes": [asdict(v) for v in audit.verdicts],
             "cited_refs": audit.cited_refs,
+            "fabricated_refs": audit.fabricated_refs,
+            "usage": {
+                "input_tokens": resp.get("input_tokens", 0),
+                "output_tokens": resp.get("output_tokens", 0),
+            },
+            "error": resp.get("error"),
+        })
+        if progress:
+            progress({"phase": "score", "completed": i, "total": len(responses)})
+    results.sort(key=lambda r: r["item_id"])
+    return results
+
+
+async def generate_phantom(
+    items: list[PhantomItem],
+    model: LlmClient,
+    *,
+    concurrency: int = 12,
+    already_done: set[str] | None = None,
+    checkpoint: CheckpointCb | None = None,
+    progress: ProgressCb | None = None,
+) -> list[dict]:
+    """Query the model for each phantom item (prompt precomputed). Answers are
+    short — a refusal or a (bad) fabricated verse — so a modest token budget.
+    Mirrors ``generate_topical``'s resume/checkpoint semantics."""
+    done = already_done or set()
+    todo = [it for it in items if it.id not in done]
+    sem = asyncio.Semaphore(concurrency)
+    lock = asyncio.Lock()
+    collected: list[dict] = []
+
+    async def one(item: PhantomItem) -> None:
+        error = None
+        text = ""
+        in_tok = out_tok = 0
+        async with sem:
+            try:
+                async with lock:
+                    before_in = model.usage.input_tokens
+                    before_out = model.usage.output_tokens
+                text = await model.complete(
+                    [{"role": "user", "content": item.prompt}], max_tokens=512
+                )
+                async with lock:
+                    in_tok = model.usage.input_tokens - before_in
+                    out_tok = model.usage.output_tokens - before_out
+            except Exception as e:  # noqa: BLE001
+                error = f"{type(e).__name__}: {e}"
+        rec = {
+            "item_id": item.id,
+            "prompt": item.prompt,
+            "response_text": text,
+            "input_tokens": in_tok,
+            "output_tokens": out_tok,
+            "error": error,
+        }
+        async with lock:
+            collected.append(rec)
+            if progress:
+                progress({"phase": "generate", "completed": len(collected),
+                          "total": len(todo), "error": bool(error)})
+            if checkpoint and len(collected) % _CHECKPOINT_EVERY == 0:
+                await _maybe_await(checkpoint(list(collected)))
+
+    await asyncio.gather(*(one(it) for it in todo))
+    if checkpoint:
+        await _maybe_await(checkpoint(list(collected)))
+    return collected
+
+
+async def score_phantom_items(
+    items_by_id: dict[str, PhantomItem],
+    responses: list[dict],
+    client: BibleClient,
+    *,
+    progress: ProgressCb | None = None,
+) -> list[dict]:
+    """Audit each phantom response and apply deterministic scoring: presenting
+    ANY scripture quotation for a non-existent reference fails; declining (no
+    quote) passes."""
+    auditor = QuoteAuditor(client)
+    results: list[dict] = []
+    for i, resp in enumerate(responses, 1):
+        item = items_by_id.get(resp["item_id"])
+        if item is None:
+            continue
+        text = resp.get("response_text") or ""
+        audit = await auditor.audit(
+            text,
+            item.version_id,
+            candidate_version_ids=item.accepted_version_ids or [item.version_id],
+            use_reverse_index=True,
+        )
+        pscore = score_phantom(audit)
+        results.append({
+            "item_id": item.id,
+            "track": "phantom",
+            "language_tag": item.language_tag,
+            "version_id": item.version_id,
+            "version_abbrev": item.version_abbrev,
+            "reference_display": item.reference_display,
+            "kind": item.kind,
+            "response_text": text,
+            "phantom_score": asdict(pscore),
+            "quotes": [asdict(v) for v in audit.verdicts],
             "fabricated_refs": audit.fabricated_refs,
             "usage": {
                 "input_tokens": resp.get("input_tokens", 0),

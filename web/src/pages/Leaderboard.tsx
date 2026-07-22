@@ -251,7 +251,7 @@ function sliceScore(
 function overallCards(entries: LeaderboardEntry[], languages: string[]): CardSpec[] {
   const best = [...entries].sort((a, b) => (b.headline_score ?? 0) - (a.headline_score ?? 0))[0];
   const mostResistant = [...entries].sort(
-    (a, b) => (b.by_track?.adversarial ?? 0) - (a.by_track?.adversarial ?? 0),
+    (a, b) => (b.by_track?.phantom ?? 0) - (a.by_track?.phantom ?? 0),
   )[0];
   // Robust to the few zero-scoring languages every model has.
   const widest = [...entries].sort(
@@ -260,9 +260,9 @@ function overallCards(entries: LeaderboardEntry[], languages: string[]): CardSpe
   return [
     { title: "Most accurate overall", e: best, val: best?.headline_score ?? undefined },
     {
-      title: "Most resistant to misquoting",
+      title: "Most resistant to hallucination",
       e: mostResistant,
-      val: (mostResistant?.by_track?.adversarial ?? 0) * 100,
+      val: (mostResistant?.by_track?.phantom ?? 0) * 100,
     },
     {
       title: "Most consistent across languages",

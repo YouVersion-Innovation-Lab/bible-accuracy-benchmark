@@ -1,16 +1,20 @@
 """Aggregation: per-item scored records → summary metrics + composite score.
 
-Headline = 100 × (0.50·simple + 0.25·topical + 0.25·adversarial resistance@3).
+Headline = 100 × (0.50·simple + 0.25·topical + 0.25·hallucination resistance).
 Tracks not present in a run are dropped from the weighted average and the
 weights renormalized, so a simple-only pilot run still yields a comparable
 simple-track score (with headline_partial=True flagged).
+
+Adversarial (misquote-resistance) is paused for this round; its weight was
+reassigned to the phantom/hallucination track. If an adversarial summary is
+present in a run it is still stored, just not folded into the headline.
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
 
-TRACK_WEIGHTS = {"simple": 0.50, "topical": 0.25, "adversarial": 0.25}
+TRACK_WEIGHTS = {"simple": 0.50, "topical": 0.25, "phantom": 0.25}
 
 # Grades that mean the model presented text as scripture but got it wrong,
 # vs. simply declined.
@@ -91,9 +95,14 @@ def summarize_topical(items: list[dict]) -> dict:
     by_lang: dict[str, list[float]] = defaultdict(list)
     by_level: dict[str, list[float]] = defaultdict(list)
     by_topic: dict[str, list[float]] = defaultdict(list)
+    by_version: dict[str, list[float]] = defaultdict(list)
+    version_meta: dict[str, dict] = {}
     emission_by_level: dict[str, list[float]] = defaultdict(list)
     sensitive_scores: list[float] = []
     nonsensitive_scores: list[float] = []
+    # Spontaneous version preference (L2, where no version is named): which
+    # translation the model chose to quote, per language.
+    pref: dict[str, dict[int, int]] = defaultdict(lambda: defaultdict(int))
     fabricated_refs = 0
     fabricated_quotes = 0
     total = 0
@@ -108,13 +117,44 @@ def summarize_topical(items: list[dict]) -> dict:
         (sensitive_scores if it["sensitive"] else nonsensitive_scores).append(s["item_score"])
         fabricated_refs += s["n_fabricated_refs"]
         fabricated_quotes += s["n_fabricated"]
+        vid = str(it["version_id"])
+        by_version[vid].append(s["item_score"])
+        version_meta.setdefault(vid, {
+            "version_id": it["version_id"],
+            "language_tag": it["language_tag"],
+            "version_abbrev": it.get("version_abbrev", ""),
+        })
+        if it.get("elicitation_level") == "L2":
+            for q in it.get("quotes", []):
+                mv = q.get("matched_version_id")
+                if mv is not None and q.get("classification") in ("accurate", "minor"):
+                    pref[it["language_tag"]][mv] += 1
 
     lang_means = {lang: _mean(v) for lang, v in by_lang.items()}
     macro = _mean(list(lang_means.values()))
+    versions = [
+        {**version_meta[vid], "score": round(_mean(scores), 4), "n": len(scores)}
+        for vid, scores in sorted(by_version.items())
+    ]
+    version_preference = {}
+    for lang, counts in pref.items():
+        total_q = sum(counts.values())
+        if not total_q:
+            continue
+        version_preference[lang] = {
+            "by_version": {
+                str(v): c for v, c in sorted(counts.items(), key=lambda kv: -kv[1])
+            },
+            "top_version_id": max(counts, key=counts.get),
+            "n": total_q,
+        }
     return {
         "track_score": round(macro, 4),
         "n": total,
         "by_language": {k: round(v, 4) for k, v in sorted(lang_means.items())},
+        "by_version": {k: round(_mean(v), 4) for k, v in sorted(by_version.items())},
+        "versions": versions,
+        "version_preference": version_preference,
         "by_level": {k: round(_mean(v), 4) for k, v in sorted(by_level.items())},
         "by_topic": {k: round(_mean(v), 4) for k, v in sorted(by_topic.items())},
         "emission_rate_by_level": {
@@ -126,6 +166,56 @@ def summarize_topical(items: list[dict]) -> dict:
         ),
         "fabricated_ref_count": fabricated_refs,
         "fabricated_quote_count": fabricated_quotes,
+    }
+
+
+def summarize_phantom(items: list[dict]) -> dict:
+    """Hallucination-resistance aggregation. Every item counts; a higher score
+    means the model more reliably declined to quote a non-existent reference.
+    Per-(language, version) breakdown mirrors the simple track so the website
+    can filter by version."""
+    by_lang: dict[str, list[float]] = defaultdict(list)
+    by_version: dict[str, list[float]] = defaultdict(list)
+    by_kind: dict[str, list[float]] = defaultdict(list)
+    version_meta: dict[str, dict] = {}
+    outcomes: dict[str, int] = defaultdict(int)
+    total = 0
+
+    for it in items:
+        s = it["phantom_score"]
+        sc = s["item_score"]
+        total += 1
+        by_lang[it["language_tag"]].append(sc)
+        by_kind[it.get("kind", "?")].append(sc)
+        outcomes[s["outcome"]] += 1
+        vid = str(it["version_id"])
+        by_version[vid].append(sc)
+        version_meta.setdefault(
+            vid,
+            {
+                "version_id": it["version_id"],
+                "language_tag": it["language_tag"],
+                "version_abbrev": it.get("version_abbrev", ""),
+            },
+        )
+
+    lang_means = {lang: _mean(v) for lang, v in by_lang.items()}
+    macro = _mean(list(lang_means.values()))
+    versions = [
+        {**version_meta[vid], "score": round(_mean(scores), 4), "n": len(scores)}
+        for vid, scores in sorted(by_version.items())
+    ]
+    fabricated = outcomes.get("fabricated_text", 0) + outcomes.get("quoted_real_verse", 0)
+    return {
+        "track_score": round(macro, 4),
+        "n": total,
+        "by_language": {k: round(v, 4) for k, v in sorted(lang_means.items())},
+        "by_version": {k: round(_mean(v), 4) for k, v in sorted(by_version.items())},
+        "versions": versions,
+        "by_kind": {k: round(_mean(v), 4) for k, v in sorted(by_kind.items())},
+        "refusal_rate": round(outcomes.get("refused", 0) / total, 4) if total else 0.0,
+        "hallucination_rate": round(fabricated / total, 4) if total else 0.0,
+        "outcomes": dict(sorted(outcomes.items())),
     }
 
 

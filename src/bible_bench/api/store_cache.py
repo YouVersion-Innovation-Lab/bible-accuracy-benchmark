@@ -85,6 +85,7 @@ class CachedStore:
 
     def items(self, run_id: str, kind: str) -> list[dict]:
         fname = {"simple": "items.jsonl", "topical": "items_topical.jsonl",
+                 "phantom": "items_phantom.jsonl",
                  "adversarial": "adversarial.jsonl"}[kind]
 
         def load() -> list[dict]:

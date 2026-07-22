@@ -8,6 +8,20 @@ export interface VersionScore {
   n: number;
 }
 
+export interface VersionPreference {
+  by_version: Record<string, number>; // version_id -> quote count
+  top_version_id: number;
+  n: number;
+}
+
+// Per-(language, version) slice of one track, for the site's filters.
+export interface TrackDetail {
+  track_score: number | null;
+  by_language: Record<string, number>;
+  versions: VersionScore[];
+  version_preference?: Record<string, VersionPreference>; // topical only
+}
+
 export interface LeaderboardEntry {
   run_id: string;
   run_version: string | null;
@@ -19,6 +33,7 @@ export interface LeaderboardEntry {
   by_track: Record<string, number>;
   by_language: Record<string, number>;
   versions: VersionScore[];
+  tracks_detail?: Record<string, TrackDetail>;
   fabrication_rate: number | null;
   refusal_rate: number | null;
 }
@@ -51,7 +66,12 @@ export interface TrackSummary {
   by_tier?: Record<string, number>;
   by_version?: Record<string, number>;
   versions?: VersionScore[];
+  version_preference?: Record<string, VersionPreference>;
   grades?: Record<string, number>;
+  // phantom (hallucination) track
+  by_kind?: Record<string, number>;
+  hallucination_rate?: number;
+  outcomes?: Record<string, number>;
   verbatim_rate?: number;
   near_verbatim_rate?: number;
   fabrication_rate?: number;
@@ -81,6 +101,9 @@ export interface FailureItem {
   elicitation_level?: string;
   sensitive?: boolean;
   quotes?: { classification: string; quote: string; cited_usfm?: string }[];
+  // phantom (hallucination)
+  kind?: string;
+  outcome?: string;
   // adversarial
   category?: string;
   target_usfm?: string;

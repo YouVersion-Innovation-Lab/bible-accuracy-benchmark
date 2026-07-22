@@ -78,6 +78,7 @@ class QuoteVerdict:
     matched_usfm: str | None
     cited_usfm: str | None
     score: float             # 1.0 accurate, graded for minor, else 0.0
+    matched_version_id: int | None = None  # which version the quote matched
 
 
 @dataclass
@@ -307,29 +308,32 @@ class QuoteAuditor:
 
     async def _best_across_versions(
         self, qloose: str, usfm: str, version_ids: list[int], max_span: int = 4
-    ) -> float:
-        """Best similarity of the quote to the cited reference across accepted
-        versions AND across short verse ranges starting at the cited verse.
+    ) -> tuple[float, int | None]:
+        """Best (similarity, winning version_id) of the quote to the cited
+        reference across accepted versions AND short verse ranges from it.
 
         Two independent sources of legitimate variation, neither a misquote:
         (1) no version was requested, so any faithful translation counts; and
         (2) models routinely quote a 2-4 verse passage but cite only its first
         verse ("2 Corinthians 1:3" for a 1:3-4 quotation). We compare against
-        cumulative windows [v, v..v+1, ...] in each accepted version."""
+        cumulative windows [v, v..v+1, ...] in each accepted version. The
+        winning version_id lets callers report which translation was quoted."""
         try:
             from .usfm import VerseRef
 
             ref = VerseRef.parse(usfm)
         except Exception:  # noqa: BLE001
             # Non-standard anchor: fall back to single-verse comparison.
-            best = 0.0
+            best, best_vid = 0.0, None
             for vid in version_ids:
                 vloose = await self._verse_loose(vid, usfm)
                 if vloose:
-                    best = max(best, _qsim(qloose, vloose))
-            return best
+                    sim = _qsim(qloose, vloose)
+                    if sim > best:
+                        best, best_vid = sim, vid
+            return best, best_vid
 
-        best = 0.0
+        best, best_vid = 0.0, None
         for vid in version_ids:
             verses = await self._chapter(vid, ref.chapter_usfm)
             window = ""
@@ -340,10 +344,10 @@ class QuoteAuditor:
                 window = f"{window} {normalize(piece, 'loose')}".strip()
                 sim = _qsim(qloose, window)
                 if sim > best:
-                    best = sim
+                    best, best_vid = sim, vid
                 if best >= ACCURATE_SIM:
-                    return best
-        return best
+                    return best, best_vid
+        return best, best_vid
 
     async def _chapter(self, version_id: int, chapter_usfm: str) -> dict[str, str]:
         try:
@@ -388,65 +392,79 @@ class QuoteAuditor:
         adjacent = _sentence_refs(text, q, refs)
         best_adj = 0.0
         for r in adjacent:
-            sim = await self._best_across_versions(qloose, r.usfm, versions)
+            sim, vid = await self._best_across_versions(qloose, r.usfm, versions)
             best_adj = max(best_adj, sim)
             if sim >= MINOR_SIM:
                 return QuoteVerdict(
                     q.text, "accurate" if sim >= ACCURATE_SIM else "minor",
                     sim, r.usfm, r.usfm, 1.0 if sim >= ACCURATE_SIM else sim,
+                    matched_version_id=vid,
                 )
         if adjacent:
             # Quote doesn't match its adjacent ref. Is it correct scripture
             # attached to the wrong reference (misattributed) or just wrong?
-            other_usfm, other_sim = await self._best_cited(qloose, refs, adjacent, versions)
+            other_usfm, other_sim, other_vid = await self._best_cited(
+                qloose, refs, adjacent, versions
+            )
             if other_sim >= ACCURATE_SIM:
                 return QuoteVerdict(q.text, "misattributed", other_sim, other_usfm,
-                                    adjacent[0].usfm, 0.0)
+                                    adjacent[0].usfm, 0.0, matched_version_id=other_vid)
             if use_reverse_index:
-                idx_usfm, idx_sim = await self._reverse_lookup(qloose, version_id, versions)
+                idx_usfm, idx_sim, idx_vid = await self._reverse_lookup(
+                    qloose, version_id, versions
+                )
                 if idx_sim >= ACCURATE_SIM:
                     return QuoteVerdict(q.text, "misattributed", idx_sim, idx_usfm,
-                                        adjacent[0].usfm, 0.0)
+                                        adjacent[0].usfm, 0.0, matched_version_id=idx_vid)
             return QuoteVerdict(q.text, "mismatch", best_adj, None, adjacent[0].usfm, 0.0)
 
         # 2. No adjacent ref — check other cited refs in the response.
-        other_usfm, other_sim = await self._best_cited(qloose, refs, [], versions)
+        other_usfm, other_sim, other_vid = await self._best_cited(qloose, refs, [], versions)
         if other_sim >= MINOR_SIM:
             return QuoteVerdict(q.text, "accurate" if other_sim >= ACCURATE_SIM else "minor",
                                 other_sim, other_usfm, None,
-                                1.0 if other_sim >= ACCURATE_SIM else other_sim)
+                                1.0 if other_sim >= ACCURATE_SIM else other_sim,
+                                matched_version_id=other_vid)
 
         # 3. Truly uncited — reverse index over the whole version.
         if use_reverse_index:
-            idx_usfm, idx_sim = await self._reverse_lookup(qloose, version_id, versions)
+            idx_usfm, idx_sim, idx_vid = await self._reverse_lookup(qloose, version_id, versions)
             if idx_sim >= ACCURATE_SIM:
-                return QuoteVerdict(q.text, "accurate", idx_sim, idx_usfm, None, 1.0)
+                return QuoteVerdict(q.text, "accurate", idx_sim, idx_usfm, None, 1.0,
+                                    matched_version_id=idx_vid)
             if idx_sim >= MINOR_SIM:
-                return QuoteVerdict(q.text, "minor", idx_sim, idx_usfm, None, idx_sim)
+                return QuoteVerdict(q.text, "minor", idx_sim, idx_usfm, None, idx_sim,
+                                    matched_version_id=idx_vid)
             return QuoteVerdict(q.text, "fabricated", idx_sim, None, None, 0.0)
         return QuoteVerdict(q.text, "unverifiable", 0.0, None, None, 0.0)
 
     async def _reverse_lookup(
         self, qloose: str, version_id: int, versions: list[int]
-    ) -> tuple[str | None, float]:
+    ) -> tuple[str | None, float, int | None]:
         """Locate an uncited quote via the primary-version reverse index, then
         confirm across accepted versions if the located verse is a near-miss
-        (i.e. the model likely quoted the same verse in another translation)."""
+        (i.e. the model likely quoted the same verse in another translation).
+        Returns (usfm, similarity, matched_version_id)."""
         idx_usfm, idx_sim = (await self._index(version_id)).lookup(qloose)
-        if idx_sim >= ACCURATE_SIM or idx_usfm is None:
-            return idx_usfm, idx_sim
+        if idx_usfm is None:
+            return None, idx_sim, None
+        if idx_sim >= ACCURATE_SIM:
+            return idx_usfm, idx_sim, version_id
         if idx_sim >= LOCATE_SIM and len(versions) > 1:
-            cross = await self._best_across_versions(qloose, idx_usfm, versions)
-            return idx_usfm, max(idx_sim, cross)
-        return idx_usfm, idx_sim
+            cross, cross_vid = await self._best_across_versions(qloose, idx_usfm, versions)
+            if cross > idx_sim:
+                return idx_usfm, cross, cross_vid
+        return idx_usfm, idx_sim, version_id
 
-    async def _best_cited(self, qloose, refs, exclude, versions) -> tuple[str | None, float]:
+    async def _best_cited(
+        self, qloose, refs, exclude, versions
+    ) -> tuple[str | None, float, int | None]:
         exclude_usfms = {r.usfm for r in exclude}
-        best_usfm, best = None, 0.0
+        best_usfm, best, best_vid = None, 0.0, None
         for r in refs:
             if r.usfm in exclude_usfms:
                 continue
-            sim = await self._best_across_versions(qloose, r.usfm, versions)
+            sim, vid = await self._best_across_versions(qloose, r.usfm, versions)
             if sim > best:
-                best_usfm, best = r.usfm, sim
-        return best_usfm, best
+                best_usfm, best, best_vid = r.usfm, sim, vid
+        return best_usfm, best, best_vid

@@ -67,7 +67,7 @@ export function ModelDetail() {
       </div>
 
       {simple?.by_language && Object.keys(simple.by_language).length > 0 && (
-        <DirectQuoteSection runId={runId} simple={simple} />
+        <AccuracyExplorer runId={runId} tracks={tracks} />
       )}
 
       <div className="flex flex-wrap gap-3">
@@ -88,69 +88,58 @@ export function ModelDetail() {
   );
 }
 
-/** Filterable direct-quotation drill-down: pick a language and Bible version to
- * scope this model's accuracy score, its breakdown, and the failure browser. */
-function DirectQuoteSection({ runId, simple }: { runId: string; simple: TrackSummary }) {
+/** Interactive accuracy explorer: pick a language and Bible version to scope
+ * every track's score for this model, see which translation it prefers when
+ * unprompted, and jump into the filtered failure browser. */
+function AccuracyExplorer({
+  runId,
+  tracks,
+}: {
+  runId: string;
+  tracks: Record<string, TrackSummary>;
+}) {
+  const simple = tracks.simple;
   const [lang, setLang] = useState<string | null>(null);
   const [version, setVersion] = useState<number | null>(null);
 
-  const versionsByLang = useMemo(
-    () => buildVersionsByLang(simple.versions ?? []),
-    [simple.versions],
-  );
+  const versionsByLang = useMemo(() => buildVersionsByLang(simple?.versions ?? []), [simple]);
   const languages = useMemo(
-    () => orderLanguages(Object.keys(simple.by_language ?? {})),
-    [simple.by_language],
+    () => orderLanguages(Object.keys(simple?.by_language ?? {})),
+    [simple],
   );
-
   const langVersions = lang ? (versionsByLang.get(lang) ?? []) : [];
   const abbrev =
     version != null
       ? langVersions.find((v) => v.version_id === version)?.version_abbrev
       : undefined;
-
-  // This model's accuracy (0..1) for the active slice.
-  const score =
-    version != null
-      ? simple.versions?.find((v) => v.version_id === version)?.score
-      : lang
-        ? simple.by_language?.[lang]
-        : simple.track_score;
-
-  // Chips beneath the headline number: languages (all), a language's versions
-  // (language selected), or the single chosen version.
-  const chips: { key: string; label: string; value: number | undefined }[] = (() => {
-    if (version != null) {
-      const v = langVersions.find((x) => x.version_id === version);
-      return v ? [{ key: `v${v.version_id}`, label: v.version_abbrev, value: v.score }] : [];
-    }
-    if (lang) {
-      if (langVersions.length > 1) {
-        return [
-          { key: "overall", label: `${langName(lang)} overall`, value: simple.by_language?.[lang] },
-          ...langVersions.map((v) => ({
-            key: `v${v.version_id}`,
-            label: v.version_abbrev,
-            value: v.score,
-          })),
-        ];
-      }
-      return [{ key: "overall", label: langName(lang), value: simple.by_language?.[lang] }];
-    }
-    return languages.map((l) => ({ key: l, label: langName(l), value: simple.by_language?.[l] }));
-  })();
-
-  const failuresHref = (() => {
-    const p = new URLSearchParams({ track: "simple" });
-    if (lang) p.set("language", lang);
-    if (version != null) p.set("version_id", String(version));
-    return `/models/${encodeURIComponent(runId)}/failures?${p}`;
-  })();
-
   const label = sliceLabel(lang, abbrev);
 
+  const abbrevById = useMemo(() => {
+    const m = new Map<number, string>();
+    (simple?.versions ?? []).forEach((v) => m.set(v.version_id, v.version_abbrev));
+    return m;
+  }, [simple]);
+
+  // Per-track score (0..1) for the active slice.
+  const rows = TRACKS.map((t) => ({ meta: t, score: trackSlice(tracks[t.key], lang, version) }));
+
+  // Spontaneous translation preference (topical L2) for the selected language.
+  const pref = tracks.topical?.version_preference ?? {};
+  const prefLang = lang && pref[lang] ? lang : null;
+  const prefEntry = prefLang ? pref[prefLang] : null;
+  const prefAbbrev = prefEntry
+    ? (abbrevById.get(prefEntry.top_version_id) ?? `#${prefEntry.top_version_id}`)
+    : null;
+
+  function failuresHref(trackKey: string): string {
+    const p = new URLSearchParams({ track: trackKey });
+    if (lang) p.set("language", lang);
+    if (version != null && trackKey === "simple") p.set("version_id", String(version));
+    return `/models/${encodeURIComponent(runId)}/failures?${p}`;
+  }
+
   return (
-    <Card title="Direct-quote accuracy">
+    <Card title="Accuracy by language & version">
       <FilterBar
         languages={languages}
         versionsByLang={versionsByLang}
@@ -162,36 +151,62 @@ function DirectQuoteSection({ runId, simple }: { runId: string; simple: TrackSum
         }}
         onVersion={setVersion}
       />
-      <div className="mt-5 flex items-baseline gap-3">
-        <div className="text-4xl font-bold tabular-nums">
-          {score != null ? (score * 100).toFixed(1) : "—"}
-        </div>
-        <div className="text-sm text-slate-400">accuracy · {label}</div>
+      <div className="mt-4 text-sm text-slate-400">
+        Scores for <span className="text-slate-200">{label}</span>
       </div>
-      <div className="mt-4 flex flex-wrap gap-2">
-        {chips.map((c) => {
-          const { bg, fg } = heatColor(c.value);
+      <div className="mt-3 grid gap-3 sm:grid-cols-3">
+        {rows.map((r) => {
+          const { bg, fg } = heatColor(r.score);
           return (
-            <div
-              key={c.key}
-              className="rounded-lg px-3 py-2 text-sm min-w-24"
-              style={{ background: bg, color: fg }}
-            >
-              <div className="text-xs opacity-80">{c.label}</div>
-              <div className="font-semibold tabular-nums">
-                {c.value == null ? "—" : (c.value * 100).toFixed(0)}
+            <div key={r.meta.key} className="rounded-xl border border-white/10 p-4">
+              <div className="text-xs text-slate-400">{r.meta.name}</div>
+              <div
+                className="mt-1 inline-block rounded px-2 py-0.5 text-2xl font-bold tabular-nums"
+                style={{ background: bg, color: fg }}
+              >
+                {r.score != null ? (r.score * 100).toFixed(1) : "—"}
+              </div>
+              <div className="mt-2">
+                <Link
+                  to={failuresHref(r.meta.key)}
+                  className="text-xs text-indigo-300 hover:underline"
+                >
+                  Inspect failures →
+                </Link>
               </div>
             </div>
           );
         })}
       </div>
-      <div className="mt-4">
-        <Link to={failuresHref} className="text-sm text-indigo-300 hover:underline">
-          Inspect {label === "overall" ? "" : `${label} `}failures →
-        </Link>
-      </div>
+      {prefEntry && prefAbbrev ? (
+        <p className="mt-4 text-sm text-slate-300">
+          When not told which translation to use, it most often quoted{" "}
+          <strong>{prefAbbrev}</strong> in {langName(prefLang!)} (
+          {prefEntry.by_version[String(prefEntry.top_version_id)]}/{prefEntry.n} quotes).
+        </p>
+      ) : lang ? (
+        <p className="mt-4 text-sm text-slate-500">
+          No spontaneous-preference data for {langName(lang)} (only one translation offered).
+        </p>
+      ) : (
+        <p className="mt-4 text-sm text-slate-500">
+          Pick a language to scope every track and the failure browser, and to see which
+          translation this model prefers when unprompted.
+        </p>
+      )}
     </Card>
   );
+}
+
+function trackSlice(
+  ts: TrackSummary | undefined,
+  lang: string | null,
+  version: number | null,
+): number | undefined {
+  if (!ts) return undefined;
+  if (version != null) return ts.versions?.find((v) => v.version_id === version)?.score;
+  if (lang) return ts.by_language?.[lang];
+  return ts.track_score;
 }
 
 /** Plain-language summary for non-technical readers (pastors, Christian devs). */
@@ -211,7 +226,7 @@ function PlainLanguageCard({
   const worst = entries.slice().sort((a, b) => a[1] - b[1]).slice(0, 1).map(([l]) => langName(l));
   const near = (simple.near_verbatim_rate ?? 0) * 100;
   const fab = (simple.fabrication_rate ?? 0) * 100;
-  const adv = tracks.adversarial?.track_score;
+  const phantom = tracks.phantom?.track_score;
 
   return (
     <div className="rounded-xl border border-indigo-400/20 bg-indigo-400/[0.06] p-5">
@@ -224,10 +239,10 @@ function PlainLanguageCard({
         ) : null}
         . It stated something as scripture that matches no real Bible text{" "}
         <strong>{fab.toFixed(0)}%</strong> of the time
-        {adv != null ? (
+        {phantom != null ? (
           <>
-            , and it resisted deliberate attempts to make it misquote{" "}
-            <strong>{(adv * 100).toFixed(0)}%</strong> of the time
+            , and when asked for a verse that doesn't exist it correctly declined{" "}
+            <strong>{(phantom * 100).toFixed(0)}%</strong> of the time
           </>
         ) : null}
         .
@@ -252,6 +267,9 @@ function TrackRates({ trackKey, ts }: { trackKey: string; ts: TrackSummary }) {
     Object.entries(ts.emission_rate_by_level ?? {}).forEach(([lvl, v]) =>
       rows.push([`Quoted when asked (${lvl})`, pct(v)]),
     );
+  } else if (trackKey === "phantom") {
+    rows.push(["Declined fake references", pct(ts.refusal_rate)]);
+    rows.push(["Invented / substituted a verse", pct(ts.hallucination_rate)]);
   } else if (trackKey === "adversarial") {
     rows.push(["Held firm on 1st attempt", pct(ts.resistance_at_1)]);
     rows.push(["Corrected the user", pct(ts.correction_rate)]);

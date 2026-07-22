@@ -7,7 +7,7 @@ import { FilterBar, buildVersionsByLang } from "../FilterBar";
 import { wordDiff, type DiffPart } from "../diff";
 import { useAsync } from "../hooks";
 
-const TRACKS = ["simple", "topical", "adversarial"] as const;
+const TRACKS = ["simple", "topical", "phantom"] as const;
 
 export function Failures() {
   const { runId = "" } = useParams();
@@ -107,9 +107,43 @@ export function Failures() {
 }
 
 function FailureCard({ item, track }: { item: FailureItem; track: string }) {
+  if (track === "phantom") return <PhantomCard item={item} />;
   if (track === "adversarial") return <AdversarialCard item={item} />;
   if (track === "topical") return <TopicalCard item={item} />;
   return <SimpleCard item={item} />;
+}
+
+function PhantomCard({ item }: { item: FailureItem }) {
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+      <div className="flex items-center justify-between mb-2">
+        <div className="font-mono text-sm">
+          {item.reference} · {item.version_abbrev} ·{" "}
+          <span className="text-slate-500">{item.language_tag}</span>
+        </div>
+        <span className="text-xs rounded bg-rose-500/15 text-rose-300 px-2 py-0.5">
+          {item.outcome === "quoted_real_verse" ? "substituted a real verse" : "invented a verse"}
+        </span>
+      </div>
+      <div className="text-xs text-slate-500 mb-2">
+        This reference does not exist — the model should have declined, not quoted.
+      </div>
+      <p className="text-sm whitespace-pre-wrap">{item.response_text}</p>
+      {item.quotes && item.quotes.length > 0 && (
+        <div className="mt-2 space-y-1">
+          {item.quotes.map((q, i) => (
+            <div key={i} className="text-sm">
+              <span className="text-xs rounded px-1.5 py-0.5 mr-2 bg-rose-500/15 text-rose-300">
+                {q.classification}
+              </span>
+              <span className="font-serif">“{q.quote}”</span>
+              {q.cited_usfm && <span className="text-slate-500"> — cited {q.cited_usfm}</span>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function SimpleCard({ item }: { item: FailureItem }) {

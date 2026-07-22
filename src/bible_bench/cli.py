@@ -38,7 +38,8 @@ from .config import (
 )
 from .dataset import BenchmarkItem, DatasetSampler, load_spec
 from .llm import LlmClient
-from .report import build_summary, summarize_simple, summarize_topical
+from .phantom import PhantomItem, build_phantom_items, load_phantom_config
+from .report import build_summary, summarize_phantom, summarize_simple, summarize_topical
 from .results_store import (
     GcsResultsStore,
     LocalResultsStore,
@@ -46,10 +47,12 @@ from .results_store import (
     rebuild_leaderboard,
 )
 from .runner import (
+    generate_phantom,
     generate_simple,
     generate_topical,
     prefetch_versions,
     run_adversarial,
+    score_phantom_items,
     score_simple,
     score_topical_items,
 )
@@ -57,8 +60,11 @@ from .scoring import SCORING_VERSION
 from .topical import TopicalItem, build_topical_items, load_topics
 from .yv_client import BibleClient
 
-# The benchmark always runs all three tracks — there is no track selection.
-ALL_TRACKS = ("simple", "topical", "adversarial")
+# The benchmark always runs all tracks — there is no track selection.
+# Adversarial (misquote-resistance) is paused this round; the phantom
+# (hallucination-resistance) track takes its place. The adversarial code path
+# stays wired but dormant (never in ALL_TRACKS).
+ALL_TRACKS = ("simple", "topical", "phantom")
 
 console = Console()
 
@@ -109,6 +115,10 @@ def _topical_items_from_json(rows: list[dict]) -> list[TopicalItem]:
     return [TopicalItem(**r) for r in rows]
 
 
+def _phantom_items_from_json(rows: list[dict]) -> list[PhantomItem]:
+    return [PhantomItem(**r) for r in rows]
+
+
 def _goals_from_json(rows: list[dict]) -> list[Goal]:
     return [Goal(**r) for r in rows]
 
@@ -147,8 +157,16 @@ async def cmd_run(args) -> int:
         console.print("[red]No API key provided.[/red]")
         return 2
 
+    provider_routing = None
+    if args.provider.strip():
+        order = [p.strip() for p in args.provider.split(",") if p.strip()]
+        provider_routing = {"order": order, "allow_fallbacks": False}
+        if urlparse(args.base_url).hostname != "openrouter.ai":
+            console.print("[yellow]--provider is set but --base-url isn't OpenRouter; "
+                          "the pin will be ignored.[/yellow]")
     model_cfg = LlmEndpointConfig(
-        base_url=args.base_url, api_key=api_key, model=args.model, label=args.label
+        base_url=args.base_url, api_key=api_key, model=args.model, label=args.label,
+        provider_routing=provider_routing,
     )
     store = _store_from_args(args)
     client = BibleClient(bible_cfg, cache_dir=_cache_dir(args), offline=True)
@@ -195,12 +213,26 @@ async def cmd_run(args) -> int:
                 keep = max(1, int(len(adv_goals) * args.scale))
                 adv_goals = adv_goals[:keep]
             console.print(f"Loaded [bold]{len(adv_goals)}[/bold] adversarial goals.")
+        phantom_items = []
+        if "phantom" in tracks:
+            pcfg = load_phantom_config(args.phantom)
+            phantom_langs = (
+                [x.strip() for x in args.phantom_languages.split(",") if x.strip()]
+                if args.phantom_languages else None
+            )
+            phantom_items = await build_phantom_items(client, pcfg, languages=phantom_langs)
+            if args.scale < 1.0:
+                keep = max(1, int(len(phantom_items) * args.scale))
+                phantom_items = phantom_items[:keep]
+            console.print(f"Built [bold]{len(phantom_items)}[/bold] phantom items across "
+                          f"{len({i.language_tag for i in phantom_items})} languages.")
         manifest = {
             "run_key": run_key,
             "run_version": run_version,
             "dataset_spec": args.spec,
             "topics_file": args.topics,
             "goals_file": args.goals,
+            "phantom_file": args.phantom,
             "tracks": sorted(tracks),
             "scale": args.scale,
             "scoring_version": SCORING_VERSION,
@@ -208,6 +240,7 @@ async def cmd_run(args) -> int:
                 "label": model_cfg.label,
                 "model": model_cfg.model,
                 "base_url_host": urlparse(model_cfg.base_url).hostname or "",
+                "provider_routing": model_cfg.provider_routing,
             },
             "adversarial": {
                 "version_id": adv_cfg.version_id,
@@ -220,6 +253,7 @@ async def cmd_run(args) -> int:
             "published": False,
             "items": [i.to_json() for i in items],
             "topical_items": [i.to_json() for i in topical_items],
+            "phantom_items": [i.to_json() for i in phantom_items],
         }
         store.write_json(f"{run_dir}/manifest.json", manifest)
 
@@ -235,6 +269,12 @@ async def cmd_run(args) -> int:
                 store, run_dir, "responses_topical.jsonl", "Querying model (topical)",
                 lambda done, cp, tick: generate_topical(
                     topical_items, model, already_done=done, checkpoint=cp, progress=tick),
+            )
+        if phantom_items:
+            await _generate_track(
+                store, run_dir, "responses_phantom.jsonl", "Querying model (phantom)",
+                lambda done, cp, tick: generate_phantom(
+                    phantom_items, model, already_done=done, checkpoint=cp, progress=tick),
             )
         if adv_goals:
             adv_meta = manifest["adversarial"]
@@ -253,7 +293,9 @@ async def cmd_run(args) -> int:
         store.write_json(f"{run_dir}/manifest.json", manifest)
 
         # 3. Scoring pass.
-        await _score_and_summarize(store, run_dir, items, topical_items, client, model)
+        await _score_and_summarize(
+            store, run_dir, items, topical_items, phantom_items, client, model
+        )
     finally:
         await client.aclose()
 
@@ -277,7 +319,9 @@ async def _generate_track(store, run_dir, filename, desc, gen, *, id_key="item_i
         await gen(set(), write_checkpoint, tick)
 
 
-async def _score_and_summarize(store, run_dir, items, topical_items, client, model) -> None:
+async def _score_and_summarize(
+    store, run_dir, items, topical_items, phantom_items, client, model
+) -> None:
     track_summaries: dict[str, dict] = {}
 
     if items:
@@ -314,6 +358,24 @@ async def _score_and_summarize(store, run_dir, items, topical_items, client, mod
         )
         if scored_t:
             track_summaries["topical"] = summarize_topical(scored_t)
+
+    if phantom_items:
+        responses = store.read_jsonl(f"{run_dir}/responses_phantom.jsonl")
+        with _progress("Scoring (phantom)") as (prog, task):
+            prog.update(task, total=len(responses))
+
+            def tick(ev: dict) -> None:
+                if ev["phase"] == "score":
+                    prog.update(task, completed=ev["completed"])
+
+            scored_p = await score_phantom_items(
+                {i.id: i for i in phantom_items}, responses, client, progress=tick)
+        store.write_text(
+            f"{run_dir}/items_phantom.jsonl",
+            "\n".join(json.dumps(r, ensure_ascii=False) for r in scored_p) + "\n",
+        )
+        if scored_p:
+            track_summaries["phantom"] = summarize_phantom(scored_p)
 
     adv_records = store.read_jsonl(f"{run_dir}/adversarial.jsonl")
     if adv_records:
@@ -356,9 +418,12 @@ async def cmd_score(args) -> int:
     client = _bible_client(args, offline=True)
     items = _items_from_json(manifest.get("items", []))
     topical_items = _topical_items_from_json(manifest.get("topical_items", []))
+    phantom_items = _phantom_items_from_json(manifest.get("phantom_items", []))
     no_usage = SimpleNamespace(usage=SimpleNamespace(input_tokens=0, output_tokens=0, calls=0))
     try:
-        await _score_and_summarize(store, run_dir, items, topical_items, client, no_usage)
+        await _score_and_summarize(
+            store, run_dir, items, topical_items, phantom_items, client, no_usage
+        )
     finally:
         await client.aclose()
     return 0
@@ -418,6 +483,11 @@ def _prefetch_version_ids(args, tracks: set[str]) -> list[int]:
         adv = load_goals(args.goals)
         ids.add(adv.version_id)
         ids.update(adv.accepted_version_ids)
+    if "phantom" in tracks:
+        pcfg = load_phantom_config(args.phantom)
+        for block in pcfg.languages.values():
+            ids.add(block["version_id"])
+            ids.update(block.get("accepted_version_ids", []))
     return sorted(ids)
 
 
@@ -492,6 +562,11 @@ def _print_summary(summary: dict) -> None:
         if topical.get("sensitive_topic_score") is not None:
             t.add_row("Sensitive-topic score", f"{100 * topical['sensitive_topic_score']:.1f}")
         t.add_row("Topical fabricated quotes", str(topical.get("fabricated_quote_count", 0)))
+    phantom = summary.get("tracks", {}).get("phantom")
+    if phantom:
+        t.add_row("Hallucination resistance", f"{100 * phantom['track_score']:.1f}")
+        t.add_row("Declined phantom refs", f"{100 * phantom.get('refusal_rate', 0):.1f}%")
+        t.add_row("Hallucinated a verse", f"{100 * phantom.get('hallucination_rate', 0):.1f}%")
     adv = summary.get("tracks", {}).get("adversarial")
     if adv:
         t.add_row("Adversarial resistance@1", f"{100 * adv.get('resistance_at_1', 0):.1f}%")
@@ -548,12 +623,22 @@ def main(argv: list[str] | None = None) -> int:
                         "the same model + version overwrites that result.")
     r.add_argument("--api-key-env", default="TARGET_API_KEY",
                    help="Env var holding the API key (default TARGET_API_KEY)")
+    r.add_argument("--provider", default="",
+                   help="OpenRouter only: comma-separated upstream provider slug(s) to "
+                        "pin routing to (e.g. 'fireworks' or 'together,deepinfra'), with "
+                        "fallbacks disabled — fixes the upstream and its quantization so "
+                        "scoring is reproducible. Ignored for native endpoints; find a "
+                        "model's provider slugs on its OpenRouter page.")
     r.add_argument("--spec", default="dataset/spec-v1.json")
     r.add_argument("--topics", default="dataset/topics-v1.json")
     r.add_argument("--topical-languages", default="",
                    help="Comma-separated language tags to limit the topical track to "
                         "(e.g. 'eng'); default all languages in the topics file")
     r.add_argument("--goals", default="dataset/adversarial-goals-v1.json")
+    r.add_argument("--phantom", default="dataset/phantom-v1.json")
+    r.add_argument("--phantom-languages", default="",
+                   help="Comma-separated language tags to limit the hallucination track "
+                        "to (e.g. 'eng'); default all languages in the phantom file")
     r.add_argument("--scale", type=float, default=1.0,
                    help="Scale factor on per-tier counts (use <1 for quick pilots)")
     r.add_argument("--dummy", action="store_true", help="Echo mode; no API key needed")
@@ -586,6 +671,7 @@ def main(argv: list[str] | None = None) -> int:
     pf.add_argument("--spec", default="dataset/spec-v1.json")
     pf.add_argument("--topics", default="dataset/topics-v1.json")
     pf.add_argument("--goals", default="dataset/adversarial-goals-v1.json")
+    pf.add_argument("--phantom", default="dataset/phantom-v1.json")
     _add_cache_arg(pf)
 
     args = parser.parse_args(argv)

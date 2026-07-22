@@ -52,8 +52,9 @@ bible-bench run \
 - A run is identified by **(`--model` id, `--run-version`)** — no run-id. `--label` is a required display name, stored in the result for the website. The
   result is stored at `runs/{run-version}--{model-slug}/`; **re-running the same
   model + version overwrites it** (a fresh run, not a resume).
-- All three tracks (simple, topical, adversarial) always run — there is no track
-  selection.
+- All three tracks (simple, topical, hallucination/phantom) always run — there is
+  no track selection. The adversarial track is paused this round (code retained,
+  not wired into a run).
 - `--run-version` also **seeds the verse sample**, so every model at a given
   version is tested on the identical set — directly comparable.
 - `--scale <0..1>` shrinks per-tier counts for a quick pilot. `--dummy` runs
