@@ -102,6 +102,6 @@ leaderboard:
 
 ```bash
 bible-bench run  --base-url … --api-key-env TARGET_API_KEY --model … --label … \
-  --gcs-bucket biblelabs-bible-bench-results-beta
-bible-bench publish <run_id> --gcs-bucket biblelabs-bible-bench-results-beta
+  --run-version v0.1 --gcs-bucket biblelabs-bible-bench-results-beta
+bible-bench publish --run-version v0.1 --label "GPT-5.2" --gcs-bucket biblelabs-bible-bench-results-beta
 ```

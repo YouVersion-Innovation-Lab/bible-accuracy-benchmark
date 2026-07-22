@@ -3,12 +3,12 @@
 ## Components
 
 - **Evaluation engine** (`src/bible_bench/`) — Python package. Fetches ground-truth verse
-  text from YouVersion's Bible API at runtime (in-memory cache only; never written to
-  disk), runs the three benchmark tracks against any OpenAI-compatible endpoint, and
+  text from YouVersion's Bible API (into a local operator cache via `prefetch`;
+  see the runbook — nothing is written to disk in the deployed service), runs the three benchmark tracks against any OpenAI-compatible endpoint, and
   scores results deterministically.
 - **CLI runner** (`bible-bench`) — runs evaluations locally with live progress and writes
   run artifacts (manifest, responses, scored items, summary, transcripts) to the results
-  store. `bible-bench publish <run_id>` gates what appears on the public leaderboard.
+  store. `bible-bench publish --run-version <v> --label <model>` gates what appears on the public leaderboard.
 - **Results store** — a GCS bucket of JSON artifacts per environment
   (`biblelabs-bible-bench-results-{beta,release}`). Results are plain, auditable files.
 - **Public website** (`web/` + `src/bible_bench/api/`) — a single Cloud Run service per

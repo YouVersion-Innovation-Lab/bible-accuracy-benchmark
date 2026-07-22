@@ -57,7 +57,8 @@ from .scoring import SCORING_VERSION
 from .topical import TopicalItem, build_topical_items, load_topics
 from .yv_client import BibleClient
 
-DEFAULT_TRACKS = "simple,topical,adversarial"
+# The benchmark always runs all three tracks — there is no track selection.
+ALL_TRACKS = ("simple", "topical", "adversarial")
 
 console = Console()
 
@@ -153,81 +154,75 @@ async def cmd_run(args) -> int:
     client = BibleClient(bible_cfg, cache_dir=_cache_dir(args), offline=True)
     model = LlmClient(model_cfg, dummy=args.dummy)
 
-    tracks = {t.strip() for t in args.tracks.split(",") if t.strip()}
-    run_id = args.run_id or f"{datetime.now(UTC):%Y%m%dT%H%M%SZ}-{_slug(model_cfg.label)}"
-    run_dir = f"runs/{run_id}"
+    tracks = set(ALL_TRACKS)
+    run_version = args.run_version
+    run_key = _run_key(run_version, model_cfg.label)
+    run_dir = f"runs/{run_key}"
     tracks_str = ",".join(sorted(tracks))
-    console.print(f"[bold]Run:[/bold] {run_id}  ·  model [cyan]{model_cfg.label}[/cyan]  ·  "
-                  f"seed [cyan]{args.seed}[/cyan]  ·  tracks [cyan]{tracks_str}[/cyan]")
+    console.print(f"[bold]Run:[/bold] {run_key}  ·  model [cyan]{model_cfg.label}[/cyan]  ·  "
+                  f"version [cyan]{run_version}[/cyan]  ·  tracks [cyan]{tracks_str}[/cyan]")
 
     try:
-        # 1. Fix the item set once: reuse on resume, else sample/build and persist
-        #    the manifest immediately (so an interrupted run resumes the same set).
-        manifest = store.read_json(f"{run_dir}/manifest.json")
-        if manifest and manifest.get("tracks"):
-            items = _items_from_json(manifest.get("items", []))
-            topical_items = _topical_items_from_json(manifest.get("topical_items", []))
-            adv_meta = manifest.get("adversarial")
-            adv_goals = _goals_from_json(adv_meta["goals"]) if adv_meta else []
-            console.print(f"Resuming: {len(items)} simple + {len(topical_items)} topical "
-                          f"+ {len(adv_goals)} adversarial.")
-        else:
-            items = []
-            topical_items = []
-            if "simple" in tracks:
-                with console.status("Sampling simple-track items from spec…"):
-                    items = await _sample_items(client, args.spec, args.seed, args.scale)
-                console.print(f"Sampled [bold]{len(items)}[/bold] simple items across "
-                              f"{len({i.language_tag for i in items})} languages.")
-            if "topical" in tracks:
-                cfg = load_topics(args.topics)
-                topical_langs = (
-                    [x.strip() for x in args.topical_languages.split(",") if x.strip()]
-                    if args.topical_languages else None
-                )
-                topical_items = build_topical_items(cfg, languages=topical_langs)
-                if args.scale < 1.0:
-                    keep = max(1, int(len(topical_items) * args.scale))
-                    topical_items = topical_items[:keep]
-                console.print(f"Built [bold]{len(topical_items)}[/bold] topical items.")
-            adv_goals = []
-            adv_cfg = None
-            if "adversarial" in tracks:
-                adv_cfg = load_goals(args.goals)
-                adv_goals = adv_cfg.goals
-                if args.scale < 1.0:
-                    keep = max(1, int(len(adv_goals) * args.scale))
-                    adv_goals = adv_goals[:keep]
-                console.print(f"Loaded [bold]{len(adv_goals)}[/bold] adversarial goals.")
-            manifest = {
-                "run_id": run_id,
-                "dataset_spec": args.spec,
-                "topics_file": args.topics,
-                "goals_file": args.goals,
-                "tracks": sorted(tracks),
-                "seed": args.seed,
-                "scale": args.scale,
-                "scoring_version": SCORING_VERSION,
-                "model": {
-                    "label": model_cfg.label,
-                    "model": model_cfg.model,
-                    "base_url_host": urlparse(model_cfg.base_url).hostname or "",
-                },
-                "adversarial": {
-                    "version_id": adv_cfg.version_id,
-                    "accepted_version_ids": adv_cfg.accepted_version_ids,
-                    "turn_depth": adv_cfg.turn_depth,
-                    "goals": [g.to_json() for g in adv_goals],
-                } if adv_cfg else None,
-                "started_at": _now(),
-                "finished_at": None,
-                "published": False,
-                "items": [i.to_json() for i in items],
-                "topical_items": [i.to_json() for i in topical_items],
-            }
-            store.write_json(f"{run_dir}/manifest.json", manifest)
+        # Overwrite: a given (model, run-version) always writes the same place.
+        # Wipe any prior results there and build the item set fresh. The sample
+        # is seeded by run-version, so every model at a version gets the same set.
+        store.clear(run_dir)
+        items = []
+        topical_items = []
+        if "simple" in tracks:
+            with console.status("Sampling simple-track items from spec…"):
+                items = await _sample_items(client, args.spec, run_version, args.scale)
+            console.print(f"Sampled [bold]{len(items)}[/bold] simple items across "
+                          f"{len({i.language_tag for i in items})} languages.")
+        if "topical" in tracks:
+            cfg = load_topics(args.topics)
+            topical_langs = (
+                [x.strip() for x in args.topical_languages.split(",") if x.strip()]
+                if args.topical_languages else None
+            )
+            topical_items = build_topical_items(cfg, languages=topical_langs)
+            if args.scale < 1.0:
+                keep = max(1, int(len(topical_items) * args.scale))
+                topical_items = topical_items[:keep]
+            console.print(f"Built [bold]{len(topical_items)}[/bold] topical items.")
+        adv_goals = []
+        adv_cfg = None
+        if "adversarial" in tracks:
+            adv_cfg = load_goals(args.goals)
+            adv_goals = adv_cfg.goals
+            if args.scale < 1.0:
+                keep = max(1, int(len(adv_goals) * args.scale))
+                adv_goals = adv_goals[:keep]
+            console.print(f"Loaded [bold]{len(adv_goals)}[/bold] adversarial goals.")
+        manifest = {
+            "run_key": run_key,
+            "run_version": run_version,
+            "dataset_spec": args.spec,
+            "topics_file": args.topics,
+            "goals_file": args.goals,
+            "tracks": sorted(tracks),
+            "scale": args.scale,
+            "scoring_version": SCORING_VERSION,
+            "model": {
+                "label": model_cfg.label,
+                "model": model_cfg.model,
+                "base_url_host": urlparse(model_cfg.base_url).hostname or "",
+            },
+            "adversarial": {
+                "version_id": adv_cfg.version_id,
+                "accepted_version_ids": adv_cfg.accepted_version_ids,
+                "turn_depth": adv_cfg.turn_depth,
+                "goals": [g.to_json() for g in adv_goals],
+            } if adv_cfg else None,
+            "started_at": _now(),
+            "finished_at": None,
+            "published": False,
+            "items": [i.to_json() for i in items],
+            "topical_items": [i.to_json() for i in topical_items],
+        }
+        store.write_json(f"{run_dir}/manifest.json", manifest)
 
-        # 2. Generation passes (resumable via already-written responses).
+        # 2. Generation passes (fresh — the run dir was cleared above).
         if items:
             await _generate_track(
                 store, run_dir, "responses.jsonl", "Querying model (simple)",
@@ -262,26 +257,23 @@ async def cmd_run(args) -> int:
         await client.aclose()
 
     console.print(f"[green]Done.[/green] Results in [bold]{run_dir}[/bold]. "
-                  f"Publish with: bible-bench publish {run_id}")
+                  f"Publish with: bible-bench publish --run-version {run_version} "
+                  f"--label \"{model_cfg.label}\"")
     return 0
 
 
 async def _generate_track(store, run_dir, filename, desc, gen, *, id_key="item_id") -> None:
-    """Run one generation pass with a resumable checkpoint + progress bar."""
-    prior = store.read_jsonl(f"{run_dir}/{filename}")
-    done = {r[id_key] for r in prior}
-    if done:
-        console.print(f"{len(done)} records already present in {filename}; continuing.")
+    """Run one generation pass, checkpointing progress to the run dir."""
     with _progress(desc) as (prog, task):
         def write_checkpoint(new_records: list[dict]) -> None:
-            lines = "\n".join(json.dumps(r, ensure_ascii=False) for r in prior + new_records)
+            lines = "\n".join(json.dumps(r, ensure_ascii=False) for r in new_records)
             store.write_text(f"{run_dir}/{filename}", lines + "\n")
 
         def tick(ev: dict) -> None:
             if ev["phase"] == "generate":
                 prog.update(task, total=ev["total"], completed=ev["completed"])
 
-        await gen(done, write_checkpoint, tick)
+        await gen(set(), write_checkpoint, tick)
 
 
 async def _score_and_summarize(store, run_dir, items, topical_items, client, model) -> None:
@@ -352,10 +344,12 @@ async def _score_and_summarize(store, run_dir, items, topical_items, client, mod
 
 async def cmd_score(args) -> int:
     store = _store_from_args(args)
-    run_dir = f"runs/{args.run_id}"
+    run_key = _run_key(args.run_version, args.label)
+    run_dir = f"runs/{run_key}"
     manifest = store.read_json(f"{run_dir}/manifest.json")
     if not manifest:
-        console.print(f"[red]No manifest for run {args.run_id}[/red]")
+        console.print(f"[red]No run found for {run_key} (version={args.run_version}, "
+                      f"label={args.label!r}).[/red]")
         return 2
     _require_cache(args)  # scoring reads only from the local cache
     client = _bible_client(args, offline=True)
@@ -371,15 +365,17 @@ async def cmd_score(args) -> int:
 
 def cmd_publish(args, published: bool) -> int:
     store = _store_from_args(args)
-    run_dir = f"runs/{args.run_id}"
+    run_key = _run_key(args.run_version, args.label)
+    run_dir = f"runs/{run_key}"
     manifest = store.read_json(f"{run_dir}/manifest.json")
     if not manifest:
-        console.print(f"[red]No manifest for run {args.run_id}[/red]")
+        console.print(f"[red]No run found for {run_key} (version={args.run_version}, "
+                      f"label={args.label!r}).[/red]")
         return 2
     manifest["published"] = published
     store.write_json(f"{run_dir}/manifest.json", manifest)
     board = rebuild_leaderboard(store)
-    console.print(f"[green]{'Published' if published else 'Unpublished'}[/green] {args.run_id}. "
+    console.print(f"[green]{'Published' if published else 'Unpublished'}[/green] {run_key}. "
                   f"Leaderboard now has {len(board['entries'])} run(s).")
     return 0
 
@@ -388,7 +384,7 @@ async def cmd_build_dataset(args) -> int:
     client = _bible_client(args)
     try:
         with console.status("Sampling…"):
-            items = await _sample_items(client, args.spec, args.seed, args.scale)
+            items = await _sample_items(client, args.spec, args.run_version, args.scale)
     finally:
         await client.aclose()
     if args.out:
@@ -429,7 +425,7 @@ async def cmd_prefetch(args) -> int:
     if not cache:
         console.print("[red]--cache-dir (or BENCH_CACHE_DIR) is required for prefetch.[/red]")
         return 2
-    tracks = {t.strip() for t in args.tracks.split(",") if t.strip()}
+    tracks = set(ALL_TRACKS)
     try:
         version_ids = _prefetch_version_ids(args, tracks)
     except ConfigError as e:
@@ -509,6 +505,14 @@ def _slug(s: str) -> str:
     return "".join(c if c.isalnum() else "-" for c in s.lower()).strip("-")[:40]
 
 
+def _run_key(run_version: str, label: str) -> str:
+    """Deterministic run identifier from (version, model). Re-running the same
+    (version, model) resolves to the same location and overwrites it — there is
+    no separate run-id concept."""
+    v = "".join(c if (c.isalnum() or c in ".-") else "-" for c in run_version).strip("-")
+    return f"{v}--{_slug(label)}"
+
+
 def _add_cache_arg(p) -> None:
     p.add_argument("--cache-dir",
                    help="Local dir for cached Bible text (reused across runs; "
@@ -541,29 +545,31 @@ def main(argv: list[str] | None = None) -> int:
                    help="Comma-separated language tags to limit the topical track to "
                         "(e.g. 'eng'); default all languages in the topics file")
     r.add_argument("--goals", default="dataset/adversarial-goals-v1.json")
-    r.add_argument("--tracks", default=DEFAULT_TRACKS,
-                   help="Comma-separated tracks to run (default: simple,topical,adversarial)")
-    r.add_argument("--seed", default="2026-pilot")
+    r.add_argument("--run-version", default="dev",
+                   help="Benchmark run version (e.g. v0.1). Identifies the result "
+                        "together with the model and seeds the verse sample; re-running "
+                        "the same model + version overwrites that result.")
     r.add_argument("--scale", type=float, default=1.0,
                    help="Scale factor on per-tier counts (use <1 for quick pilots)")
-    r.add_argument("--run-id")
     r.add_argument("--dummy", action="store_true", help="Echo mode; no API key needed")
     _add_cache_arg(r)
     _add_store_args(r)
 
     s = sub.add_parser("score", help="Re-score an existing run")
-    s.add_argument("run_id")
+    s.add_argument("--run-version", required=True)
+    s.add_argument("--label", required=True, help="Model label used for the run")
     _add_cache_arg(s)
     _add_store_args(s)
 
     for name in ("publish", "unpublish"):
         p = sub.add_parser(name)
-        p.add_argument("run_id")
+        p.add_argument("--run-version", required=True)
+        p.add_argument("--label", required=True, help="Model label used for the run")
         _add_store_args(p)
 
     b = sub.add_parser("build-dataset", help="Draw a fresh item set from the spec")
     b.add_argument("--spec", default="dataset/spec-v1.json")
-    b.add_argument("--seed", default="2026-pilot")
+    b.add_argument("--run-version", default="dev", help="Seeds the verse sample")
     b.add_argument("--scale", type=float, default=1.0)
     b.add_argument("--out")
     _add_cache_arg(b)
@@ -572,8 +578,6 @@ def main(argv: list[str] | None = None) -> int:
     pf = sub.add_parser("prefetch",
                         help="Download Bible text for all benchmark versions into a "
                              "local cache (run once; reused across runs)")
-    pf.add_argument("--tracks", default=DEFAULT_TRACKS,
-                    help="Which tracks' versions to fetch (default: all)")
     pf.add_argument("--spec", default="dataset/spec-v1.json")
     pf.add_argument("--topics", default="dataset/topics-v1.json")
     pf.add_argument("--goals", default="dataset/adversarial-goals-v1.json")

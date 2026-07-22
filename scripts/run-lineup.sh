@@ -2,7 +2,7 @@
 # Run the benchmark across the launch lineup, one model per provider, into a
 # results store. Edit MODELS below to set exact model IDs and labels.
 #
-#   scripts/run-lineup.sh <seed> [--gcs-bucket BUCKET | --local-dir DIR] [extra bible-bench args]
+#   scripts/run-lineup.sh <run-version> [--gcs-bucket BUCKET | --local-dir DIR] [extra bible-bench args]
 #
 # Optional convenience for running the whole board at once. Export each
 # provider's key in your shell first (a local .env is sourced if present):
@@ -10,11 +10,12 @@
 #   export OPENAI_API_KEY=… ANTHROPIC_API_KEY=… GEMINI_API_KEY=… OPENROUTER_API_KEY=…
 #
 # A provider is skipped (with a note) if its key isn't set, so partial lineups
-# just work. Nothing is published — review each run, then
-# `bible-bench publish <run_id>` the ones you want live.
+# just work. All models use the same run-version, so they share the verse sample
+# and are comparable. Nothing is published — review each run, then
+# `bible-bench publish --run-version <v> --label <label>` the ones you want live.
 set -euo pipefail
 
-SEED="${1:?usage: run-lineup.sh <seed> [store args...]}"; shift || true
+RUN_VERSION="${1:?usage: run-lineup.sh <run-version> [store args...]}"; shift || true
 STORE_ARGS=("$@")
 [ ${#STORE_ARGS[@]} -eq 0 ] && STORE_ARGS=(--gcs-bucket biblelabs-bible-bench-results-beta)
 
@@ -55,9 +56,9 @@ for entry in "${MODELS[@]}"; do
     --base-url "${BASE[$provider]}" \
     --api-key-env "$keyvar" \
     --model "$model" --label "$label" \
-    --tracks simple,topical,adversarial \
-    --seed "$SEED" \
+    --run-version "$RUN_VERSION" \
     "${STORE_ARGS[@]}"
 done
 
-echo ">> Done. Review each run, then: bible-bench publish <run_id> ${STORE_ARGS[*]}"
+echo ">> Done. Review each run, then:"
+echo ">>   bible-bench publish --run-version $RUN_VERSION --label \"<label>\" ${STORE_ARGS[*]}"

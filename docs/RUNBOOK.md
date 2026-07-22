@@ -21,9 +21,7 @@ every run reuses it:
 
 ```bash
 export BENCH_CACHE_DIR=./bible-cache      # or pass --cache-dir to each command
-bible-bench prefetch                      # all tracks: ~61 versions, ~72k chapters
-# scope it if you like:
-bible-bench prefetch --tracks topical --cache-dir ./bible-cache
+bible-bench prefetch                      # ~61 versions, ~72k chapters
 ```
 
 Full prefetch is ~10 minutes and ~440 MB on disk, one time (idempotent/resumable
@@ -47,27 +45,32 @@ bible-bench run \
   --base-url https://api.openai.com/v1 \
   --api-key-env TARGET_API_KEY \
   --model gpt-5.2 --label "GPT-5.2" \
-  --tracks simple,topical,adversarial \
-  --seed 2026-Q3 \
+  --run-version v0.1 \
   --gcs-bucket biblelabs-bible-bench-results-beta
 ```
 
-- `--tracks` selects any subset. `--scale <0..1>` shrinks per-tier counts for a
-  quick pilot. `--dummy` runs without any model API (echo mode) for plumbing tests.
-- `--local-dir DIR` writes to a local folder instead of GCS (development).
-- Runs are **resumable**: re-run with the same `--run-id` to continue after an
-  interruption (already-completed items are skipped).
+- A run is identified by **(model label, `--run-version`)** — no run-id. The
+  result is stored at `runs/{run-version}--{model-slug}/`; **re-running the same
+  model + version overwrites it** (a fresh run, not a resume).
+- All three tracks (simple, topical, adversarial) always run — there is no track
+  selection.
+- `--run-version` also **seeds the verse sample**, so every model at a given
+  version is tested on the identical set — directly comparable.
+- `--scale <0..1>` shrinks per-tier counts for a quick pilot. `--dummy` runs
+  without any model API (echo mode) for plumbing tests. `--local-dir DIR` writes
+  to a local folder instead of GCS.
 - Generation and scoring are separate passes. Re-score without re-querying:
-  `bible-bench score <run_id> --gcs-bucket …` (picks up a new `SCORING_VERSION`).
+  `bible-bench score --run-version v0.1 --label "GPT-5.2" --gcs-bucket …`
+  (picks up a new `SCORING_VERSION`).
 
 ## Review, then publish
 
 A run is not on the leaderboard until published. Review the run's `summary.json`
-and a sample of `items*.jsonl` first, then:
+and a sample of `items*.jsonl` first, then (identify the run by version + label):
 
 ```bash
-bible-bench publish   <run_id> --gcs-bucket biblelabs-bible-bench-results-beta
-bible-bench unpublish <run_id> --gcs-bucket biblelabs-bible-bench-results-beta
+bible-bench publish   --run-version v0.1 --label "GPT-5.2" --gcs-bucket biblelabs-bible-bench-results-beta
+bible-bench unpublish --run-version v0.1 --label "GPT-5.2" --gcs-bucket biblelabs-bible-bench-results-beta
 ```
 
 Publish/unpublish rebuilds `leaderboard.json`. The public site serves published
@@ -86,11 +89,11 @@ gcloud run services describe bible-bench-web-beta \
 
 ## Refresh cadence (leaderboard)
 
-Each leaderboard refresh draws a fresh simple-track sample from the public spec
-with a new published seed (`--seed`), so models can't memorize a fixed list.
-Run all models in a refresh with the **same seed** for a fair head-to-head, then
-publish. Ad-hoc runs between refreshes should reuse the current refresh's seed to
-stay comparable.
+Each leaderboard refresh uses a new `--run-version`, which draws a fresh
+simple-track sample from the public spec (the version string seeds the sample),
+so models can't memorize a fixed list. Run all models in a refresh with the
+**same `--run-version`** for a fair head-to-head, then publish. Bump the version
+(e.g. `v0.1` → `v0.2`) for the next refresh.
 
 ## Common issues
 

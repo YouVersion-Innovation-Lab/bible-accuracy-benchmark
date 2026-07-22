@@ -32,6 +32,11 @@ class ResultsStore(ABC):
     @abstractmethod
     def list_dir(self, prefix: str) -> list[str]: ...
 
+    @abstractmethod
+    def clear(self, prefix: str) -> None:
+        """Delete everything under ``prefix`` (used to overwrite a run)."""
+        ...
+
     def write_json(self, path: str, obj: object) -> None:
         self.write_text(path, json.dumps(obj, ensure_ascii=False, indent=2))
 
@@ -74,6 +79,13 @@ class LocalResultsStore(ResultsStore):
             return []
         return sorted(child.name for child in base.iterdir())
 
+    def clear(self, prefix: str) -> None:
+        import shutil
+
+        base = self._p(prefix)
+        if base.exists():
+            shutil.rmtree(base)
+
 
 class GcsResultsStore(ResultsStore):
     def __init__(self, bucket: str):
@@ -97,6 +109,11 @@ class GcsResultsStore(ResultsStore):
                 names.add(rest.split("/", 1)[0])
         return sorted(names)
 
+    def clear(self, prefix: str) -> None:
+        prefix = prefix.rstrip("/") + "/"
+        for blob in self._bucket.list_blobs(prefix=prefix):
+            blob.delete()
+
 
 def rebuild_leaderboard(store: ResultsStore) -> dict:
     """Assemble leaderboard.json from all published runs' summaries."""
@@ -111,6 +128,7 @@ def rebuild_leaderboard(store: ResultsStore) -> dict:
         entries.append(
             {
                 "run_id": run_id,
+                "run_version": manifest.get("run_version"),
                 "model_label": manifest["model"]["label"],
                 "provider_host": manifest["model"].get("base_url_host", ""),
                 "run_date": manifest.get("finished_at") or manifest.get("started_at"),
