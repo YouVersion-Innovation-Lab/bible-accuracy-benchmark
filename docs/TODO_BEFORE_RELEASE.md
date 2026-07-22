@@ -74,6 +74,12 @@ Status legend: ☐ open · ☑ done
 - ☐ **Per-language version IDs**: verify/curate the Bible version chosen for
   each of the 28 languages (Claude picked these from `versions.json`; a quick
   human sanity-check per language is worthwhile).
+- ☐ **Versification mapping** (v2): the famous-verse list uses standard
+  (Protestant/Hebrew) numbering, so a version with different versification
+  (e.g. the Greek/Septuagint Psalms — Psalm 23 doesn't exist there) simply
+  skips those references rather than mapping them. Fine for v1 (fewer items on
+  mismatched refs, no error), but a proper versification map would let every
+  version be tested on the same verse concept.
 - ☐ **Uptime check + alerting** on the production service and a monitored
   health signal (`/health`).
 - ☐ **Methodology page final pass** once the headline lineup and any content

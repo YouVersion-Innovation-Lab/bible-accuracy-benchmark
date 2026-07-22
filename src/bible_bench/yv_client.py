@@ -155,6 +155,7 @@ class BibleClient:
         # version_id -> version.json data
         self._versions: dict[int, dict] = {}
         self._locks: dict[object, asyncio.Lock] = {}
+        self._chapter_sets: dict[int, frozenset[str]] = {}
         self._cache_dir = Path(cache_dir) if cache_dir else None
         # Offline: serve only from the local cache; a miss raises instead of
         # hitting the API. Used by evaluations so a run never silently fetches.
@@ -270,10 +271,17 @@ class BibleClient:
                 if self._cache_dir and (disk := self._load_chapter_disk(*key)) is not None:
                     self._chapters[key] = disk
                 elif self._offline:
-                    raise CacheMissError(
-                        f"{key[1]} (version {version_id}) not in cache ({self._cache_dir}); "
-                        f"run `bible-bench prefetch` first"
-                    )
+                    # Distinguish "absent in this version" from "not prefetched".
+                    # A chapter the version doesn't have (e.g. Septuagint Psalm
+                    # numbering, where PSA.23 doesn't exist) is treated as empty,
+                    # exactly like a 404 online — not a cache gap.
+                    if key[1] not in await self._known_chapters(version_id):
+                        self._chapters[key] = {}
+                    else:
+                        raise CacheMissError(
+                            f"{key[1]} (version {version_id}) not in cache "
+                            f"({self._cache_dir}); run `bible-bench prefetch` first"
+                        )
                 else:
                     try:
                         data = await self._get(
@@ -292,6 +300,14 @@ class BibleClient:
                     if self._cache_dir:
                         self._save_chapter_disk(*key, self._chapters[key])
         return self._chapters[key]
+
+    async def _known_chapters(self, version_id: int) -> frozenset[str]:
+        """Set of chapter USFMs this version actually has (from version.json),
+        memoized. Used offline to tell an absent chapter from a cache gap."""
+        if version_id not in self._chapter_sets:
+            chs = await self.chapter_usfms(version_id)
+            self._chapter_sets[version_id] = frozenset(c.upper() for c in chs)
+        return self._chapter_sets[version_id]
 
     async def chapter_usfms(self, version_id: int) -> list[str]:
         """Every canonical chapter USFM in a version (from version.json).

@@ -101,6 +101,24 @@ async def test_offline_miss_raises_not_fetches(tmp_path):
     await c.aclose()
 
 
+async def test_offline_absent_chapter_returns_empty_not_error(tmp_path):
+    # Prefetch a version whose version.json lists only GEN.1 (so GEN.2 is
+    # genuinely absent, like Septuagint Psalm numbering). Offline lookups of
+    # the absent chapter must return {} (→ verse None → skipped), not raise.
+    warm = _StubClient(tmp_path)
+    await warm.version(111)           # caches version.json (only GEN.1)
+    await warm.chapter(111, "GEN.1")  # caches the one real chapter
+    await warm.aclose()
+
+    c = _StubClient(tmp_path, offline=True)
+    assert await c.chapter(111, "GEN.2") == {}      # absent in version → empty
+    assert await c.verse(111, "GEN.2.5") is None    # → sampler skips it
+    with pytest.raises(CacheMissError):
+        await c.chapter(999, "GEN.1")               # unknown version → still errors
+    assert c.calls == 0
+    await c.aclose()
+
+
 async def test_offline_serves_prefetched(tmp_path):
     # Prefetch online, then read offline with zero network.
     warm = _StubClient(tmp_path)
