@@ -23,6 +23,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import urlparse
 
+from dotenv import find_dotenv, load_dotenv
 from rich.console import Console
 from rich.progress import BarColumn, Progress, TextColumn, TimeRemainingColumn
 from rich.table import Table
@@ -501,6 +502,11 @@ def _add_store_args(p) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Load a local .env from the directory the command is run in (BENCH_CACHE_DIR,
+    # Bible API headers, harness config, etc.). Explicit + cwd-based so it works
+    # regardless of how the package is installed.
+    load_dotenv(find_dotenv(usecwd=True))
+
     parser = argparse.ArgumentParser(prog="bible-bench")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
