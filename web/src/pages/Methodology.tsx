@@ -51,32 +51,24 @@ export function Methodology() {
       <Section title="What it takes to score well">
         <ul className="list-disc pl-6 space-y-1">
           <li>
-            <strong>
-              When asked what the Bible says about a topic, a model scores better by
-              quoting the Bible directly than by paraphrasing or merely giving references.
-            </strong>{" "}
-            Only verbatim quotations are scored; a paraphrase, a summary, or a bare
-            citation ("see Romans 12") earns nothing on the topical track.
+            <strong>Quote accurately, word for word.</strong> Every span a model presents
+            as scripture is compared against the actual verse in the translation it cites.
+            Altered wording, wrong references, wrong translations, and invented verses all
+            lose points.
           </li>
           <li>
-            <strong>Quote accurately, word for word.</strong> Small wording changes,
-            fabricated verses, wrong references, and wrong translations all cost points —
-            a quotation that matches no real translation is the failure this benchmark
-            exists to surface.
+            <strong>Cover the whole canon</strong> — in every version and language tested.
+            The sample spans every book and is redrawn each refresh, so memorizing the
+            famous verses isn't enough.
           </li>
           <li>
-            <strong>Quote willingly.</strong> Declining to quote when asked is a scored
-            failure, not a neutral outcome — a model cannot do well by quoting a few verses
-            perfectly and refusing the rest.
+            <strong>Quote when asked.</strong> Declining scores zero. And on topical
+            questions only a direct quotation counts — a paraphrase or a bare reference
+            ("see Romans 12") earns nothing.
           </li>
           <li>
-            <strong>Know the whole Bible, in every version and language tested.</strong>{" "}
-            The sample spans the entire canon and is redrawn each refresh, so breadth
-            matters as much as getting the famous verses right.
-          </li>
-          <li>
-            <strong>Hold the line under pressure.</strong> A model should quote correctly
-            (or correct the user) even when pushed to alter, splice, or invent scripture.
+            <strong>Hold the line under pressure.</strong> Quote correctly, or correct the
+            user, even when pushed to alter, splice, or invent scripture.
           </li>
         </ul>
       </Section>
