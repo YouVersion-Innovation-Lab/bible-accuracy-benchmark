@@ -22,11 +22,11 @@ def _seed(tmp_path):
     })
     rows = [
         {"item_id": "i1", "track": "simple", "language_tag": "eng", "version_abbrev": "NIV",
-         "usfm": "JHN.3.16", "response_text": "wrong text here friends",
+         "version_id": 111, "usfm": "JHN.3.16", "response_text": "wrong text here friends",
          "expected_text": "For God so loved the world...",
          "score": {"grade": "major", "item_score": 0.2, "qer": 0.5}},
         {"item_id": "i2", "track": "simple", "language_tag": "eng", "version_abbrev": "NIV",
-         "usfm": "GEN.1.1", "response_text": "In the beginning...",
+         "version_id": 111, "usfm": "GEN.1.1", "response_text": "In the beginning...",
          "expected_text": "In the beginning God created...",
          "score": {"grade": "perfect", "item_score": 1.0, "qer": 0.0}},
     ]
@@ -75,6 +75,13 @@ def test_failures_excludes_perfect(tmp_path):
     i1 = next(i for i in r["items"] if i["id"] == "i1")
     assert i1["expected_text"].startswith("For God so loved")  # ground truth shown
     assert i1["response_text"] == "wrong text here friends"
+
+
+def test_failures_version_filter(tmp_path):
+    c = _client(tmp_path)
+    # Matching version_id keeps the failing item; a non-matching one filters it out.
+    assert c.get("/api/runs/run-a/failures?track=simple&version_id=111").json()["total"] == 1
+    assert c.get("/api/runs/run-a/failures?track=simple&version_id=999").json()["total"] == 0
 
 
 def test_cache_control_header(tmp_path):

@@ -6,7 +6,7 @@
       "runtimeExecutable": "bash",
       "runtimeArgs": [
         "-c",
-        "BENCH_LOCAL_DIR=results WEB_DIST=web/dist CACHE_TTL_SECONDS=0 .venv/bin/python -m uvicorn bible_bench.api.app:create_app --factory --host 127.0.0.1 --port 8100"
+        "BENCH_LOCAL_DIR=results WEB_DIST=web/dist CACHE_TTL_SECONDS=0 .venv/bin/python -m uvicorn bible_bench.api.app:create_app --factory --host 127.0.0.1 --port 8100 --reload --reload-dir src"
       ],
       "port": 8100
     }

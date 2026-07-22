@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, type LeaderboardEntry, type VersionScore } from "../api";
+import { api, type LeaderboardEntry } from "../api";
 import { ErrorMsg, Loading, ScoreBadge } from "../components";
 import { heatColor, langName, orderLanguages } from "../constants";
+import { FilterBar, buildVersionsByLang, sliceLabel, type VersionsByLang } from "../FilterBar";
 import { useAsync } from "../hooks";
 
 // A data column in the matrix: a value in [0,1] per model, or undefined if the
@@ -30,21 +31,10 @@ export function Leaderboard() {
   }, [data]);
 
   // version_id -> {abbrev, language} (union across models; scores read per-model).
-  const versionsByLang = useMemo(() => {
-    const map = new Map<string, VersionScore[]>();
-    if (!data) return map;
-    const seen = new Set<number>();
-    data.entries.forEach((e) =>
-      (e.versions || []).forEach((v) => {
-        if (seen.has(v.version_id)) return;
-        seen.add(v.version_id);
-        const arr = map.get(v.language_tag) || [];
-        arr.push(v);
-        map.set(v.language_tag, arr);
-      }),
-    );
-    return map;
-  }, [data]);
+  const versionsByLang = useMemo(
+    () => buildVersionsByLang(data ? data.entries.flatMap((e) => e.versions ?? []) : []),
+    [data],
+  );
 
   // The data columns depend on the active filter.
   const cols: Col[] = useMemo(() => {
@@ -91,8 +81,6 @@ export function Leaderboard() {
     setSortKey(vid != null ? `ver:${vid}` : filterLang ? `lang:${filterLang}` : HEADLINE);
   }
 
-  const langVersions = filterLang ? versionsByLang.get(filterLang) || [] : [];
-
   return (
     <div>
       <section className="mb-8 max-w-3xl">
@@ -112,52 +100,23 @@ export function Leaderboard() {
 
       {data && data.entries.length > 0 && (
         <>
-          <LeaderCards entries={data.entries} languages={languages} />
+          <LeaderCards
+            entries={data.entries}
+            languages={languages}
+            versionsByLang={versionsByLang}
+            filterLang={filterLang}
+            filterVersion={filterVersion}
+          />
 
-          <div className="mt-8 flex flex-wrap items-end gap-4">
-            <label className="text-sm">
-              <div className="text-xs text-slate-400 uppercase tracking-wide mb-1">Language</div>
-              <select
-                className="bg-white/[0.06] border border-white/10 rounded-md px-3 py-1.5 text-sm min-w-44"
-                value={filterLang ?? ""}
-                onChange={(ev) => chooseLang(ev.target.value || null)}
-              >
-                <option value="">All languages</option>
-                {languages.map((l) => (
-                  <option key={l} value={l}>
-                    {langName(l)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="text-sm">
-              <div className="text-xs text-slate-400 uppercase tracking-wide mb-1">
-                Bible version
-              </div>
-              <select
-                className="bg-white/[0.06] border border-white/10 rounded-md px-3 py-1.5 text-sm min-w-44 disabled:opacity-40"
-                value={filterVersion ?? ""}
-                disabled={!filterLang || langVersions.length <= 1}
-                onChange={(ev) =>
-                  chooseVersion(ev.target.value ? Number(ev.target.value) : null)
-                }
-              >
-                <option value="">All versions</option>
-                {langVersions.map((v) => (
-                  <option key={v.version_id} value={v.version_id}>
-                    {v.version_abbrev}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {(filterLang || filterVersion != null) && (
-              <button
-                className="text-xs text-slate-400 hover:text-white underline pb-2"
-                onClick={() => chooseLang(null)}
-              >
-                Clear filters
-              </button>
-            )}
+          <div className="mt-8">
+            <FilterBar
+              languages={languages}
+              versionsByLang={versionsByLang}
+              lang={filterLang}
+              version={filterVersion}
+              onLang={chooseLang}
+              onVersion={chooseVersion}
+            />
           </div>
 
           <div className="mt-4 overflow-x-auto rounded-xl border border-white/10">
@@ -268,30 +227,42 @@ function HeatCell({ value }: { value: number | undefined }) {
   );
 }
 
-function LeaderCards({
-  entries,
-  languages,
-}: {
-  entries: LeaderboardEntry[];
-  languages: string[];
-}) {
+interface CardSpec {
+  title: string;
+  e?: LeaderboardEntry;
+  val: number | undefined;
+  suffix?: string;
+  sub?: string;
+}
+
+// Direct-quote accuracy (0..1) for the active slice: a specific version, else a
+// language, else the composite headline.
+function sliceScore(
+  e: LeaderboardEntry,
+  lang: string | null,
+  version: number | null,
+): number | undefined {
+  if (version != null) return e.versions?.find((v) => v.version_id === version)?.score;
+  if (lang) return e.by_language?.[lang];
+  return e.headline_score == null ? undefined : e.headline_score / 100;
+}
+
+// Landing view (no filter): the three headline dimensions of the benchmark.
+function overallCards(entries: LeaderboardEntry[], languages: string[]): CardSpec[] {
   const best = [...entries].sort((a, b) => (b.headline_score ?? 0) - (a.headline_score ?? 0))[0];
   const mostResistant = [...entries].sort(
     (a, b) => (b.by_track?.adversarial ?? 0) - (a.by_track?.adversarial ?? 0),
   )[0];
-  // Consistent across languages = highest median language score (robust to a
-  // few zero-scoring languages that every model has).
+  // Robust to the few zero-scoring languages every model has.
   const widest = [...entries].sort(
     (a, b) => medianLang(b, languages) - medianLang(a, languages),
   )[0];
-
-  const cards = [
-    { title: "Most accurate overall", e: best, val: best?.headline_score, suffix: "" },
+  return [
+    { title: "Most accurate overall", e: best, val: best?.headline_score ?? undefined },
     {
       title: "Most resistant to misquoting",
       e: mostResistant,
       val: (mostResistant?.by_track?.adversarial ?? 0) * 100,
-      suffix: "",
     },
     {
       title: "Most consistent across languages",
@@ -300,27 +271,78 @@ function LeaderCards({
       suffix: " median",
     },
   ];
+}
+
+// Filtered view: best / field average / lowest for the exact slice, so the
+// cards show the actual numbers behind the current language + version.
+function sliceCards(
+  entries: LeaderboardEntry[],
+  lang: string,
+  version: number | null,
+  versionsByLang: VersionsByLang,
+): CardSpec[] {
+  const abbrev =
+    version != null
+      ? versionsByLang.get(lang)?.find((v) => v.version_id === version)?.version_abbrev
+      : undefined;
+  const label = sliceLabel(lang, abbrev);
+  const scored = entries
+    .map((e) => ({ e, v: sliceScore(e, lang, version) }))
+    .filter((x): x is { e: LeaderboardEntry; v: number } => x.v != null)
+    .sort((a, b) => b.v - a.v);
+  if (!scored.length) return [{ title: `Most accurate · ${label}`, val: undefined }];
+
+  const avg = scored.reduce((s, x) => s + x.v, 0) / scored.length;
+  const cards: CardSpec[] = [
+    { title: `Most accurate · ${label}`, e: scored[0].e, val: scored[0].v * 100 },
+    {
+      title: `Field average · ${label}`,
+      val: avg * 100,
+      sub: `across ${scored.length} model${scored.length > 1 ? "s" : ""}`,
+    },
+  ];
+  if (scored.length > 1) {
+    const worst = scored[scored.length - 1];
+    cards.push({ title: `Lowest · ${label}`, e: worst.e, val: worst.v * 100 });
+  }
+  return cards;
+}
+
+function LeaderCards({
+  entries,
+  languages,
+  versionsByLang,
+  filterLang,
+  filterVersion,
+}: {
+  entries: LeaderboardEntry[];
+  languages: string[];
+  versionsByLang: VersionsByLang;
+  filterLang: string | null;
+  filterVersion: number | null;
+}) {
+  const cards = filterLang
+    ? sliceCards(entries, filterLang, filterVersion, versionsByLang)
+    : overallCards(entries, languages);
   return (
     <div className="grid sm:grid-cols-3 gap-4">
       {cards.map((c) => (
         <div key={c.title} className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
           <div className="text-xs text-slate-400 uppercase tracking-wide">{c.title}</div>
           {c.e ? (
-            <>
-              <Link
-                to={`/models/${encodeURIComponent(c.e.run_id)}`}
-                className="text-lg font-semibold hover:underline block mt-1"
-              >
-                {c.e.model_label}
-              </Link>
-              <div className="text-2xl font-bold tabular-nums mt-1">
-                {c.val != null ? c.val.toFixed(1) : "—"}
-                <span className="text-sm text-slate-500">{c.suffix}</span>
-              </div>
-            </>
+            <Link
+              to={`/models/${encodeURIComponent(c.e.run_id)}`}
+              className="text-lg font-semibold hover:underline block mt-1"
+            >
+              {c.e.model_label}
+            </Link>
           ) : (
-            <div className="text-slate-500 mt-2">—</div>
+            <div className="text-lg font-semibold mt-1 text-slate-300">{c.sub ?? " "}</div>
           )}
+          <div className="text-2xl font-bold tabular-nums mt-1">
+            {c.val != null ? c.val.toFixed(1) : "—"}
+            {c.suffix ? <span className="text-sm text-slate-500">{c.suffix}</span> : null}
+          </div>
         </div>
       ))}
     </div>

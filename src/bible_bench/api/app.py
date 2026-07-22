@@ -66,17 +66,18 @@ def create_app(cache: CachedStore | None = None, http_max_age: int | None = None
         run_id: str,
         track: str = Query("simple", pattern="^(simple|topical|adversarial)$"),
         language: str | None = None,
+        version_id: int | None = None,
         limit: int = Query(25, ge=1, le=100),
         offset: int = Query(0, ge=0),
     ) -> JSONResponse:
         if not store.is_published(run_id):
             raise HTTPException(404, "Run not found or not published")
         records = store.items(run_id, track)
-        failing = _select_failures(records, track, language)
+        failing = _select_failures(records, track, language, version_id)
         page = failing[offset : offset + limit]
         return _cached_json({
             "scope_note": SCOPE_NOTE,
-            "run_id": run_id, "track": track, "language": language,
+            "run_id": run_id, "track": track, "language": language, "version_id": version_id,
             "total": len(failing), "offset": offset, "limit": limit,
             "items": page,
         }, max_age)
@@ -85,11 +86,17 @@ def create_app(cache: CachedStore | None = None, http_max_age: int | None = None
     return app
 
 
-def _select_failures(records: list[dict], track: str, language: str | None) -> list[dict]:
+def _select_failures(
+    records: list[dict], track: str, language: str | None, version_id: int | None = None
+) -> list[dict]:
     """Failing/interesting records for the browser, newest-severity first."""
     out: list[dict] = []
     for r in records:
         if language and r.get("language_tag") != language:
+            continue
+        # version_id only applies to the simple track (topical/adversarial items
+        # aren't tied to a single version); ignore it elsewhere.
+        if version_id is not None and track == "simple" and r.get("version_id") != version_id:
             continue
         if track == "adversarial":
             if r.get("reached"):

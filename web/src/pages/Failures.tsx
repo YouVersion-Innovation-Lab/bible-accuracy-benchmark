@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api, type FailureItem } from "../api";
 import { ErrorMsg, Loading, SensitiveTag } from "../components";
-import { TRACK_BY_KEY } from "../constants";
+import { TRACK_BY_KEY, orderLanguages } from "../constants";
+import { FilterBar, buildVersionsByLang } from "../FilterBar";
 import { wordDiff, type DiffPart } from "../diff";
 import { useAsync } from "../hooks";
 
@@ -12,17 +13,35 @@ export function Failures() {
   const { runId = "" } = useParams();
   const [params, setParams] = useSearchParams();
   const track = params.get("track") ?? "simple";
+  const language = params.get("language");
+  const versionId = params.get("version_id") ? Number(params.get("version_id")) : null;
   const [offset, setOffset] = useState(0);
 
-  const { data, error, loading } = useAsync(
-    () => api.failures(runId, track, null, offset),
-    [runId, track, offset],
+  // Run detail supplies the language/version options for the filter.
+  const { data: run } = useAsync(() => api.run(runId), [runId]);
+  const simple = run?.summary.tracks.simple;
+  const versionsByLang = useMemo(() => buildVersionsByLang(simple?.versions ?? []), [simple]);
+  const languages = useMemo(
+    () => orderLanguages(Object.keys(simple?.by_language ?? {})),
+    [simple],
   );
 
-  const setTrack = (t: string) => {
+  const { data, error, loading } = useAsync(
+    () => api.failures(runId, track, language, offset, versionId),
+    [runId, track, language, versionId, offset],
+  );
+
+  // Merge changes into the URL query (single source of truth) and reset paging.
+  function update(next: Record<string, string | null>) {
     setOffset(0);
-    setParams({ track: t });
-  };
+    const p = new URLSearchParams(params);
+    for (const [k, v] of Object.entries(next)) {
+      if (v == null || v === "") p.delete(k);
+      else p.set(k, v);
+    }
+    setParams(p);
+  }
+  const setTrack = (t: string) => update({ track: t });
 
   return (
     <div className="space-y-6">
@@ -52,6 +71,18 @@ export function Failures() {
           </button>
         ))}
       </div>
+
+      {languages.length > 0 && (
+        <FilterBar
+          languages={languages}
+          versionsByLang={versionsByLang}
+          lang={language}
+          version={versionId}
+          onLang={(l) => update({ language: l, version_id: null })}
+          onVersion={(v) => update({ version_id: v == null ? null : String(v) })}
+          versionEnabled={track === "simple"}
+        />
+      )}
 
       {loading && <Loading />}
       {error && <ErrorMsg error={error} />}

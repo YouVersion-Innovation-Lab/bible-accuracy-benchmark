@@ -1,7 +1,9 @@
+import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, type TrackSummary } from "../api";
 import { Card, ErrorMsg, Loading, ScoreBadge } from "../components";
 import { TRACKS, heatColor, langName, orderLanguages } from "../constants";
+import { FilterBar, buildVersionsByLang, sliceLabel } from "../FilterBar";
 import { useAsync } from "../hooks";
 
 export function ModelDetail() {
@@ -65,24 +67,7 @@ export function ModelDetail() {
       </div>
 
       {simple?.by_language && Object.keys(simple.by_language).length > 0 && (
-        <Card title="Direct-quote accuracy by language">
-          <div className="flex flex-wrap gap-2">
-            {orderLanguages(Object.keys(simple.by_language)).map((lang) => {
-              const v = simple.by_language![lang];
-              const { bg, fg } = heatColor(v);
-              return (
-                <div
-                  key={lang}
-                  className="rounded-lg px-3 py-2 text-sm min-w-24"
-                  style={{ background: bg, color: fg }}
-                >
-                  <div className="text-xs opacity-80">{langName(lang)}</div>
-                  <div className="font-semibold tabular-nums">{(v * 100).toFixed(0)}</div>
-                </div>
-              );
-            })}
-          </div>
-        </Card>
+        <DirectQuoteSection runId={runId} simple={simple} />
       )}
 
       <div className="flex flex-wrap gap-3">
@@ -100,6 +85,112 @@ export function ModelDetail() {
         </Link>
       </div>
     </div>
+  );
+}
+
+/** Filterable direct-quotation drill-down: pick a language and Bible version to
+ * scope this model's accuracy score, its breakdown, and the failure browser. */
+function DirectQuoteSection({ runId, simple }: { runId: string; simple: TrackSummary }) {
+  const [lang, setLang] = useState<string | null>(null);
+  const [version, setVersion] = useState<number | null>(null);
+
+  const versionsByLang = useMemo(
+    () => buildVersionsByLang(simple.versions ?? []),
+    [simple.versions],
+  );
+  const languages = useMemo(
+    () => orderLanguages(Object.keys(simple.by_language ?? {})),
+    [simple.by_language],
+  );
+
+  const langVersions = lang ? (versionsByLang.get(lang) ?? []) : [];
+  const abbrev =
+    version != null
+      ? langVersions.find((v) => v.version_id === version)?.version_abbrev
+      : undefined;
+
+  // This model's accuracy (0..1) for the active slice.
+  const score =
+    version != null
+      ? simple.versions?.find((v) => v.version_id === version)?.score
+      : lang
+        ? simple.by_language?.[lang]
+        : simple.track_score;
+
+  // Chips beneath the headline number: languages (all), a language's versions
+  // (language selected), or the single chosen version.
+  const chips: { key: string; label: string; value: number | undefined }[] = (() => {
+    if (version != null) {
+      const v = langVersions.find((x) => x.version_id === version);
+      return v ? [{ key: `v${v.version_id}`, label: v.version_abbrev, value: v.score }] : [];
+    }
+    if (lang) {
+      if (langVersions.length > 1) {
+        return [
+          { key: "overall", label: `${langName(lang)} overall`, value: simple.by_language?.[lang] },
+          ...langVersions.map((v) => ({
+            key: `v${v.version_id}`,
+            label: v.version_abbrev,
+            value: v.score,
+          })),
+        ];
+      }
+      return [{ key: "overall", label: langName(lang), value: simple.by_language?.[lang] }];
+    }
+    return languages.map((l) => ({ key: l, label: langName(l), value: simple.by_language?.[l] }));
+  })();
+
+  const failuresHref = (() => {
+    const p = new URLSearchParams({ track: "simple" });
+    if (lang) p.set("language", lang);
+    if (version != null) p.set("version_id", String(version));
+    return `/models/${encodeURIComponent(runId)}/failures?${p}`;
+  })();
+
+  const label = sliceLabel(lang, abbrev);
+
+  return (
+    <Card title="Direct-quote accuracy">
+      <FilterBar
+        languages={languages}
+        versionsByLang={versionsByLang}
+        lang={lang}
+        version={version}
+        onLang={(l) => {
+          setLang(l);
+          setVersion(null);
+        }}
+        onVersion={setVersion}
+      />
+      <div className="mt-5 flex items-baseline gap-3">
+        <div className="text-4xl font-bold tabular-nums">
+          {score != null ? (score * 100).toFixed(1) : "—"}
+        </div>
+        <div className="text-sm text-slate-400">accuracy · {label}</div>
+      </div>
+      <div className="mt-4 flex flex-wrap gap-2">
+        {chips.map((c) => {
+          const { bg, fg } = heatColor(c.value);
+          return (
+            <div
+              key={c.key}
+              className="rounded-lg px-3 py-2 text-sm min-w-24"
+              style={{ background: bg, color: fg }}
+            >
+              <div className="text-xs opacity-80">{c.label}</div>
+              <div className="font-semibold tabular-nums">
+                {c.value == null ? "—" : (c.value * 100).toFixed(0)}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-4">
+        <Link to={failuresHref} className="text-sm text-indigo-300 hover:underline">
+          Inspect {label === "overall" ? "" : `${label} `}failures →
+        </Link>
+      </div>
+    </Card>
   );
 }
 

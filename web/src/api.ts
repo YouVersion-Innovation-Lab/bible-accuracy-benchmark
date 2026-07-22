@@ -50,6 +50,7 @@ export interface TrackSummary {
   by_language?: Record<string, number>;
   by_tier?: Record<string, number>;
   by_version?: Record<string, number>;
+  versions?: VersionScore[];
   grades?: Record<string, number>;
   verbatim_rate?: number;
   near_verbatim_rate?: number;
@@ -104,9 +105,16 @@ async function get<T>(url: string): Promise<T> {
 export const api = {
   leaderboard: () => get<Leaderboard>("/api/leaderboard"),
   run: (id: string) => get<RunDetail>(`/api/runs/${encodeURIComponent(id)}`),
-  failures: (id: string, track: string, language: string | null, offset: number) => {
+  failures: (
+    id: string,
+    track: string,
+    language: string | null,
+    offset: number,
+    versionId?: number | null,
+  ) => {
     const p = new URLSearchParams({ track, offset: String(offset), limit: "25" });
     if (language) p.set("language", language);
+    if (versionId != null) p.set("version_id", String(versionId));
     return get<FailuresPage>(`/api/runs/${encodeURIComponent(id)}/failures?${p}`);
   },
 };
