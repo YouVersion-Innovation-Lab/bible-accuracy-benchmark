@@ -80,6 +80,10 @@ class LlmClient:
         self.timeout = timeout
         self.seed = seed
         self.usage = Usage()
+        # Some OpenAI-compatible providers (e.g. Google Gemini's compat layer)
+        # reject the `seed` field. We send it by default for determinism and
+        # drop it automatically the first time a provider rejects it.
+        self._send_seed = True
         self._client = (
             None if dummy else AsyncOpenAI(api_key=cfg.api_key, base_url=cfg.base_url)
         )
@@ -103,8 +107,9 @@ class LlmClient:
                     "model": self.cfg.model,
                     "messages": messages,
                     "temperature": temperature,
-                    "seed": self.seed,
                 }
+                if self._send_seed:
+                    kwargs["seed"] = self.seed
                 if max_tokens is not None:
                     kwargs["max_tokens"] = max_tokens
                 resp = await asyncio.wait_for(
@@ -118,6 +123,11 @@ class LlmClient:
                 return text
             except Exception as e:  # noqa: BLE001 — retry all transient failures
                 last_err = e
+                # If the provider rejected `seed`, drop it and retry immediately
+                # (don't burn a backoff or an attempt on a known-fatal param).
+                if self._send_seed and "seed" in str(e).lower():
+                    self._send_seed = False
+                    continue
                 await asyncio.sleep(min(2**attempt, 30))
         raise RuntimeError(
             f"LLM call to {self.cfg.model} failed after {self.max_retries} attempts"
