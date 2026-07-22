@@ -63,7 +63,13 @@ def extract_json(text: str) -> dict | list:
 
 
 class LlmClient:
-    """One OpenAI-compatible endpoint. Deterministic-by-default (temp 0, seed)."""
+    """One OpenAI-compatible endpoint. Uses temperature 0 for determinism.
+
+    We deliberately do NOT send an API `seed`: it's supported unevenly across
+    OpenAI-compatible providers (Gemini's compat layer rejects it), so relying
+    on it would make determinism all-or-nothing per provider. temperature=0 is
+    the uniform, portable setting every model honors.
+    """
 
     def __init__(
         self,
@@ -72,18 +78,12 @@ class LlmClient:
         dummy: bool = False,
         max_retries: int = 4,
         timeout: float = 120.0,
-        seed: int = 1189,
     ):
         self.cfg = cfg
         self.dummy = dummy
         self.max_retries = max_retries
         self.timeout = timeout
-        self.seed = seed
         self.usage = Usage()
-        # Some OpenAI-compatible providers (e.g. Google Gemini's compat layer)
-        # reject the `seed` field. We send it by default for determinism and
-        # drop it automatically the first time a provider rejects it.
-        self._send_seed = True
         self._client = (
             None if dummy else AsyncOpenAI(api_key=cfg.api_key, base_url=cfg.base_url)
         )
@@ -108,8 +108,6 @@ class LlmClient:
                     "messages": messages,
                     "temperature": temperature,
                 }
-                if self._send_seed:
-                    kwargs["seed"] = self.seed
                 if max_tokens is not None:
                     kwargs["max_tokens"] = max_tokens
                 resp = await asyncio.wait_for(
@@ -123,11 +121,6 @@ class LlmClient:
                 return text
             except Exception as e:  # noqa: BLE001 — retry all transient failures
                 last_err = e
-                # If the provider rejected `seed`, drop it and retry immediately
-                # (don't burn a backoff or an attempt on a known-fatal param).
-                if self._send_seed and "seed" in str(e).lower():
-                    self._send_seed = False
-                    continue
                 await asyncio.sleep(min(2**attempt, 30))
         raise RuntimeError(
             f"LLM call to {self.cfg.model} failed after {self.max_retries} attempts"
