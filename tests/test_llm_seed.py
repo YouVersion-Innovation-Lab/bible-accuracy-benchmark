@@ -3,8 +3,6 @@ layer) rejects it, instead of failing every request."""
 
 from types import SimpleNamespace
 
-import pytest
-
 from bible_bench.config import LlmEndpointConfig
 from bible_bench.llm import LlmClient
 
