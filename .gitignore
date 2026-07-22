@@ -24,6 +24,10 @@ web/dist/
 results/
 runs/
 
+# Local Bible-text cache (operator convenience; contains verse text — never commit)
+bible-cache/
+*.biblecache/
+
 # OS / editor
 .DS_Store
 .idea/

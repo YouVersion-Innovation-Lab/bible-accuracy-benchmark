@@ -47,6 +47,7 @@ from .results_store import (
 from .runner import (
     generate_simple,
     generate_topical,
+    prefetch_versions,
     run_adversarial,
     score_simple,
     score_topical_items,
@@ -62,6 +63,16 @@ console = Console()
 
 def _now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def _cache_dir(args) -> str | None:
+    """Local Bible-text cache dir: --cache-dir, else BENCH_CACHE_DIR env, else
+    none (in-memory only)."""
+    return getattr(args, "cache_dir", None) or os.environ.get("BENCH_CACHE_DIR") or None
+
+
+def _bible_client(args) -> BibleClient:
+    return BibleClient(load_bible_api_config(), cache_dir=_cache_dir(args))
 
 
 def _store_from_args(args) -> ResultsStore:
@@ -120,7 +131,7 @@ async def cmd_run(args) -> int:
         base_url=args.base_url, api_key=api_key, model=args.model, label=args.label or args.model
     )
     store = _store_from_args(args)
-    client = BibleClient(bible_cfg)
+    client = BibleClient(bible_cfg, cache_dir=_cache_dir(args))
     model = LlmClient(model_cfg, dummy=args.dummy)
 
     tracks = {t.strip() for t in args.tracks.split(",") if t.strip()}
@@ -327,7 +338,7 @@ async def cmd_score(args) -> int:
     if not manifest:
         console.print(f"[red]No manifest for run {args.run_id}[/red]")
         return 2
-    client = BibleClient(load_bible_api_config())
+    client = _bible_client(args)
     items = _items_from_json(manifest.get("items", []))
     topical_items = _topical_items_from_json(manifest.get("topical_items", []))
     no_usage = SimpleNamespace(usage=SimpleNamespace(input_tokens=0, output_tokens=0, calls=0))
@@ -354,7 +365,7 @@ def cmd_publish(args, published: bool) -> int:
 
 
 async def cmd_build_dataset(args) -> int:
-    client = BibleClient(load_bible_api_config())
+    client = _bible_client(args)
     try:
         with console.status("Sampling…"):
             items = await _sample_items(client, args.spec, args.seed, args.scale)
@@ -369,6 +380,55 @@ async def cmd_build_dataset(args) -> int:
         by_lang[i.language_tag] = by_lang.get(i.language_tag, 0) + 1
     console.print(f"Sampled [bold]{len(items)}[/bold] items: " +
                   ", ".join(f"{k}={v}" for k, v in sorted(by_lang.items())))
+    return 0
+
+
+def _prefetch_version_ids(args, tracks: set[str]) -> list[int]:
+    """Union of every version id the benchmark touches, for the chosen tracks."""
+    ids: set[int] = set()
+    if "simple" in tracks:
+        spec = load_spec(args.spec)
+        for lang in spec.get("languages", {}).values():
+            ids.update(lang.get("versions", []))
+        for pool in spec.get("distractor_pools", {}).values():
+            ids.update(pool)
+    if "topical" in tracks:
+        cfg = load_topics(args.topics)
+        for block in cfg.languages.values():
+            ids.add(block["version_id"])
+            ids.update(block.get("accepted_version_ids", []))
+    if "adversarial" in tracks:
+        adv = load_goals(args.goals)
+        ids.add(adv.version_id)
+        ids.update(adv.accepted_version_ids)
+    return sorted(ids)
+
+
+async def cmd_prefetch(args) -> int:
+    cache = _cache_dir(args)
+    if not cache:
+        console.print("[red]--cache-dir (or BENCH_CACHE_DIR) is required for prefetch.[/red]")
+        return 2
+    tracks = {t.strip() for t in args.tracks.split(",") if t.strip()}
+    try:
+        version_ids = _prefetch_version_ids(args, tracks)
+    except ConfigError as e:
+        console.print(f"[red]{e}[/red]")
+        return 2
+    console.print(f"Prefetching [bold]{len(version_ids)}[/bold] versions "
+                  f"({', '.join(sorted(tracks))}) into [cyan]{cache}[/cyan]")
+    client = _bible_client(args)
+    try:
+        with _progress("Caching Bible text") as (prog, task):
+            def tick(ev: dict) -> None:
+                if ev["phase"] == "prefetch":
+                    prog.update(task, total=ev["total"], completed=ev["completed"])
+            stats = await prefetch_versions(client, version_ids, progress=tick)
+    finally:
+        await client.aclose()
+    console.print(f"[green]Cached[/green] {stats['chapters']} chapters across "
+                  f"{stats['versions']} versions in {cache}. Runs pointed at this "
+                  f"cache dir will reuse it and avoid re-fetching.")
     return 0
 
 
@@ -429,6 +489,12 @@ def _slug(s: str) -> str:
     return "".join(c if c.isalnum() else "-" for c in s.lower()).strip("-")[:40]
 
 
+def _add_cache_arg(p) -> None:
+    p.add_argument("--cache-dir",
+                   help="Local dir for cached Bible text (reused across runs; "
+                        "defaults to BENCH_CACHE_DIR env). Keep it gitignored.")
+
+
 def _add_store_args(p) -> None:
     p.add_argument("--local-dir", help="Write results to a local directory (dev mode)")
     p.add_argument("--gcs-bucket", help="Write results to a GCS bucket (prod mode)")
@@ -457,10 +523,12 @@ def main(argv: list[str] | None = None) -> int:
                    help="Scale factor on per-tier counts (use <1 for quick pilots)")
     r.add_argument("--run-id")
     r.add_argument("--dummy", action="store_true", help="Echo mode; no API key needed")
+    _add_cache_arg(r)
     _add_store_args(r)
 
     s = sub.add_parser("score", help="Re-score an existing run")
     s.add_argument("run_id")
+    _add_cache_arg(s)
     _add_store_args(s)
 
     for name in ("publish", "unpublish"):
@@ -473,7 +541,18 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--seed", default="2026-pilot")
     b.add_argument("--scale", type=float, default=1.0)
     b.add_argument("--out")
+    _add_cache_arg(b)
     _add_store_args(b)
+
+    pf = sub.add_parser("prefetch",
+                        help="Download Bible text for all benchmark versions into a "
+                             "local cache (run once; reused across runs)")
+    pf.add_argument("--tracks", default=DEFAULT_TRACKS,
+                    help="Which tracks' versions to fetch (default: all)")
+    pf.add_argument("--spec", default="dataset/spec-v1.json")
+    pf.add_argument("--topics", default="dataset/topics-v1.json")
+    pf.add_argument("--goals", default="dataset/adversarial-goals-v1.json")
+    _add_cache_arg(pf)
 
     args = parser.parse_args(argv)
     if args.cmd == "run":
@@ -486,6 +565,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_publish(args, False)
     if args.cmd == "build-dataset":
         return asyncio.run(cmd_build_dataset(args))
+    if args.cmd == "prefetch":
+        return asyncio.run(cmd_prefetch(args))
     return 1
 
 

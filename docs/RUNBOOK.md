@@ -12,6 +12,30 @@ Operational guide for running the benchmark and publishing results.
 - To write to the live buckets: `gcloud auth application-default login` as a
   principal with `storage.objectAdmin` on the results bucket.
 
+## Prefetch Bible text (recommended before local runs)
+
+The topical track builds a whole-Bible reverse index per language, so a cold run
+fetches a lot from the Core API. Fetch it once into a local cache and every run
+reuses it:
+
+```bash
+export BENCH_CACHE_DIR=./bible-cache      # or pass --cache-dir to each command
+bible-bench prefetch                      # all tracks: ~61 versions, ~72k chapters
+# scope it if you like:
+bible-bench prefetch --tracks topical --cache-dir ./bible-cache
+```
+
+Full prefetch is ~10 minutes and ~440 MB on disk, one time (idempotent/resumable
+— re-running skips what's cached). Then point runs at the same cache:
+
+```bash
+bible-bench run … --cache-dir ./bible-cache      # or set BENCH_CACHE_DIR
+```
+
+The cache is a local operator convenience only — it is gitignored (`bible-cache/`),
+never committed, and never used by the deployed website. With no cache dir set,
+the client stays in-memory-only and writes nothing to disk.
+
 ## Run an evaluation
 
 ```bash

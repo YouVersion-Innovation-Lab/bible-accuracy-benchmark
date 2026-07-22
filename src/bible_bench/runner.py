@@ -319,6 +319,48 @@ async def run_adversarial(
     return collected
 
 
+async def prefetch_versions(
+    client: BibleClient,
+    version_ids: list[int],
+    *,
+    concurrency: int = 8,
+    progress: ProgressCb | None = None,
+) -> dict:
+    """Fetch every chapter of each version into the client's (disk) cache.
+
+    This is the run-independent, shared-across-runs work — chiefly the whole-
+    Bible text the topical reverse index needs. Idempotent: chapters already
+    on disk are loaded, not re-fetched, so it resumes cleanly. Returns simple
+    stats. Requires the client to have been constructed with a cache_dir."""
+    # Enumerate all (version, chapter) pairs first (needs version.json each).
+    pairs: list[tuple[int, str]] = []
+    per_version: dict[int, int] = {}
+    for vid in version_ids:
+        try:
+            chapters = await client.chapter_usfms(vid)
+        except Exception:  # noqa: BLE001 — skip a version that won't resolve
+            per_version[vid] = 0
+            continue
+        per_version[vid] = len(chapters)
+        pairs.extend((vid, cu) for cu in chapters)
+
+    sem = asyncio.Semaphore(concurrency)
+    lock = asyncio.Lock()
+    done = 0
+
+    async def one(vid: int, cu: str) -> None:
+        nonlocal done
+        async with sem:
+            await client.chapter(vid, cu)  # read-through/write-through cache
+        async with lock:
+            done += 1
+            if progress:
+                progress({"phase": "prefetch", "completed": done, "total": len(pairs)})
+
+    await asyncio.gather(*(one(v, c) for v, c in pairs))
+    return {"versions": len(version_ids), "chapters": len(pairs), "per_version": per_version}
+
+
 async def _maybe_await(maybe) -> None:
     if asyncio.iscoroutine(maybe):
         await maybe

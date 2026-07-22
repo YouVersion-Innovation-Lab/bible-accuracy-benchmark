@@ -1,8 +1,11 @@
 """Async client for the Bible text API (ground-truth verse text).
 
-Hard rule for this codebase: verse text is fetched at runtime and held in
-process memory only. This module contains no file writes — a CI test asserts
-that exercising the client leaves the working tree untouched.
+Default rule: verse text is fetched at runtime and held in process memory only
+— with ``cache_dir=None`` the client writes nothing to disk (a CI test asserts
+this). Passing a ``cache_dir`` turns on an opt-in local disk cache for
+operators running evaluations on their own machine (see the ``prefetch`` CLI
+command); that directory must stay gitignored and is never used by the deployed
+website. No Bible text is ever committed to the repo.
 
 Endpoint shapes (JSON envelope ``response.data``):
 
@@ -19,15 +22,17 @@ Endpoint shapes (JSON envelope ``response.data``):
 from __future__ import annotations
 
 import asyncio
+import json
 import random
 import re
 from dataclasses import dataclass
+from pathlib import Path
 
 import httpx
 from bs4 import BeautifulSoup
 
 from .config import BibleApiConfig
-from .usfm import SINGLE_CHAPTER_BOOKS, VerseRef, is_standard_verse_usfm
+from .usfm import CANON_ORDER, SINGLE_CHAPTER_BOOKS, VerseRef, is_standard_verse_usfm
 
 _WS = re.compile(r"\s+")
 
@@ -110,14 +115,22 @@ def parse_spans(content_html: str) -> list[VerseSpan]:
 
 
 class BibleClient:
-    """Async Bible API client with an in-memory chapter cache.
+    """Async Bible API client with an in-memory chapter cache and an optional
+    on-disk cache.
 
     Chapter fetches are the cache unit (scoring needs same-chapter neighbor
     verses anyway). Per-key locks prevent duplicate concurrent fetches; a
     global semaphore caps API concurrency as a politeness ceiling.
+
+    ``cache_dir`` enables a read-through / write-through local disk cache of
+    chapter text and version metadata. This is an opt-in convenience for
+    operators running evaluations on their own machine (see the ``prefetch``
+    CLI command) — it is never used by the deployed website and the directory
+    must stay gitignored. With ``cache_dir=None`` (the default) the client
+    writes nothing to disk.
     """
 
-    def __init__(self, cfg: BibleApiConfig):
+    def __init__(self, cfg: BibleApiConfig, cache_dir: str | Path | None = None):
         self._cfg = cfg
         self._http = httpx.AsyncClient(
             base_url=cfg.base_url,
@@ -130,9 +143,32 @@ class BibleClient:
         # version_id -> version.json data
         self._versions: dict[int, dict] = {}
         self._locks: dict[object, asyncio.Lock] = {}
+        self._cache_dir = Path(cache_dir) if cache_dir else None
 
     async def aclose(self) -> None:
         await self._http.aclose()
+
+    # --- on-disk cache (opt-in) ------------------------------------------
+    def _chapter_path(self, version_id: int, chapter_usfm: str) -> Path:
+        return self._cache_dir / f"v{version_id}" / f"{chapter_usfm}.json"
+
+    def _version_path(self, version_id: int) -> Path:
+        return self._cache_dir / f"v{version_id}" / "version.json"
+
+    def _load_chapter_disk(self, version_id: int, chapter_usfm: str) -> dict[str, VerseSpan] | None:
+        p = self._chapter_path(version_id, chapter_usfm)
+        if not p.exists():
+            return None
+        rows = json.loads(p.read_text(encoding="utf-8"))
+        spans = {r[0]: VerseSpan(anchor=r[0], extent=r[1], text=r[2], raw_usfm=r[3]) for r in rows}
+        return spans
+
+    def _save_chapter_disk(self, version_id: int, chapter_usfm: str,
+                           spans: dict[str, VerseSpan]) -> None:
+        p = self._chapter_path(version_id, chapter_usfm)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        rows = [[s.anchor, s.extent, s.text, s.raw_usfm] for s in spans.values()]
+        p.write_text(json.dumps(rows, ensure_ascii=False), encoding="utf-8")
 
     def _lock(self, key: object) -> asyncio.Lock:
         if key not in self._locks:
@@ -192,31 +228,57 @@ class BibleClient:
     async def version(self, version_id: int) -> dict:
         async with self._lock(("version", version_id)):
             if version_id not in self._versions:
-                self._versions[version_id] = await self._get(
-                    "version.json", {"id": version_id}
-                )
+                if self._cache_dir and (p := self._version_path(version_id)).exists():
+                    self._versions[version_id] = json.loads(p.read_text(encoding="utf-8"))
+                else:
+                    data = await self._get("version.json", {"id": version_id})
+                    self._versions[version_id] = data
+                    if self._cache_dir:
+                        p = self._version_path(version_id)
+                        p.parent.mkdir(parents=True, exist_ok=True)
+                        p.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
         return self._versions[version_id]
 
     async def chapter(self, version_id: int, chapter_usfm: str) -> dict[str, VerseSpan]:
-        """All printed spans of a chapter, keyed by anchor usfm. Cached."""
+        """All printed spans of a chapter, keyed by anchor usfm. Cached in
+        memory, and on disk when a cache dir is configured."""
         key = (version_id, chapter_usfm.upper())
         async with self._lock(key):
             if key not in self._chapters:
-                try:
-                    data = await self._get(
-                        "chapter.json", {"id": version_id, "reference": key[1]}
-                    )
-                    spans = parse_spans(data.get("content", ""))
-                    self._chapters[key] = {s.anchor: s for s in spans}
-                except BibleApiError as e:
-                    # A chapter absent from this version (e.g. an NT-only
-                    # edition, or a differing canon) returns 404 — treat it as
-                    # "no verses here" rather than a fatal error.
-                    if e.status == 404:
-                        self._chapters[key] = {}
-                    else:
-                        raise
+                if self._cache_dir and (disk := self._load_chapter_disk(*key)) is not None:
+                    self._chapters[key] = disk
+                else:
+                    try:
+                        data = await self._get(
+                            "chapter.json", {"id": version_id, "reference": key[1]}
+                        )
+                        spans = parse_spans(data.get("content", ""))
+                        self._chapters[key] = {s.anchor: s for s in spans}
+                    except BibleApiError as e:
+                        # A chapter absent from this version (e.g. an NT-only
+                        # edition, or a differing canon) returns 404 — treat it
+                        # as "no verses here" rather than a fatal error.
+                        if e.status == 404:
+                            self._chapters[key] = {}
+                        else:
+                            raise
+                    if self._cache_dir:
+                        self._save_chapter_disk(*key, self._chapters[key])
         return self._chapters[key]
+
+    async def chapter_usfms(self, version_id: int) -> list[str]:
+        """Every canonical chapter USFM in a version (from version.json).
+        Used by prefetch to enumerate the whole Bible for a version."""
+        meta = await self.version(version_id)
+        out: list[str] = []
+        for b in meta.get("books", []):
+            if b.get("usfm") not in CANON_ORDER:
+                continue
+            for c in b.get("chapters", []):
+                cu = c.get("usfm", "")
+                if c.get("canonical", True) and "." in cu and "INTRO" not in cu.upper():
+                    out.append(cu)
+        return out
 
     async def verse(self, version_id: int, usfm: str) -> VerseSpan | None:
         """Text of a single verse, or None if absent in this version.
