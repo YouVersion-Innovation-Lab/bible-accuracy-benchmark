@@ -27,7 +27,14 @@ from rich.console import Console
 from rich.progress import BarColumn, Progress, TextColumn, TimeRemainingColumn
 from rich.table import Table
 
-from .config import ConfigError, LlmEndpointConfig, load_bible_api_config
+from .adversarial.encounter import summarize_encounters
+from .adversarial.goals import Goal, load_goals
+from .config import (
+    ConfigError,
+    LlmEndpointConfig,
+    load_bible_api_config,
+    load_llm_endpoint,
+)
 from .dataset import BenchmarkItem, DatasetSampler, load_spec
 from .llm import LlmClient
 from .report import build_summary, summarize_simple, summarize_topical
@@ -40,6 +47,7 @@ from .results_store import (
 from .runner import (
     generate_simple,
     generate_topical,
+    run_adversarial,
     score_simple,
     score_topical_items,
 )
@@ -47,7 +55,7 @@ from .scoring import SCORING_VERSION
 from .topical import TopicalItem, build_topical_items, load_topics
 from .yv_client import BibleClient
 
-DEFAULT_TRACKS = "simple,topical"
+DEFAULT_TRACKS = "simple,topical,adversarial"
 
 console = Console()
 
@@ -70,6 +78,21 @@ def _items_from_json(rows: list[dict]) -> list[BenchmarkItem]:
 
 def _topical_items_from_json(rows: list[dict]) -> list[TopicalItem]:
     return [TopicalItem(**r) for r in rows]
+
+
+def _goals_from_json(rows: list[dict]) -> list[Goal]:
+    return [Goal(**r) for r in rows]
+
+
+def _build_attacker(args) -> LlmClient:
+    """Attacker (harness) model. Dummy in --dummy mode; else from HARNESS_* env."""
+    if args.dummy:
+        return LlmClient(
+            LlmEndpointConfig(base_url="", api_key="", model="dummy-attacker",
+                              label="dummy-attacker"),
+            dummy=True,
+        )
+    return LlmClient(load_llm_endpoint("HARNESS"))
 
 
 async def _sample_items(client: BibleClient, spec_path: str, seed: str, scale: float
@@ -111,10 +134,13 @@ async def cmd_run(args) -> int:
         # 1. Fix the item set once: reuse on resume, else sample/build and persist
         #    the manifest immediately (so an interrupted run resumes the same set).
         manifest = store.read_json(f"{run_dir}/manifest.json")
-        if manifest and (manifest.get("items") or manifest.get("topical_items")):
+        if manifest and manifest.get("tracks"):
             items = _items_from_json(manifest.get("items", []))
             topical_items = _topical_items_from_json(manifest.get("topical_items", []))
-            console.print(f"Resuming: {len(items)} simple + {len(topical_items)} topical items.")
+            adv_meta = manifest.get("adversarial")
+            adv_goals = _goals_from_json(adv_meta["goals"]) if adv_meta else []
+            console.print(f"Resuming: {len(items)} simple + {len(topical_items)} topical "
+                          f"+ {len(adv_goals)} adversarial.")
         else:
             items = []
             topical_items = []
@@ -130,10 +156,20 @@ async def cmd_run(args) -> int:
                     keep = max(1, int(len(topical_items) * args.scale))
                     topical_items = topical_items[:keep]
                 console.print(f"Built [bold]{len(topical_items)}[/bold] topical items.")
+            adv_goals = []
+            adv_cfg = None
+            if "adversarial" in tracks:
+                adv_cfg = load_goals(args.goals)
+                adv_goals = adv_cfg.goals
+                if args.scale < 1.0:
+                    keep = max(1, int(len(adv_goals) * args.scale))
+                    adv_goals = adv_goals[:keep]
+                console.print(f"Loaded [bold]{len(adv_goals)}[/bold] adversarial goals.")
             manifest = {
                 "run_id": run_id,
                 "dataset_spec": args.spec,
                 "topics_file": args.topics,
+                "goals_file": args.goals,
                 "tracks": sorted(tracks),
                 "seed": args.seed,
                 "scale": args.scale,
@@ -143,6 +179,12 @@ async def cmd_run(args) -> int:
                     "model": model_cfg.model,
                     "base_url_host": urlparse(model_cfg.base_url).hostname or "",
                 },
+                "adversarial": {
+                    "version_id": adv_cfg.version_id,
+                    "accepted_version_ids": adv_cfg.accepted_version_ids,
+                    "turn_depth": adv_cfg.turn_depth,
+                    "goals": [g.to_json() for g in adv_goals],
+                } if adv_cfg else None,
                 "started_at": _now(),
                 "finished_at": None,
                 "published": False,
@@ -164,6 +206,18 @@ async def cmd_run(args) -> int:
                 lambda done, cp, tick: generate_topical(
                     topical_items, model, already_done=done, checkpoint=cp, progress=tick),
             )
+        if adv_goals:
+            adv_meta = manifest["adversarial"]
+            attacker = _build_attacker(args)
+            await _generate_track(
+                store, run_dir, "adversarial.jsonl", "Adversarial encounters",
+                lambda done, cp, tick: run_adversarial(
+                    adv_goals, attacker, model, client,
+                    adv_meta["version_id"], adv_meta["accepted_version_ids"],
+                    turn_depth=adv_meta["turn_depth"],
+                    already_done=done, checkpoint=cp, progress=tick),
+                id_key="goal_id",
+            )
 
         manifest["finished_at"] = _now()
         store.write_json(f"{run_dir}/manifest.json", manifest)
@@ -178,12 +232,12 @@ async def cmd_run(args) -> int:
     return 0
 
 
-async def _generate_track(store, run_dir, filename, desc, gen) -> None:
+async def _generate_track(store, run_dir, filename, desc, gen, *, id_key="item_id") -> None:
     """Run one generation pass with a resumable checkpoint + progress bar."""
     prior = store.read_jsonl(f"{run_dir}/{filename}")
-    done = {r["item_id"] for r in prior}
+    done = {r[id_key] for r in prior}
     if done:
-        console.print(f"{len(done)} responses already present in {filename}; continuing.")
+        console.print(f"{len(done)} records already present in {filename}; continuing.")
     with _progress(desc) as (prog, task):
         def write_checkpoint(new_records: list[dict]) -> None:
             lines = "\n".join(json.dumps(r, ensure_ascii=False) for r in prior + new_records)
@@ -233,6 +287,22 @@ async def _score_and_summarize(store, run_dir, items, topical_items, client, mod
         )
         if scored_t:
             track_summaries["topical"] = summarize_topical(scored_t)
+
+    adv_records = store.read_jsonl(f"{run_dir}/adversarial.jsonl")
+    if adv_records:
+        from .adversarial.encounter import EncounterResult, Turn
+
+        results = [
+            EncounterResult(
+                goal_id=r["goal_id"], category=r["category"], target_usfm=r.get("target_usfm"),
+                reached=r["reached"], reached_turn=r.get("reached_turn"),
+                corrected_ever=r.get("corrected_ever", False),
+                errored=r.get("errored", False), error=r.get("error"),
+                turns=[Turn(**t) for t in r.get("turns", [])],
+            )
+            for r in adv_records
+        ]
+        track_summaries["adversarial"] = summarize_encounters(results)
 
     summary = build_summary(
         track_summaries,
@@ -341,6 +411,12 @@ def _print_summary(summary: dict) -> None:
         if topical.get("sensitive_topic_score") is not None:
             t.add_row("Sensitive-topic score", f"{100 * topical['sensitive_topic_score']:.1f}")
         t.add_row("Topical fabricated quotes", str(topical.get("fabricated_quote_count", 0)))
+    adv = summary.get("tracks", {}).get("adversarial")
+    if adv:
+        t.add_row("Adversarial resistance@1", f"{100 * adv.get('resistance_at_1', 0):.1f}%")
+        t.add_row("Adversarial resistance@3", f"{100 * adv.get('resistance_at_3', 0):.1f}%")
+        t.add_row("Misquotes induced", f"{adv.get('misquotes_confirmed', 0)}/{adv.get('n', 0)}")
+        t.add_row("Correction rate", f"{100 * adv.get('correction_rate', 0):.1f}%")
     console.print(t)
     console.print(f"[dim]{summary['scoring_scope_note']}[/dim]")
 
@@ -366,8 +442,9 @@ def main(argv: list[str] | None = None) -> int:
                    help="Env var holding the API key (default TARGET_API_KEY)")
     r.add_argument("--spec", default="dataset/spec-v1.json")
     r.add_argument("--topics", default="dataset/topics-v1.json")
+    r.add_argument("--goals", default="dataset/adversarial-goals-v1.json")
     r.add_argument("--tracks", default=DEFAULT_TRACKS,
-                   help="Comma-separated tracks to run (default: simple,topical)")
+                   help="Comma-separated tracks to run (default: simple,topical,adversarial)")
     r.add_argument("--seed", default="2026-pilot")
     r.add_argument("--scale", type=float, default=1.0,
                    help="Scale factor on per-tier counts (use <1 for quick pilots)")

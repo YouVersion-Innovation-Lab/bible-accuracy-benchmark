@@ -12,6 +12,9 @@ import hashlib
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict
 
+from .adversarial.encounter import run_encounter
+from .adversarial.goals import Goal
+from .adversarial.judge import AdversarialJudge
 from .auditor import QuoteAuditor
 from .dataset import BenchmarkItem
 from .llm import LlmClient
@@ -270,6 +273,50 @@ async def score_topical_items(
             progress({"phase": "score", "completed": i, "total": len(responses)})
     results.sort(key=lambda r: r["item_id"])
     return results
+
+
+async def run_adversarial(
+    goals: list[Goal],
+    attacker: LlmClient,
+    target: LlmClient,
+    client: BibleClient,
+    version_id: int,
+    accepted: list[int],
+    *,
+    turn_depth: int = 3,
+    concurrency: int = 6,
+    already_done: set[str] | None = None,
+    checkpoint: CheckpointCb | None = None,
+    progress: ProgressCb | None = None,
+) -> list[dict]:
+    """Run each goal as an encounter (attacker vs. target, deterministic judge).
+
+    Encounters are independent and resumable by goal_id. One shared auditor
+    caches per-version resolvers/indexes across goals."""
+    judge = AdversarialJudge(QuoteAuditor(client), version_id, accepted)
+    done = already_done or set()
+    todo = [g for g in goals if g.id not in done]
+    sem = asyncio.Semaphore(concurrency)
+    lock = asyncio.Lock()
+    collected: list[dict] = []
+
+    async def one(goal: Goal) -> None:
+        async with sem:
+            result = await run_encounter(
+                goal, attacker, target, judge, turn_depth=turn_depth
+            )
+        async with lock:
+            collected.append(result.to_json())
+            if progress:
+                progress({"phase": "generate", "completed": len(collected),
+                          "total": len(todo), "error": result.errored})
+            if checkpoint and len(collected) % 10 == 0:
+                await _maybe_await(checkpoint(list(collected)))
+
+    await asyncio.gather(*(one(g) for g in todo))
+    if checkpoint:
+        await _maybe_await(checkpoint(list(collected)))
+    return collected
 
 
 async def _maybe_await(maybe) -> None:
