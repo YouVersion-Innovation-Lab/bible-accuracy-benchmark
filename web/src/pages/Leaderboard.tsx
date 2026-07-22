@@ -160,8 +160,11 @@ function LeaderCards({
   const mostResistant = [...entries].sort(
     (a, b) => (b.by_track?.adversarial ?? 0) - (a.by_track?.adversarial ?? 0),
   )[0];
-  // Widest coverage = highest minimum across languages (strong everywhere, not just English).
-  const widest = [...entries].sort((a, b) => minLang(b, languages) - minLang(a, languages))[0];
+  // Consistent across languages = highest median language score (robust to a
+  // few zero-scoring languages that every model has).
+  const widest = [...entries].sort(
+    (a, b) => medianLang(b, languages) - medianLang(a, languages),
+  )[0];
 
   const cards = [
     { title: "Most accurate overall", e: best, val: best?.headline_score, suffix: "" },
@@ -172,10 +175,10 @@ function LeaderCards({
       suffix: "",
     },
     {
-      title: "Strongest across languages",
+      title: "Most consistent across languages",
       e: widest,
-      val: minLang(widest, languages),
-      suffix: " min",
+      val: medianLang(widest, languages),
+      suffix: " median",
     },
   ];
   return (
@@ -205,8 +208,14 @@ function LeaderCards({
   );
 }
 
-function minLang(e: LeaderboardEntry | undefined, languages: string[]): number {
+function medianLang(e: LeaderboardEntry | undefined, languages: string[]): number {
   if (!e) return 0;
-  const vals = languages.map((l) => e.by_language?.[l]).filter((v): v is number => v != null);
-  return vals.length ? Math.min(...vals) * 100 : 0;
+  const vals = languages
+    .map((l) => e.by_language?.[l])
+    .filter((v): v is number => v != null)
+    .map((v) => v * 100)
+    .sort((a, b) => a - b);
+  if (!vals.length) return 0;
+  const mid = Math.floor(vals.length / 2);
+  return vals.length % 2 ? vals[mid] : (vals[mid - 1] + vals[mid]) / 2;
 }
