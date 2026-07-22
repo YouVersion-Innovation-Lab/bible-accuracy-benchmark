@@ -30,11 +30,13 @@ SCOPE_NOTE = (
 _WEB_DIST = Path(os.environ.get("WEB_DIST", "web/dist"))
 
 
-def create_app(cache: CachedStore | None = None) -> FastAPI:
+def create_app(cache: CachedStore | None = None, http_max_age: int | None = None) -> FastAPI:
     app = FastAPI(title="Bible Accuracy Benchmark", docs_url="/api/docs")
-    store = cache or CachedStore(
-        store_from_env(), ttl_seconds=float(os.environ.get("CACHE_TTL_SECONDS", "300"))
-    )
+    ttl = float(os.environ.get("CACHE_TTL_SECONDS", "300"))
+    store = cache or CachedStore(store_from_env(), ttl_seconds=ttl)
+    # Browser cache mirrors the server TTL; set CACHE_TTL_SECONDS=0 in dev for
+    # always-fresh data. Default 300s in production.
+    max_age = int(ttl if http_max_age is None else http_max_age)
 
     # Note: "/healthz" is intercepted by Google's front end on Cloud Run
     # (returns a GFE 404 before reaching the app), so the health path is
@@ -46,7 +48,7 @@ def create_app(cache: CachedStore | None = None) -> FastAPI:
     @app.get("/api/leaderboard")
     def leaderboard() -> JSONResponse:
         board = store.leaderboard()
-        return _cached_json({"scope_note": SCOPE_NOTE, **board})
+        return _cached_json({"scope_note": SCOPE_NOTE, **board}, max_age)
 
     @app.get("/api/runs/{run_id}")
     def run_detail(run_id: str) -> JSONResponse:
@@ -57,7 +59,7 @@ def create_app(cache: CachedStore | None = None) -> FastAPI:
         if not summary or not meta:
             raise HTTPException(404, "Run data unavailable")
         return _cached_json({"scope_note": SCOPE_NOTE, "run_id": run_id,
-                             "model": meta.get("model", {}), "summary": summary})
+                             "model": meta.get("model", {}), "summary": summary}, max_age)
 
     @app.get("/api/runs/{run_id}/failures")
     def failures(
@@ -77,7 +79,7 @@ def create_app(cache: CachedStore | None = None) -> FastAPI:
             "run_id": run_id, "track": track, "language": language,
             "total": len(failing), "offset": offset, "limit": limit,
             "items": page,
-        })
+        }, max_age)
 
     _mount_spa(app)
     return app
@@ -130,11 +132,12 @@ def _select_failures(records: list[dict], track: str, language: str | None) -> l
     return out
 
 
-def _cached_json(payload: dict) -> JSONResponse:
-    return JSONResponse(
-        payload,
-        headers={"Cache-Control": "public, max-age=300, stale-while-revalidate=3600"},
-    )
+def _cached_json(payload: dict, max_age: int) -> JSONResponse:
+    if max_age <= 0:
+        cc = "no-store"
+    else:
+        cc = f"public, max-age={max_age}, stale-while-revalidate={max_age * 12}"
+    return JSONResponse(payload, headers={"Cache-Control": cc})
 
 
 def _mount_spa(app: FastAPI) -> None:

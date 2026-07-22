@@ -39,8 +39,9 @@ def _seed(tmp_path):
     return store
 
 
-def _client(tmp_path):
-    return TestClient(create_app(CachedStore(_seed(tmp_path), ttl_seconds=0)))
+def _client(tmp_path, http_max_age=300):
+    return TestClient(create_app(CachedStore(_seed(tmp_path), ttl_seconds=0),
+                                 http_max_age=http_max_age))
 
 
 def test_health(tmp_path):
@@ -77,8 +78,9 @@ def test_failures_excludes_perfect(tmp_path):
 
 
 def test_cache_control_header(tmp_path):
-    resp = _client(tmp_path).get("/api/leaderboard")
-    assert "max-age" in resp.headers.get("cache-control", "")
+    # Production TTL → browser caching; dev TTL 0 → no-store.
+    assert "max-age=300" in _client(tmp_path, 300).get("/api/leaderboard").headers["cache-control"]
+    assert _client(tmp_path, 0).get("/api/leaderboard").headers["cache-control"] == "no-store"
 
 
 def test_spa_fallback_for_unknown_route(tmp_path):

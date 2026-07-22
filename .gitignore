@@ -35,3 +35,6 @@ bible-cache/
 
 # Stray shell redirect artifacts (e.g. a file literally named "1" or "2")
 /[0-9]
+
+# Local web-review demo data
+web-review-results/

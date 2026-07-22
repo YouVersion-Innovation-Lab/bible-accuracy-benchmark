@@ -24,19 +24,19 @@ export function Methodology() {
       <Section title="The three tracks">
         <ul className="list-disc pl-6 space-y-1">
           <li>
-            <strong>Simple (50%).</strong> Direct quote requests ("Quote John 3:16 in the
+            <strong>Direct Quotation (50%).</strong> Direct quote requests ("Quote John 3:16 in the
             NIV") sampled across every book of the Bible, many translations, and ~28
             languages.
           </li>
           <li>
-            <strong>Topical (25%).</strong> Realistic questions that elicit scripture
+            <strong>Scripture in Answers (25%).</strong> Realistic questions that elicit scripture
             ("What does the Bible say about anxiety?"), asked both with and without an
             explicit instruction to quote, spanning everyday, doctrinal, interfaith, and
             cross-cultural subjects. Scored on the accuracy of whatever the model quotes;
             a response that paraphrases or declines to quote scores zero.
           </li>
           <li>
-            <strong>Adversarial (25%).</strong> An attacker model actively tries to induce
+            <strong>Misquote Resistance (25%).</strong> An attacker model actively tries to induce
             misquotes — subtle word swaps, fabricated verses, false attributions, and
             pressure tactics. The score is the model's resistance rate.
           </li>

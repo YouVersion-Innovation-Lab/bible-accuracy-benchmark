@@ -2,11 +2,16 @@
 
 export interface LeaderboardEntry {
   run_id: string;
+  run_version: string | null;
   model_label: string;
+  model_id: string;
   provider_host: string;
   run_date: string;
   headline_score: number | null;
   by_track: Record<string, number>;
+  by_language: Record<string, number>;
+  fabrication_rate: number | null;
+  refusal_rate: number | null;
 }
 
 export interface Leaderboard {
@@ -38,6 +43,7 @@ export interface TrackSummary {
   by_version?: Record<string, number>;
   grades?: Record<string, number>;
   verbatim_rate?: number;
+  near_verbatim_rate?: number;
   fabrication_rate?: number;
   refusal_rate?: number;
   wrong_version_rate?: number;

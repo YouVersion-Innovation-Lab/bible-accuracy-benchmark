@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api, type FailureItem } from "../api";
 import { ErrorMsg, Loading, SensitiveTag } from "../components";
+import { TRACK_BY_KEY } from "../constants";
 import { wordDiff, type DiffPart } from "../diff";
 import { useAsync } from "../hooks";
 
@@ -41,13 +42,13 @@ export function Failures() {
           <button
             key={t}
             onClick={() => setTrack(t)}
-            className={`rounded-lg px-3 py-1.5 text-sm capitalize ${
+            className={`rounded-lg px-3 py-1.5 text-sm ${
               track === t
                 ? "bg-indigo-500/30 text-indigo-100"
                 : "bg-white/5 text-slate-300 hover:bg-white/10"
             }`}
           >
-            {t}
+            {TRACK_BY_KEY[t]?.name ?? t}
           </button>
         ))}
       </div>

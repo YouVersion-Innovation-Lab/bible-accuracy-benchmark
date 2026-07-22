@@ -125,15 +125,22 @@ def rebuild_leaderboard(store: ResultsStore) -> dict:
         summary = store.read_json(f"runs/{run_id}/summary.json")
         if not summary:
             continue
+        simple = summary.get("tracks", {}).get("simple", {})
         entries.append(
             {
                 "run_id": run_id,
                 "run_version": manifest.get("run_version"),
                 "model_label": manifest["model"]["label"],
+                "model_id": manifest["model"].get("model", ""),
                 "provider_host": manifest["model"].get("base_url_host", ""),
                 "run_date": manifest.get("finished_at") or manifest.get("started_at"),
                 "headline_score": summary.get("headline_score"),
                 "by_track": summary.get("by_track", {}),
+                # Per-language direct-quote accuracy powers the landing matrix.
+                "by_language": simple.get("by_language", {}),
+                # A couple of plain-language trust signals for callouts.
+                "fabrication_rate": simple.get("fabrication_rate"),
+                "refusal_rate": simple.get("refusal_rate"),
             }
         )
     entries.sort(key=lambda e: (e["headline_score"] is None, -(e["headline_score"] or 0)))
