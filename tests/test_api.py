@@ -43,8 +43,8 @@ def _client(tmp_path):
     return TestClient(create_app(CachedStore(_seed(tmp_path), ttl_seconds=0)))
 
 
-def test_healthz(tmp_path):
-    assert _client(tmp_path).get("/healthz").json() == {"ok": True}
+def test_health(tmp_path):
+    assert _client(tmp_path).get("/health").json() == {"ok": True}
 
 
 def test_leaderboard_only_published(tmp_path):

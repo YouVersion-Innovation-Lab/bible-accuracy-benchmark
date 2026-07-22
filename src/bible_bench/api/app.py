@@ -5,7 +5,7 @@ Endpoints (all read published runs only):
     GET /api/leaderboard                       ranked published runs
     GET /api/runs/{run_id}                      model meta + summary
     GET /api/runs/{run_id}/failures             paginated failing items w/ diffs
-    GET /healthz
+    GET /health
 
 Everything else serves the SPA's index.html (client-side routing).
 """
@@ -36,8 +36,11 @@ def create_app(cache: CachedStore | None = None) -> FastAPI:
         store_from_env(), ttl_seconds=float(os.environ.get("CACHE_TTL_SECONDS", "300"))
     )
 
-    @app.get("/healthz")
-    def healthz() -> dict:
+    # Note: "/healthz" is intercepted by Google's front end on Cloud Run
+    # (returns a GFE 404 before reaching the app), so the health path is
+    # "/health".
+    @app.get("/health")
+    def health() -> dict:
         return {"ok": True}
 
     @app.get("/api/leaderboard")
