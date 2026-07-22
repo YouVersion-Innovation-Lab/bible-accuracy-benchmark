@@ -29,11 +29,23 @@ done
 echo ">> CI deploy service account + roles"
 gcloud iam service-accounts create bible-bench-ci-deploy \
   --project "$PROJECT" --display-name "Bible Bench CI deploy" 2>/dev/null || true
+# SA creation is eventually consistent; wait so the bindings below don't race.
+for i in $(seq 1 10); do
+  gcloud iam service-accounts describe "$CI_SA" --project "$PROJECT" >/dev/null 2>&1 && break
+  sleep 2
+done
 for ROLE in roles/run.admin roles/cloudbuild.builds.editor \
-            roles/artifactregistry.writer roles/storage.admin; do
+            roles/artifactregistry.writer roles/storage.admin roles/logging.logWriter; do
   gcloud projects add-iam-policy-binding "$PROJECT" \
     --member "serviceAccount:${CI_SA}" --role "$ROLE" --condition=None >/dev/null
 done
+
+# Cloud Build runs as the Compute Engine default SA; the CI SA must be allowed
+# to act as it to submit builds.
+BUILD_SA=${PROJNUM}-compute@developer.gserviceaccount.com
+gcloud iam service-accounts add-iam-policy-binding "$BUILD_SA" \
+  --project "$PROJECT" --member "serviceAccount:${CI_SA}" \
+  --role roles/iam.serviceAccountUser >/dev/null
 
 echo ">> Runtime service accounts + roles"
 for ENV in beta release; do

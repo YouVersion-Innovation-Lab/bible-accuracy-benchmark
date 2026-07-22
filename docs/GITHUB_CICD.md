@@ -42,10 +42,16 @@ done
 gcloud iam service-accounts create bible-bench-ci-deploy \
   --project "$PROJECT" --display-name "Bible Bench CI deploy" || true
 for ROLE in roles/run.admin roles/cloudbuild.builds.editor \
-            roles/artifactregistry.writer roles/storage.admin; do
+            roles/artifactregistry.writer roles/storage.admin roles/logging.logWriter; do
   gcloud projects add-iam-policy-binding "$PROJECT" \
     --member "serviceAccount:${CI_SA}" --role "$ROLE" --condition=None
 done
+
+# Cloud Build runs as the Compute Engine default SA; the CI SA must act as it.
+gcloud iam service-accounts add-iam-policy-binding \
+  "${PROJNUM}-compute@developer.gserviceaccount.com" \
+  --project "$PROJECT" --member "serviceAccount:${CI_SA}" \
+  --role roles/iam.serviceAccountUser
 
 # Runtime service accounts (least privilege: read only their results bucket)
 for ENV in beta release; do
