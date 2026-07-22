@@ -8,7 +8,7 @@
   scores results deterministically.
 - **CLI runner** (`bible-bench`) — runs evaluations locally with live progress and writes
   run artifacts (manifest, responses, scored items, summary, transcripts) to the results
-  store. `bible-bench publish --run-version <v> --label <model>` gates what appears on the public leaderboard.
+  store. `bible-bench publish --run-version <v> --model <id>` gates what appears on the public leaderboard.
 - **Results store** — a GCS bucket of JSON artifacts per environment
   (`biblelabs-bible-bench-results-{beta,release}`). Results are plain, auditable files.
 - **Public website** (`web/` + `src/bible_bench/api/`) — a single Cloud Run service per

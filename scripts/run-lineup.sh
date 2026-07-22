@@ -12,7 +12,7 @@
 # A provider is skipped (with a note) if its key isn't set, so partial lineups
 # just work. All models use the same run-version, so they share the verse sample
 # and are comparable. Nothing is published — review each run, then
-# `bible-bench publish --run-version <v> --label <label>` the ones you want live.
+# `bible-bench publish --run-version <v> --model <id>` the ones you want live.
 set -euo pipefail
 
 RUN_VERSION="${1:?usage: run-lineup.sh <run-version> [store args...]}"; shift || true
@@ -61,4 +61,4 @@ for entry in "${MODELS[@]}"; do
 done
 
 echo ">> Done. Review each run, then:"
-echo ">>   bible-bench publish --run-version $RUN_VERSION --label \"<label>\" ${STORE_ARGS[*]}"
+echo ">>   bible-bench publish --run-version $RUN_VERSION --model <model-id> ${STORE_ARGS[*]}"

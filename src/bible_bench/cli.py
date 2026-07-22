@@ -148,7 +148,7 @@ async def cmd_run(args) -> int:
         return 2
 
     model_cfg = LlmEndpointConfig(
-        base_url=args.base_url, api_key=api_key, model=args.model, label=args.label or args.model
+        base_url=args.base_url, api_key=api_key, model=args.model, label=args.label
     )
     store = _store_from_args(args)
     client = BibleClient(bible_cfg, cache_dir=_cache_dir(args), offline=True)
@@ -156,11 +156,12 @@ async def cmd_run(args) -> int:
 
     tracks = set(ALL_TRACKS)
     run_version = args.run_version
-    run_key = _run_key(run_version, model_cfg.label)
+    run_key = _run_key(run_version, model_cfg.model)  # identity = version + model id
     run_dir = f"runs/{run_key}"
     tracks_str = ",".join(sorted(tracks))
-    console.print(f"[bold]Run:[/bold] {run_key}  ·  model [cyan]{model_cfg.label}[/cyan]  ·  "
-                  f"version [cyan]{run_version}[/cyan]  ·  tracks [cyan]{tracks_str}[/cyan]")
+    console.print(f"[bold]Run:[/bold] {run_key}  ·  model [cyan]{model_cfg.model}[/cyan] "
+                  f"([cyan]{model_cfg.label}[/cyan])  ·  version [cyan]{run_version}[/cyan]  ·  "
+                  f"tracks [cyan]{tracks_str}[/cyan]")
 
     try:
         # Overwrite: a given (model, run-version) always writes the same place.
@@ -258,7 +259,7 @@ async def cmd_run(args) -> int:
 
     console.print(f"[green]Done.[/green] Results in [bold]{run_dir}[/bold]. "
                   f"Publish with: bible-bench publish --run-version {run_version} "
-                  f"--label \"{model_cfg.label}\"")
+                  f"--model {model_cfg.model}")
     return 0
 
 
@@ -344,12 +345,12 @@ async def _score_and_summarize(store, run_dir, items, topical_items, client, mod
 
 async def cmd_score(args) -> int:
     store = _store_from_args(args)
-    run_key = _run_key(args.run_version, args.label)
+    run_key = _run_key(args.run_version, args.model)
     run_dir = f"runs/{run_key}"
     manifest = store.read_json(f"{run_dir}/manifest.json")
     if not manifest:
         console.print(f"[red]No run found for {run_key} (version={args.run_version}, "
-                      f"label={args.label!r}).[/red]")
+                      f"model={args.model!r}).[/red]")
         return 2
     _require_cache(args)  # scoring reads only from the local cache
     client = _bible_client(args, offline=True)
@@ -365,12 +366,12 @@ async def cmd_score(args) -> int:
 
 def cmd_publish(args, published: bool) -> int:
     store = _store_from_args(args)
-    run_key = _run_key(args.run_version, args.label)
+    run_key = _run_key(args.run_version, args.model)
     run_dir = f"runs/{run_key}"
     manifest = store.read_json(f"{run_dir}/manifest.json")
     if not manifest:
         console.print(f"[red]No run found for {run_key} (version={args.run_version}, "
-                      f"label={args.label!r}).[/red]")
+                      f"model={args.model!r}).[/red]")
         return 2
     manifest["published"] = published
     store.write_json(f"{run_dir}/manifest.json", manifest)
@@ -505,12 +506,13 @@ def _slug(s: str) -> str:
     return "".join(c if c.isalnum() else "-" for c in s.lower()).strip("-")[:40]
 
 
-def _run_key(run_version: str, label: str) -> str:
-    """Deterministic run identifier from (version, model). Re-running the same
-    (version, model) resolves to the same location and overwrites it — there is
-    no separate run-id concept."""
+def _run_key(run_version: str, model: str) -> str:
+    """Deterministic run identifier from (run-version, model id). The model id
+    is the official identifier sent in the API call — NOT the display label.
+    Re-running the same (version, model) resolves to the same location and
+    overwrites it; there is no separate run-id concept."""
     v = "".join(c if (c.isalnum() or c in ".-") else "-" for c in run_version).strip("-")
-    return f"{v}--{_slug(label)}"
+    return f"{v}--{_slug(model)}"
 
 
 def _add_cache_arg(p) -> None:
@@ -535,8 +537,15 @@ def main(argv: list[str] | None = None) -> int:
 
     r = sub.add_parser("run", help="Run the benchmark against a model")
     r.add_argument("--base-url", required=True)
-    r.add_argument("--model", required=True)
-    r.add_argument("--label")
+    r.add_argument("--model", required=True,
+                   help="Official model id sent in the API call; also identifies the run")
+    r.add_argument("--label", required=True,
+                   help="Human-readable display name, stored in the result for the "
+                        "website (not used in the API call or run identity)")
+    r.add_argument("--run-version", required=True,
+                   help="Benchmark run version (e.g. v0.1). Identifies the result "
+                        "together with the model and seeds the verse sample; re-running "
+                        "the same model + version overwrites that result.")
     r.add_argument("--api-key-env", default="TARGET_API_KEY",
                    help="Env var holding the API key (default TARGET_API_KEY)")
     r.add_argument("--spec", default="dataset/spec-v1.json")
@@ -545,10 +554,6 @@ def main(argv: list[str] | None = None) -> int:
                    help="Comma-separated language tags to limit the topical track to "
                         "(e.g. 'eng'); default all languages in the topics file")
     r.add_argument("--goals", default="dataset/adversarial-goals-v1.json")
-    r.add_argument("--run-version", default="dev",
-                   help="Benchmark run version (e.g. v0.1). Identifies the result "
-                        "together with the model and seeds the verse sample; re-running "
-                        "the same model + version overwrites that result.")
     r.add_argument("--scale", type=float, default=1.0,
                    help="Scale factor on per-tier counts (use <1 for quick pilots)")
     r.add_argument("--dummy", action="store_true", help="Echo mode; no API key needed")
@@ -557,19 +562,19 @@ def main(argv: list[str] | None = None) -> int:
 
     s = sub.add_parser("score", help="Re-score an existing run")
     s.add_argument("--run-version", required=True)
-    s.add_argument("--label", required=True, help="Model label used for the run")
+    s.add_argument("--model", required=True, help="Model id used for the run")
     _add_cache_arg(s)
     _add_store_args(s)
 
     for name in ("publish", "unpublish"):
         p = sub.add_parser(name)
         p.add_argument("--run-version", required=True)
-        p.add_argument("--label", required=True, help="Model label used for the run")
+        p.add_argument("--model", required=True, help="Model id used for the run")
         _add_store_args(p)
 
     b = sub.add_parser("build-dataset", help="Draw a fresh item set from the spec")
     b.add_argument("--spec", default="dataset/spec-v1.json")
-    b.add_argument("--run-version", default="dev", help="Seeds the verse sample")
+    b.add_argument("--run-version", required=True, help="Seeds the verse sample")
     b.add_argument("--scale", type=float, default=1.0)
     b.add_argument("--out")
     _add_cache_arg(b)

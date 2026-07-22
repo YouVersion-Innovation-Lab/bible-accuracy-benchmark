@@ -49,7 +49,7 @@ bible-bench run \
   --gcs-bucket biblelabs-bible-bench-results-beta
 ```
 
-- A run is identified by **(model label, `--run-version`)** — no run-id. The
+- A run is identified by **(`--model` id, `--run-version`)** — no run-id. `--label` is a required display name, stored in the result for the website. The
   result is stored at `runs/{run-version}--{model-slug}/`; **re-running the same
   model + version overwrites it** (a fresh run, not a resume).
 - All three tracks (simple, topical, adversarial) always run — there is no track
@@ -60,17 +60,17 @@ bible-bench run \
   without any model API (echo mode) for plumbing tests. `--local-dir DIR` writes
   to a local folder instead of GCS.
 - Generation and scoring are separate passes. Re-score without re-querying:
-  `bible-bench score --run-version v0.1 --label "GPT-5.2" --gcs-bucket …`
+  `bible-bench score --run-version v0.1 --model gpt-5.2 --gcs-bucket …`
   (picks up a new `SCORING_VERSION`).
 
 ## Review, then publish
 
 A run is not on the leaderboard until published. Review the run's `summary.json`
-and a sample of `items*.jsonl` first, then (identify the run by version + label):
+and a sample of `items*.jsonl` first, then (identify the run by version + model):
 
 ```bash
-bible-bench publish   --run-version v0.1 --label "GPT-5.2" --gcs-bucket biblelabs-bible-bench-results-beta
-bible-bench unpublish --run-version v0.1 --label "GPT-5.2" --gcs-bucket biblelabs-bible-bench-results-beta
+bible-bench publish   --run-version v0.1 --model gpt-5.2 --gcs-bucket biblelabs-bible-bench-results-beta
+bible-bench unpublish --run-version v0.1 --model gpt-5.2 --gcs-bucket biblelabs-bible-bench-results-beta
 ```
 
 Publish/unpublish rebuilds `leaderboard.json`. The public site serves published

@@ -101,7 +101,7 @@ The eval CLI writes runs to the environment's results bucket and gates the
 leaderboard:
 
 ```bash
-bible-bench run  --base-url … --api-key-env TARGET_API_KEY --model … --label … \
+bible-bench run  --base-url … --api-key-env TARGET_API_KEY --model gpt-5.2 --label "GPT-5.2" \
   --run-version v0.1 --gcs-bucket biblelabs-bible-bench-results-beta
-bible-bench publish --run-version v0.1 --label "GPT-5.2" --gcs-bucket biblelabs-bible-bench-results-beta
+bible-bench publish --run-version v0.1 --model gpt-5.2 --gcs-bucket biblelabs-bible-bench-results-beta
 ```
