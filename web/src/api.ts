@@ -87,6 +87,8 @@ export interface TrackSummary {
 
 export interface FailureItem {
   id: string;
+  prompt?: string;
+  passed?: boolean;
   language_tag?: string;
   version_abbrev?: string;
   reference?: string;
@@ -119,6 +121,17 @@ export interface FailuresPage {
   items: FailureItem[];
 }
 
+export interface EvaluationsPage {
+  total: number;
+  n_pass: number;
+  n_fail: number;
+  offset: number;
+  limit: number;
+  track: string;
+  outcome: string;
+  items: FailureItem[];
+}
+
 async function get<T>(url: string): Promise<T> {
   const r = await fetch(url);
   if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
@@ -139,6 +152,19 @@ export const api = {
     if (language) p.set("language", language);
     if (versionId != null) p.set("version_id", String(versionId));
     return get<FailuresPage>(`/api/runs/${encodeURIComponent(id)}/failures?${p}`);
+  },
+  evaluations: (
+    id: string,
+    track: string,
+    outcome: string,
+    language: string | null,
+    versionId: number | null,
+    offset: number,
+  ) => {
+    const p = new URLSearchParams({ track, outcome, offset: String(offset), limit: "25" });
+    if (language) p.set("language", language);
+    if (versionId != null) p.set("version_id", String(versionId));
+    return get<EvaluationsPage>(`/api/runs/${encodeURIComponent(id)}/evaluations?${p}`);
   },
 };
 

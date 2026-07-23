@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type LeaderboardEntry } from "../api";
 import { ErrorMsg, Loading, ScoreBadge } from "../components";
 import { TRACK_WEIGHTS, heatColor, langName, orderLanguages } from "../constants";
-import { FilterBar, buildVersionsByLang, sliceLabel, type VersionsByLang } from "../FilterBar";
+import { sliceLabel, type VersionsByLang } from "../FilterBar";
+import { useFilters } from "../filterContext";
 import { useAsync } from "../hooks";
 
 // A data column in the matrix: a value in [0,1] per model, or undefined if the
@@ -19,8 +20,8 @@ const HEADLINE = "headline";
 
 export function Leaderboard() {
   const { data, error, loading } = useAsync(() => api.leaderboard(), []);
-  const [filterLang, setFilterLang] = useState<string | null>(null);
-  const [filterVersion, setFilterVersion] = useState<number | null>(null);
+  // Language + version come from the global (header) filter.
+  const { lang: filterLang, version: filterVersion, versionsByLang } = useFilters();
   const [sortKey, setSortKey] = useState<string>(HEADLINE);
 
   const languages = useMemo(() => {
@@ -30,11 +31,16 @@ export function Leaderboard() {
     return orderLanguages([...tags]);
   }, [data]);
 
-  // version_id -> {abbrev, language} (union across models; scores read per-model).
-  const versionsByLang = useMemo(
-    () => buildVersionsByLang(data ? data.entries.flatMap((e) => e.versions ?? []) : []),
-    [data],
-  );
+  // Follow the global filter: sort by the active version, else language, else overall.
+  useEffect(() => {
+    setSortKey(
+      filterVersion != null
+        ? `ver:${filterVersion}`
+        : filterLang
+          ? `lang:${filterLang}`
+          : HEADLINE,
+    );
+  }, [filterLang, filterVersion]);
 
   // The data columns depend on the active filter.
   const cols: Col[] = useMemo(() => {
@@ -71,16 +77,6 @@ export function Leaderboard() {
     return [...data.entries].sort((a, b) => val(b) - val(a));
   }, [data, cols, sortKey]);
 
-  function chooseLang(lang: string | null) {
-    setFilterLang(lang);
-    setFilterVersion(null);
-    setSortKey(lang ? `lang:${lang}` : HEADLINE);
-  }
-  function chooseVersion(vid: number | null) {
-    setFilterVersion(vid);
-    setSortKey(vid != null ? `ver:${vid}` : filterLang ? `lang:${filterLang}` : HEADLINE);
-  }
-
   return (
     <div>
       <section className="mb-8 max-w-3xl">
@@ -110,18 +106,7 @@ export function Leaderboard() {
             filterVersion={filterVersion}
           />
 
-          <div className="mt-8">
-            <FilterBar
-              languages={languages}
-              versionsByLang={versionsByLang}
-              lang={filterLang}
-              version={filterVersion}
-              onLang={chooseLang}
-              onVersion={chooseVersion}
-            />
-          </div>
-
-          <div className="mt-4 overflow-x-auto rounded-xl border border-white/10">
+          <div className="mt-8 overflow-x-auto rounded-xl border border-white/10">
             <table className="text-sm border-collapse">
               <thead className="bg-white/[0.04] text-slate-300">
                 <tr>

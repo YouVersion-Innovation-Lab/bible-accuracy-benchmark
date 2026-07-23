@@ -31,6 +31,11 @@ def _seed(tmp_path):
          "score": {"grade": "perfect", "item_score": 1.0, "qer": 0.0}},
     ]
     store.write_text("runs/run-a/items.jsonl", "\n".join(json.dumps(r) for r in rows) + "\n")
+    # Generation records carry the prompt, joined into evaluations by item_id.
+    store.write_text("runs/run-a/responses.jsonl", "\n".join(json.dumps(r) for r in [
+        {"item_id": "i1", "prompt": "Quote John 3:16 in the NIV.", "response_text": "x"},
+        {"item_id": "i2", "prompt": "Quote Genesis 1:1 in the NIV.", "response_text": "y"},
+    ]) + "\n")
     # an unpublished run must never surface
     store.write_json("runs/run-b/manifest.json", {"run_id": "run-b", "published": False,
                                                   "model": {"label": "Secret"}})
@@ -75,6 +80,23 @@ def test_failures_excludes_perfect(tmp_path):
     i1 = next(i for i in r["items"] if i["id"] == "i1")
     assert i1["expected_text"].startswith("For God so loved")  # ground truth shown
     assert i1["response_text"] == "wrong text here friends"
+
+
+def test_evaluations_all_pass_fail(tmp_path):
+    c = _client(tmp_path)
+    # i1 = major (fail), i2 = perfect (pass).
+    allr = c.get("/api/runs/run-a/evaluations?track=simple&outcome=all").json()
+    assert allr["total"] == 2
+    assert allr["n_pass"] == 1 and allr["n_fail"] == 1
+    # Prompt is joined from responses.jsonl by item_id.
+    by_id = {i["id"]: i for i in allr["items"]}
+    assert by_id["i1"]["prompt"] == "Quote John 3:16 in the NIV."
+    assert by_id["i1"]["passed"] is False and by_id["i2"]["passed"] is True
+
+    passed = c.get("/api/runs/run-a/evaluations?track=simple&outcome=pass").json()
+    assert [i["id"] for i in passed["items"]] == ["i2"]
+    failed = c.get("/api/runs/run-a/evaluations?track=simple&outcome=fail").json()
+    assert [i["id"] for i in failed["items"]] == ["i1"]
 
 
 def test_failures_version_filter(tmp_path):

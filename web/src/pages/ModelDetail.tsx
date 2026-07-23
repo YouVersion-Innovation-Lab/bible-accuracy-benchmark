@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, type TrackSummary } from "../api";
 import { Card, ErrorMsg, Loading, ScoreBadge } from "../components";
-import { TRACKS, heatColor, langName, orderLanguages } from "../constants";
-import { FilterBar, buildVersionsByLang, sliceLabel } from "../FilterBar";
+import { TRACKS, heatColor, langName } from "../constants";
+import { sliceLabel } from "../FilterBar";
+import { useFilters } from "../filterContext";
 import { useAsync } from "../hooks";
 
 export function ModelDetail() {
@@ -75,10 +76,10 @@ export function ModelDetail() {
 
       <div className="flex flex-wrap gap-3">
         <Link
-          to={`/models/${encodeURIComponent(runId)}/failures`}
+          to={`/models/${encodeURIComponent(runId)}/evaluations`}
           className="rounded-lg bg-indigo-500/20 text-indigo-200 px-4 py-2 text-sm hover:bg-indigo-500/30 no-underline"
         >
-          Inspect every failure →
+          Browse all evaluations →
         </Link>
         <Link
           to="/methodology"
@@ -91,9 +92,10 @@ export function ModelDetail() {
   );
 }
 
-/** Interactive accuracy explorer: pick a language and Bible version to scope
- * every track's score for this model, see which translation it prefers when
- * unprompted, and jump into the filtered failure browser. */
+/** This model's score on every track for the globally-selected language and
+ * Bible version, its spontaneous translation preference, and deep links into
+ * the evaluations browser. The language/version selector is in the header and
+ * applies site-wide. */
 function AccuracyExplorer({
   runId,
   tracks,
@@ -101,27 +103,18 @@ function AccuracyExplorer({
   runId: string;
   tracks: Record<string, TrackSummary>;
 }) {
-  const simple = tracks.simple;
-  const [lang, setLang] = useState<string | null>(null);
-  const [version, setVersion] = useState<number | null>(null);
-
-  const versionsByLang = useMemo(() => buildVersionsByLang(simple?.versions ?? []), [simple]);
-  const languages = useMemo(
-    () => orderLanguages(Object.keys(simple?.by_language ?? {})),
-    [simple],
-  );
-  const langVersions = lang ? (versionsByLang.get(lang) ?? []) : [];
+  const { lang, version, versionsByLang } = useFilters();
   const abbrev =
     version != null
-      ? langVersions.find((v) => v.version_id === version)?.version_abbrev
+      ? versionsByLang.get(lang ?? "")?.find((v) => v.version_id === version)?.version_abbrev
       : undefined;
   const label = sliceLabel(lang, abbrev);
 
   const abbrevById = useMemo(() => {
     const m = new Map<number, string>();
-    (simple?.versions ?? []).forEach((v) => m.set(v.version_id, v.version_abbrev));
+    (tracks.simple?.versions ?? []).forEach((v) => m.set(v.version_id, v.version_abbrev));
     return m;
-  }, [simple]);
+  }, [tracks.simple]);
 
   // Per-track score (0..1) for the active slice.
   const rows = TRACKS.map((t) => ({ meta: t, score: trackSlice(tracks[t.key], lang, version) }));
@@ -134,28 +127,16 @@ function AccuracyExplorer({
     ? (abbrevById.get(prefEntry.top_version_id) ?? `#${prefEntry.top_version_id}`)
     : null;
 
-  function failuresHref(trackKey: string): string {
-    const p = new URLSearchParams({ track: trackKey });
-    if (lang) p.set("language", lang);
-    if (version != null && trackKey === "simple") p.set("version_id", String(version));
-    return `/models/${encodeURIComponent(runId)}/failures?${p}`;
-  }
+  // The evaluations browser reads the same global filter, so only the track
+  // needs to travel in the URL.
+  const evalHref = (trackKey: string) =>
+    `/models/${encodeURIComponent(runId)}/evaluations?track=${trackKey}`;
 
   return (
     <Card title="Accuracy by language & version">
-      <FilterBar
-        languages={languages}
-        versionsByLang={versionsByLang}
-        lang={lang}
-        version={version}
-        onLang={(l) => {
-          setLang(l);
-          setVersion(null);
-        }}
-        onVersion={setVersion}
-      />
-      <div className="mt-4 text-sm text-slate-400">
+      <div className="text-sm text-slate-400">
         Scores for <span className="text-slate-200">{label}</span>
+        <span className="text-slate-500"> — set the language / version in the header filter.</span>
       </div>
       <div className="mt-3 grid gap-3 sm:grid-cols-3">
         {rows.map((r) => {
@@ -170,11 +151,8 @@ function AccuracyExplorer({
                 {r.score != null ? (r.score * 100).toFixed(1) : "—"}
               </div>
               <div className="mt-2">
-                <Link
-                  to={failuresHref(r.meta.key)}
-                  className="text-xs text-indigo-300 hover:underline"
-                >
-                  Inspect failures →
+                <Link to={evalHref(r.meta.key)} className="text-xs text-indigo-300 hover:underline">
+                  Browse evaluations →
                 </Link>
               </div>
             </div>
@@ -193,8 +171,8 @@ function AccuracyExplorer({
         </p>
       ) : (
         <p className="mt-4 text-sm text-slate-500">
-          Pick a language to scope every track and the failure browser, and to see which
-          translation this model prefers when unprompted.
+          Pick a language in the header filter to scope every track and see which translation
+          this model prefers when unprompted.
         </p>
       )}
     </Card>

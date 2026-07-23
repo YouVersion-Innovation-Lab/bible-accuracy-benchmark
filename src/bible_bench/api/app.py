@@ -82,6 +82,36 @@ def create_app(cache: CachedStore | None = None, http_max_age: int | None = None
             "items": page,
         }, max_age)
 
+    @app.get("/api/runs/{run_id}/evaluations")
+    def evaluations(
+        run_id: str,
+        track: str = Query("simple", pattern="^(simple|topical|phantom)$"),
+        outcome: str = Query("all", pattern="^(all|pass|fail)$"),
+        language: str | None = None,
+        version_id: int | None = None,
+        limit: int = Query(25, ge=1, le=100),
+        offset: int = Query(0, ge=0),
+    ) -> JSONResponse:
+        """Every scored item for a track (not just failures), each with the
+        prompt sent and the deterministic scoring detail. Filter by outcome
+        (all/pass/fail), language, and — for the direct-quote track — version."""
+        if not store.is_published(run_id):
+            raise HTTPException(404, "Run not found or not published")
+        prompts = {
+            r.get("item_id"): r.get("prompt", "") for r in store.responses(run_id, track)
+        }
+        rows, n_pass, n_fail = _select_evaluations(
+            store.items(run_id, track), track, language, version_id, outcome, prompts
+        )
+        page = rows[offset : offset + limit]
+        return _cached_json({
+            "scope_note": SCOPE_NOTE,
+            "run_id": run_id, "track": track, "outcome": outcome,
+            "language": language, "version_id": version_id,
+            "total": len(rows), "n_pass": n_pass, "n_fail": n_fail,
+            "offset": offset, "limit": limit, "items": page,
+        }, max_age)
+
     _mount_spa(app)
     return app
 
@@ -151,6 +181,82 @@ def _select_failures(
     # Worst first (lowest score), stable.
     out.sort(key=lambda x: x.get("score", 0.0) if x.get("score") is not None else 0.0)
     return out
+
+
+def _eval_passed(track: str, r: dict) -> bool:
+    """Did this item pass? Per-track definition of a clean result."""
+    if track == "simple":
+        return r.get("score", {}).get("grade") in ("perfect", "near_perfect")
+    if track == "topical":
+        ts = r.get("topical_score", {})
+        bad = any(
+            q.get("classification") in ("mismatch", "misattributed", "fabricated")
+            for q in r.get("quotes", [])
+        )
+        return not bad and ts.get("item_score", 0) >= 1.0
+    if track == "phantom":
+        return r.get("phantom_score", {}).get("item_score", 0) >= 1.0
+    return True
+
+
+def _eval_row(track: str, r: dict, prompt: str, passed: bool) -> dict:
+    """Display record for one evaluation: prompt + response + scoring detail."""
+    row = {
+        "id": r.get("item_id"),
+        "prompt": prompt,
+        "response_text": r.get("response_text"),
+        "passed": passed,
+        "language_tag": r.get("language_tag"),
+        "version_abbrev": r.get("version_abbrev"),
+    }
+    if track == "simple":
+        s = r.get("score", {})
+        row.update({
+            "reference": r.get("usfm"), "usfm": r.get("usfm"),
+            "grade": s.get("grade"), "score": s.get("item_score"), "qer": s.get("qer"),
+            "expected_text": r.get("expected_text"),
+        })
+    elif track == "topical":
+        ts = r.get("topical_score", {})
+        row.update({
+            "topic_name": r.get("topic_name"),
+            "elicitation_level": r.get("elicitation_level"),
+            "sensitive": r.get("sensitive"), "score": ts.get("item_score"),
+            "quotes": r.get("quotes", []),
+        })
+    elif track == "phantom":
+        ps = r.get("phantom_score", {})
+        row.update({
+            "reference": r.get("reference_display"), "kind": r.get("kind"),
+            "outcome": ps.get("outcome"), "score": ps.get("item_score"),
+            "quotes": r.get("quotes", []),
+        })
+    return row
+
+
+def _select_evaluations(
+    records: list[dict], track: str, language: str | None,
+    version_id: int | None, outcome: str, prompts: dict[str, str],
+) -> tuple[list[dict], int, int]:
+    """All scored items for the language/version filter, tagged pass/fail, then
+    narrowed to the requested outcome. Returns (rows, n_pass, n_fail) where the
+    counts are over the full (pre-outcome) filtered set."""
+    rows: list[dict] = []
+    n_pass = n_fail = 0
+    for r in records:
+        if language and r.get("language_tag") != language:
+            continue
+        if version_id is not None and track == "simple" and r.get("version_id") != version_id:
+            continue
+        passed = _eval_passed(track, r)
+        n_pass += int(passed)
+        n_fail += int(not passed)
+        if (outcome == "pass" and not passed) or (outcome == "fail" and passed):
+            continue
+        rows.append(_eval_row(track, r, prompts.get(r.get("item_id"), ""), passed))
+    # Failures first (lowest score), so problems surface even in the "all" view.
+    rows.sort(key=lambda x: (x["passed"], x.get("score") if x.get("score") is not None else 0.0))
+    return rows, n_pass, n_fail
 
 
 def _cached_json(payload: dict, max_age: int) -> JSONResponse:
