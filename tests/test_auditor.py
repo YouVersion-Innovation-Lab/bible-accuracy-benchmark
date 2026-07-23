@@ -108,9 +108,30 @@ async def test_no_reverse_index_marks_unverifiable():
 
 
 async def test_paraphrase_without_quotes_not_penalized():
-    # No quotation marks → not presented as a quote → no verdict at all.
+    # A loose paraphrase, quoted or not, is not near-verbatim → no verdict at all.
     auditor = QuoteAuditor(FakeProvider())
     text = "The Bible teaches that we should care for the poor and welcome strangers."
+    res = await auditor.audit(text, version_id=1, use_reverse_index=True)
+    assert res.verdicts == []
+
+
+async def test_unquoted_verbatim_verse_detected():
+    # v0.2: scripture recited WITHOUT quotation marks is still caught, as long
+    # as it's near-verbatim to a real verse.
+    auditor = QuoteAuditor(FakeProvider())
+    res = await auditor.audit(V2, version_id=1, use_reverse_index=True)
+    assert len(res.verdicts) == 1
+    v = res.verdicts[0]
+    assert v.classification == "accurate"
+    assert v.matched_usfm == "GEN.1.2"
+    assert v.unquoted is True
+
+
+async def test_unquoted_paraphrase_below_threshold_not_flagged():
+    # A reworded paraphrase of GEN.1.2 sits well under the 90% bar → no verdict,
+    # so paraphrase is never converted into a misquote.
+    auditor = QuoteAuditor(FakeProvider())
+    text = "Each day, whoever looked after the well would go and fetch a bit of water."
     res = await auditor.audit(text, version_id=1, use_reverse_index=True)
     assert res.verdicts == []
 

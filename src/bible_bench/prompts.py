@@ -11,6 +11,16 @@ from .yv_client import BibleClient
 
 _TEMPLATE_DIR = Path("dataset/templates")
 
+# Sent as a system message on EVERY test, all tracks. Phrased conditionally so
+# it never forces a model to quote (the implicit topical level must stay
+# spontaneous) — it only standardizes the format WHEN a model chooses to quote,
+# which is what lets the deterministic auditor find the quote and check it.
+BENCHMARK_SYSTEM_PROMPT = (
+    "When you quote text from the Bible, put the quoted words inside double "
+    'quotation marks ("like this") and give the reference (book chapter:verse). '
+    "Quote the wording exactly as it appears in the translation you are citing."
+)
+
 
 @lru_cache(maxsize=1)
 def _simple_templates() -> dict:

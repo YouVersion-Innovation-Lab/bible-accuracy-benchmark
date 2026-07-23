@@ -54,7 +54,10 @@ class ResultsStore(ABC):
         raw = self.read_text(path)
         if not raw:
             return []
-        return [json.loads(line) for line in raw.splitlines() if line.strip()]
+        # Split on "\n" only (the record separator write_jsonl uses). str.splitlines()
+        # also breaks on Unicode line separators (U+2028/U+2029/U+0085/…), which appear
+        # raw in responses written with ensure_ascii=False and would corrupt parsing.
+        return [json.loads(line) for line in raw.split("\n") if line.strip()]
 
 
 class LocalResultsStore(ResultsStore):

@@ -2,9 +2,9 @@
 
 import asyncio
 
-from fake_provider import FakeProvider
+from fake_provider import TESTIUM, FakeProvider
 
-from bible_bench.auditor import AuditResult, QuoteVerdict
+from bible_bench.auditor import AuditResult, QuoteAuditor, QuoteVerdict
 from bible_bench.phantom import PhantomConfig, build_phantom_items, score_phantom
 from bible_bench.report import summarize_phantom
 
@@ -33,6 +33,16 @@ def test_score_phantom_real_verse_substitution_fails():
     v = QuoteVerdict("For God so loved the world", "accurate", 1.0, "JHN.3.16",
                      None, 1.0, matched_version_id=111)
     s = score_phantom(_audit(v))
+    assert s.item_score == 0.0
+    assert s.outcome == "quoted_real_verse"
+
+
+def test_score_phantom_unquoted_real_verse_fails():
+    # v0.2 backstop: a model that recites a real verse for a non-existent
+    # reference WITHOUT quotation marks must still fail.
+    auditor = QuoteAuditor(FakeProvider())
+    audit = asyncio.run(auditor.audit(TESTIUM["GEN.1.2"], version_id=1, use_reverse_index=True))
+    s = score_phantom(audit)
     assert s.item_score == 0.0
     assert s.outcome == "quoted_real_verse"
 

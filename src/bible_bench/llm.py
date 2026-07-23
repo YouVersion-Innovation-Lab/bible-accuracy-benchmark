@@ -27,6 +27,13 @@ def _is_openrouter(base_url: str) -> bool:
     return host == "openrouter.ai" or host.endswith(".openrouter.ai")
 
 
+# Ceiling for auto-growing the token cap when a reasoning model returns an empty
+# completion because its hidden reasoning consumed the whole budget (finish_reason
+# "length"). Bounded so a genuine runaway stays capped and we never request more
+# output than a model allows.
+_MAX_TOKENS_CEILING = 8192
+
+
 @dataclass
 class Usage:
     input_tokens: int = 0
@@ -91,6 +98,12 @@ class LlmClient:
         self.max_retries = max_retries
         self.timeout = timeout
         self.usage = Usage()
+        # Per-model param adaptation, discovered on the first 400 (see
+        # _maybe_adapt_params) and then persisted for this client: the newest
+        # "thinking" flagships reject `temperature`, and OpenAI wants
+        # `max_completion_tokens` in place of `max_tokens`.
+        self._max_tokens_param = "max_tokens"
+        self._send_temperature = True
         self._client = (
             None if dummy else AsyncOpenAI(api_key=cfg.api_key, base_url=cfg.base_url)
         )
@@ -108,15 +121,16 @@ class LlmClient:
             return self._dummy(messages, return_json)
 
         last_err: Exception | None = None
-        for attempt in range(self.max_retries):
+        attempts = 0
+        adaptations = 0
+        effective_max = max_tokens
+        while attempts < self.max_retries:
             try:
-                kwargs: dict = {
-                    "model": self.cfg.model,
-                    "messages": messages,
-                    "temperature": temperature,
-                }
-                if max_tokens is not None:
-                    kwargs["max_tokens"] = max_tokens
+                kwargs: dict = {"model": self.cfg.model, "messages": messages}
+                if self._send_temperature:
+                    kwargs["temperature"] = temperature
+                if effective_max is not None:
+                    kwargs[self._max_tokens_param] = effective_max
                 # OpenRouter-only: forward upstream routing (pin provider/quantization)
                 # for reproducible scoring. Never sent to native endpoints — their
                 # OpenAI-compat layers reject unknown body fields (Gemini especially).
@@ -125,18 +139,57 @@ class LlmClient:
                 resp = await asyncio.wait_for(
                     self._client.chat.completions.create(**kwargs), timeout=self.timeout
                 )
-                text = resp.choices[0].message.content or ""
+                choice = resp.choices[0]
+                text = choice.message.content or ""
                 if resp.usage:
                     self.usage.add(resp.usage.prompt_tokens, resp.usage.completion_tokens)
+                # Empty output because we hit the cap (finish_reason "length") — a
+                # reasoning model spent the whole budget on hidden reasoning before
+                # emitting anything. That's our setting starving the output, not a
+                # refusal, so grow the cap and retry (up to a safe ceiling) instead of
+                # recording a blank. A *non-empty* truncation is returned as-is, so a
+                # genuine runaway stays capped.
+                if (not text.strip() and choice.finish_reason == "length"
+                        and effective_max is not None
+                        and effective_max < _MAX_TOKENS_CEILING):
+                    effective_max = min(effective_max * 4, _MAX_TOKENS_CEILING)
+                    continue
                 if return_json:
                     extract_json(text)  # validate; caller re-parses
                 return text
             except Exception as e:  # noqa: BLE001 — retry all transient failures
                 last_err = e
-                await asyncio.sleep(min(2**attempt, 30))
+                # Newest models reject params the benchmark sends by default
+                # (temperature; or max_tokens where max_completion_tokens is required).
+                # Adapt once per condition and retry immediately, without spending a
+                # retry attempt — the fix persists so later calls send it correctly.
+                if adaptations < 2 and self._maybe_adapt_params(e):
+                    adaptations += 1
+                    continue
+                attempts += 1
+                await asyncio.sleep(min(2**attempts, 30))
         raise RuntimeError(
             f"LLM call to {self.cfg.model} failed after {self.max_retries} attempts"
         ) from last_err
+
+    def _maybe_adapt_params(self, err: Exception) -> bool:
+        """On a 400 that rejects a default param, switch to what the model accepts:
+        OpenAI's ``max_completion_tokens`` rename, and newest 'thinking' models that
+        reject ``temperature``. Returns True if a parameter was changed."""
+        msg = str(err).lower()
+        changed = False
+        if self._max_tokens_param == "max_tokens" and "max_completion_tokens" in msg:
+            self._max_tokens_param = "max_completion_tokens"
+            changed = True
+        if self._send_temperature and "temperature" in msg and any(
+            s in msg for s in (
+                "deprecated", "does not support", "only the default",
+                "unsupported value", "not supported", "unsupported parameter",
+            )
+        ):
+            self._send_temperature = False
+            changed = True
+        return changed
 
     def _dummy(self, messages: list[dict[str, str]], return_json: bool) -> str:
         self.usage.add(0, 0)

@@ -39,6 +39,7 @@ from .config import (
 from .dataset import BenchmarkItem, DatasetSampler, load_spec
 from .llm import LlmClient
 from .phantom import PhantomItem, build_phantom_items, load_phantom_config
+from .prompts import BENCHMARK_SYSTEM_PROMPT
 from .report import build_summary, summarize_phantom, summarize_simple, summarize_topical
 from .results_store import (
     GcsResultsStore,
@@ -58,6 +59,7 @@ from .runner import (
 )
 from .scoring import SCORING_VERSION
 from .topical import TopicalItem, build_topical_items, load_topics
+from .version import BENCHMARK_VERSION
 from .yv_client import BibleClient
 
 # The benchmark always runs all tracks — there is no track selection.
@@ -173,7 +175,7 @@ async def cmd_run(args) -> int:
     model = LlmClient(model_cfg, dummy=args.dummy)
 
     tracks = set(ALL_TRACKS)
-    run_version = args.run_version
+    run_version = BENCHMARK_VERSION  # the benchmark version comes from the codebase
     run_key = _run_key(run_version, model_cfg.model)  # identity = version + model id
     run_dir = f"runs/{run_key}"
     tracks_str = ",".join(sorted(tracks))
@@ -236,6 +238,7 @@ async def cmd_run(args) -> int:
             "tracks": sorted(tracks),
             "scale": args.scale,
             "scoring_version": SCORING_VERSION,
+            "system_prompt": BENCHMARK_SYSTEM_PROMPT,
             "model": {
                 "label": model_cfg.label,
                 "model": model_cfg.model,
@@ -300,8 +303,7 @@ async def cmd_run(args) -> int:
         await client.aclose()
 
     console.print(f"[green]Done.[/green] Results in [bold]{run_dir}[/bold]. "
-                  f"Publish with: bible-bench publish --run-version {run_version} "
-                  f"--model {model_cfg.model}")
+                  f"Publish with: bible-bench publish --model {model_cfg.model}")
     return 0
 
 
@@ -617,10 +619,8 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--label", required=True,
                    help="Human-readable display name, stored in the result for the "
                         "website (not used in the API call or run identity)")
-    r.add_argument("--run-version", required=True,
-                   help="Benchmark run version (e.g. v0.1). Identifies the result "
-                        "together with the model and seeds the verse sample; re-running "
-                        "the same model + version overwrites that result.")
+    # No --run-version: the benchmark version comes from the codebase
+    # (bible_bench.version.BENCHMARK_VERSION) and identifies + seeds the run.
     r.add_argument("--api-key-env", default="TARGET_API_KEY",
                    help="Env var holding the API key (default TARGET_API_KEY)")
     r.add_argument("--provider", default="",
@@ -645,21 +645,26 @@ def main(argv: list[str] | None = None) -> int:
     _add_cache_arg(r)
     _add_store_args(r)
 
+    # For managing existing runs, --run-version is optional and defaults to the
+    # current codebase version; pass it explicitly to touch an older run (v0.1).
     s = sub.add_parser("score", help="Re-score an existing run")
-    s.add_argument("--run-version", required=True)
+    s.add_argument("--run-version", default=BENCHMARK_VERSION,
+                   help="Benchmark version of the run to score (default: current codebase)")
     s.add_argument("--model", required=True, help="Model id used for the run")
     _add_cache_arg(s)
     _add_store_args(s)
 
     for name in ("publish", "unpublish"):
         p = sub.add_parser(name)
-        p.add_argument("--run-version", required=True)
+        p.add_argument("--run-version", default=BENCHMARK_VERSION,
+                       help="Benchmark version of the run (default: current codebase)")
         p.add_argument("--model", required=True, help="Model id used for the run")
         _add_store_args(p)
 
     b = sub.add_parser("build-dataset", help="Draw a fresh item set from the spec")
     b.add_argument("--spec", default="dataset/spec-v1.json")
-    b.add_argument("--run-version", required=True, help="Seeds the verse sample")
+    b.add_argument("--run-version", default=BENCHMARK_VERSION,
+                   help="Seeds the verse sample (default: current codebase version)")
     b.add_argument("--scale", type=float, default=1.0)
     b.add_argument("--out")
     _add_cache_arg(b)

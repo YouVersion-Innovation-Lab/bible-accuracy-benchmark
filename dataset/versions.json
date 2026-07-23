@@ -1,0 +1,21 @@
+{
+  "note": "Machine-readable index of benchmark generations. The current version is defined in code (bible_bench.version.BENCHMARK_VERSION); full prose descriptions live in docs/versions/<version>.md. Served to the website so each result set can be labeled and explained.",
+  "current": "v0.2",
+  "versions": [
+    {
+      "version": "v0.1",
+      "title": "Initial public benchmark",
+      "released": "2026-07",
+      "doc": "docs/versions/v0.1.md",
+      "summary": "Three deterministic tracks — Direct Quotation (50%), Scripture in Answers (25%), Hallucination Resistance (25%) — across ~28 languages and multiple Bible versions. Quotes were detected only when the model wrapped them in quotation marks."
+    },
+    {
+      "version": "v0.2",
+      "title": "Quote-marks system prompt + unquoted detection",
+      "released": "2026-07",
+      "doc": "docs/versions/v0.2.md",
+      "delta_from": "v0.1",
+      "summary": "Adds a system prompt asking models to quote with quotation marks and a reference, and upgrades the scorer to also catch near-verbatim scripture presented without quotation marks (≥ 90% match, graded as a misquote 90–98%) — while still never penalizing paraphrase. Fixes a Hallucination Resistance false-pass. Same tracks, weights, and Overall Score formula as v0.1."
+    }
+  ]
+}

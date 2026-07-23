@@ -23,13 +23,27 @@ export function Leaderboard() {
   // Language + version come from the global (header) filter.
   const { lang: filterLang, version: filterVersion, versionsByLang } = useFilters();
   const [sortKey, setSortKey] = useState<string>(HEADLINE);
+  const [benchVer, setBenchVer] = useState<string | null>(null);
+
+  // Benchmark generations present in the data, newest first. The board shows one
+  // generation at a time (rankings stay apples-to-apples); default to the newest.
+  const benchVersions = useMemo(() => {
+    if (!data) return [];
+    const s = new Set(data.entries.map((e) => e.run_version).filter((v): v is string => !!v));
+    return [...s].sort((a, b) => verNum(b) - verNum(a));
+  }, [data]);
+  const activeVer = benchVer ?? benchVersions[0] ?? null;
+
+  const entries = useMemo(
+    () => (data ? data.entries.filter((e) => !activeVer || e.run_version === activeVer) : []),
+    [data, activeVer],
+  );
 
   const languages = useMemo(() => {
-    if (!data) return [];
     const tags = new Set<string>();
-    data.entries.forEach((e) => Object.keys(e.by_language || {}).forEach((t) => tags.add(t)));
+    entries.forEach((e) => Object.keys(e.by_language || {}).forEach((t) => tags.add(t)));
     return orderLanguages([...tags]);
-  }, [data]);
+  }, [entries]);
 
   // Follow the global filter: sort by the active version, else language, else overall.
   useEffect(() => {
@@ -70,12 +84,11 @@ export function Leaderboard() {
   }, [filterLang, filterVersion, languages, versionsByLang]);
 
   const rows = useMemo(() => {
-    if (!data) return [];
     const col = cols.find((c) => c.key === sortKey);
     const val = (e: LeaderboardEntry) =>
       sortKey === HEADLINE || !col ? (e.headline_score ?? -1) : (col.get(e) ?? -1) * 100;
-    return [...data.entries].sort((a, b) => val(b) - val(a));
-  }, [data, cols, sortKey]);
+    return [...entries].sort((a, b) => val(b) - val(a));
+  }, [entries, cols, sortKey]);
 
   return (
     <div>
@@ -98,8 +111,33 @@ export function Leaderboard() {
 
       {data && data.entries.length > 0 && (
         <>
+          <div className="mb-4 flex items-center gap-2 text-sm">
+            <span className="text-xs uppercase tracking-wide text-slate-500">
+              Benchmark version
+            </span>
+            {benchVersions.length > 1 ? (
+              <select
+                className="bg-white/[0.06] border border-white/10 rounded px-2 py-1 text-sm"
+                value={activeVer ?? ""}
+                onChange={(e) => setBenchVer(e.target.value)}
+              >
+                {benchVersions.map((v) => (
+                  <option key={v} value={v}>
+                    {v}
+                    {v === benchVersions[0] ? " (latest)" : ""}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span className="font-medium">{activeVer ?? "—"}</span>
+            )}
+            <Link to="/methodology" className="text-xs text-slate-400 hover:underline">
+              what this version tests →
+            </Link>
+          </div>
+
           <LeaderCards
-            entries={data.entries}
+            entries={entries}
             languages={languages}
             versionsByLang={versionsByLang}
             filterLang={filterLang}
@@ -173,6 +211,12 @@ export function Leaderboard() {
       )}
     </div>
   );
+}
+
+// Numeric ordering for benchmark version strings like "v0.2" / "v1.10".
+function verNum(v: string): number {
+  const [maj = 0, min = 0] = v.replace(/^v/i, "").split(".").map(Number);
+  return maj * 1000 + min;
 }
 
 // A single Bible version's single-verse (direct-quote) accuracy column.

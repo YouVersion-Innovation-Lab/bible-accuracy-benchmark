@@ -79,6 +79,7 @@ class QuoteVerdict:
     cited_usfm: str | None
     score: float             # 1.0 accurate, graded for minor, else 0.0
     matched_version_id: int | None = None  # which version the quote matched
+    unquoted: bool = False   # detected without quotation marks (near-verbatim)
 
 
 @dataclass
@@ -152,6 +153,25 @@ def extract_quotes(text: str) -> list[QuoteSpan]:
             deduped.append(q)
             last_end = q.end
     return deduped
+
+
+def _sentence_spans(text: str) -> list[QuoteSpan]:
+    """Split text into sentence spans long enough to be a verse. Used to catch
+    scripture a model recited WITHOUT quotation marks."""
+    out: list[QuoteSpan] = []
+    start = 0
+    pieces: list[tuple[int, int]] = []
+    for m in _SENTENCE_BREAK_RE.finditer(text):
+        pieces.append((start, m.start()))
+        start = m.end()
+    pieces.append((start, len(text)))
+    for lo, hi in pieces:
+        seg = text[lo:hi]
+        inner = seg.strip()
+        if inner and _long_enough(inner):
+            lead = len(seg) - len(seg.lstrip())
+            out.append(QuoteSpan(inner, lo + lead, lo + lead + len(inner)))
+    return out
 
 
 class BookNameResolver:
@@ -383,6 +403,32 @@ class QuoteAuditor:
                 text, q, qloose, refs, version_id, versions, use_reverse_index
             )
             result.verdicts.append(verdict)
+
+        # Also catch scripture the model presented WITHOUT quotation marks. Scan
+        # the sentences outside the quoted spans and keep ONLY confident
+        # near-verbatim matches (>= MINOR_SIM). Text below that bar yields no
+        # verdict, so a paraphrase or allusion is never turned into a misquote —
+        # putting words in quotes remains the signal that earns full scrutiny.
+        if use_reverse_index:
+            covered = [(q.start, q.end) for q in quotes]
+            seen = {v.matched_usfm for v in result.verdicts if v.matched_usfm}
+            for span in _sentence_spans(text):
+                if any(span.start < e and s < span.end for s, e in covered):
+                    continue
+                qloose = normalize(span.text, "loose")
+                if not qloose:
+                    continue
+                verdict = await self._verify_quote(
+                    text, span, qloose, refs, version_id, versions, True
+                )
+                if (
+                    verdict.classification in ("accurate", "minor", "misattributed")
+                    and verdict.similarity >= MINOR_SIM
+                    and verdict.matched_usfm not in seen
+                ):
+                    verdict.unquoted = True
+                    result.verdicts.append(verdict)
+                    seen.add(verdict.matched_usfm)
         return result
 
     async def _verify_quote(

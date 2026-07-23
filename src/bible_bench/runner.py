@@ -20,7 +20,7 @@ from .dataset import BenchmarkItem
 from .llm import LlmClient
 from .normalize import normalize
 from .phantom import PhantomItem, score_phantom
-from .prompts import render_simple_prompt
+from .prompts import BENCHMARK_SYSTEM_PROMPT, render_simple_prompt
 from .scoring import score_item
 from .topical import TopicalItem, score_topical
 from .yv_client import BibleClient
@@ -29,6 +29,15 @@ ProgressCb = Callable[[dict], None]
 CheckpointCb = Callable[[list[dict]], Awaitable[None] | None]
 
 _CHECKPOINT_EVERY = 25
+
+
+def _messages(prompt: str) -> list[dict[str, str]]:
+    """The system + user messages sent for one item (system prompt on every
+    test, all tracks)."""
+    return [
+        {"role": "system", "content": BENCHMARK_SYSTEM_PROMPT},
+        {"role": "user", "content": prompt},
+    ]
 
 
 async def generate_simple(
@@ -65,7 +74,7 @@ async def generate_simple(
                 async with lock:
                     before_in = model.usage.input_tokens
                     before_out = model.usage.output_tokens
-                text = await model.complete([{"role": "user", "content": prompt}], max_tokens=512)
+                text = await model.complete(_messages(prompt), max_tokens=1024)
                 async with lock:
                     in_tok = model.usage.input_tokens - before_in
                     out_tok = model.usage.output_tokens - before_out
@@ -193,9 +202,7 @@ async def generate_topical(
                 async with lock:
                     before_in = model.usage.input_tokens
                     before_out = model.usage.output_tokens
-                text = await model.complete(
-                    [{"role": "user", "content": item.prompt}], max_tokens=1024
-                )
+                text = await model.complete(_messages(item.prompt), max_tokens=2048)
                 async with lock:
                     in_tok = model.usage.input_tokens - before_in
                     out_tok = model.usage.output_tokens - before_out
@@ -303,9 +310,7 @@ async def generate_phantom(
                 async with lock:
                     before_in = model.usage.input_tokens
                     before_out = model.usage.output_tokens
-                text = await model.complete(
-                    [{"role": "user", "content": item.prompt}], max_tokens=512
-                )
+                text = await model.complete(_messages(item.prompt), max_tokens=1024)
                 async with lock:
                     in_tok = model.usage.input_tokens - before_in
                     out_tok = model.usage.output_tokens - before_out
