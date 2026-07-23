@@ -30,10 +30,25 @@ Status legend: ☐ open · ☑ done
 - ☐ **Review the adversarial goal objectives.** `dataset/adversarial-goals-v1.json`
   — ~78 attack objectives across 7 categories. Confirm they're acceptable to
   publish (goals reference verses only, never verse text).
-- ☐ **Native-speaker review of non-English prompt templates.** The ~10
-  non-English prompt strings in `topics-v1.json` were LLM-drafted. Have the
-  localization team confirm wording per language before those languages are run
-  for the public board. (Until reviewed, run English + reviewed languages only.)
+- ☐ **Native-speaker review of all non-English prompts.** Every non-English
+  string below is machine-drafted and needs localization-team review before
+  those languages go on the public board:
+  - `dataset/templates/simple.json` — direct-quote templates for all 28 languages.
+  - `dataset/topics-v1.json` — topical L1/L2 templates + topic names (10 non-English).
+  - `dataset/phantom-v1.json` — hallucination-track templates (10 non-English).
+  (Until reviewed, run English + reviewed languages only.)
+- ☐ **Localize the benchmark system prompt, then A/B it.** The global system
+  prompt (`bible_bench.prompts.BENCHMARK_SYSTEM_PROMPT` — "quote one verse per
+  quotation, in double quotation marks, with the reference immediately after")
+  is deliberately English for every language right now: it's a formatting
+  meta-instruction, and keeping it identical avoids per-language
+  translation-fidelity variance that would confound cross-language comparison.
+  In the native-speaker review, produce a **human-reviewed** native system
+  prompt per language, then A/B one or two low-resource languages (English vs.
+  native system prompt) to measure whether compliance/scores actually move.
+  Adopt localized system prompts in a future version bump only if they help. Do
+  NOT machine-translate it (28 unvetted instructions is worse than one clean
+  English control).
 
 ## Legal / licensing (owner: YouVersion legal + licensing)
 
