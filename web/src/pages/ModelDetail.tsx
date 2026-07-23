@@ -32,9 +32,12 @@ export function ModelDetail() {
           </p>
         </div>
         <div className="text-right">
-          <div className="text-xs text-slate-400 uppercase tracking-wide">Bible Accuracy</div>
+          <div className="text-xs text-slate-400 uppercase tracking-wide">Overall Score</div>
           <div className="text-3xl font-bold mt-1">
             <ScoreBadge score={s.headline_score} />
+          </div>
+          <div className="text-xs text-slate-500 mt-1">
+            50% single-verse · 25% topical · 25% hallucination
           </div>
           {s.headline_partial && (
             <div className="text-xs text-amber-400 mt-1">partial (not all tracks run)</div>
@@ -232,23 +235,24 @@ function PlainLanguageCard({
     <div className="rounded-xl border border-indigo-400/20 bg-indigo-400/[0.06] p-5">
       <h2 className="text-sm font-semibold text-indigo-200 mb-2">What this means for you</h2>
       <p className="leading-relaxed text-slate-200">
-        When asked to quote a specific verse, <strong>{label}</strong> gets it word-for-word (or
-        nearly so) <strong>{near.toFixed(0)}%</strong> of the time
+        Asked to quote one specific verse in a named translation, <strong>{label}</strong> returns it
+        word-for-word (or within a character or two) <strong>{near.toFixed(0)}%</strong> of the time
         {best.length ? (
           <> — most reliably in {best.join(" and ")}{worst.length ? `, least in ${worst[0]}` : ""}</>
         ) : null}
-        . It stated something as scripture that matches no real Bible text{" "}
+        . It presented text as scripture that matches no real Bible verse{" "}
         <strong>{fab.toFixed(0)}%</strong> of the time
         {phantom != null ? (
           <>
-            , and when asked for a verse that doesn't exist it correctly declined{" "}
+            , and when asked for a verse that doesn't exist it correctly declined to quote{" "}
             <strong>{(phantom * 100).toFixed(0)}%</strong> of the time
           </>
         ) : null}
         .
       </p>
       <p className="text-xs text-slate-400 mt-2">
-        Higher is better. This reflects quotation accuracy only — not the model's theology.
+        Higher is better. These numbers measure only the accuracy of scripture the model quotes —
+        not the theology of its answers.
       </p>
     </div>
   );
@@ -257,18 +261,18 @@ function PlainLanguageCard({
 function TrackRates({ trackKey, ts }: { trackKey: string; ts: TrackSummary }) {
   const rows: [string, string][] = [];
   if (trackKey === "simple") {
-    rows.push(["Word-perfect", pct(ts.verbatim_rate)]);
-    rows.push(["Fabricated a verse", pct(ts.fabrication_rate)]);
-    rows.push(["Declined to answer", pct(ts.refusal_rate)]);
-    rows.push(["Wrong translation", pct(ts.wrong_version_rate)]);
+    rows.push(["Character-exact match", pct(ts.verbatim_rate)]);
+    rows.push(["Invented a verse", pct(ts.fabrication_rate)]);
+    rows.push(["Declined to quote", pct(ts.refusal_rate)]);
+    rows.push(["Quoted the wrong translation", pct(ts.wrong_version_rate)]);
   } else if (trackKey === "topical") {
     if (ts.sensitive_topic_score != null)
-      rows.push(["On sensitive topics", (ts.sensitive_topic_score * 100).toFixed(0)]);
+      rows.push(["Score on sensitive topics", (ts.sensitive_topic_score * 100).toFixed(0)]);
     Object.entries(ts.emission_rate_by_level ?? {}).forEach(([lvl, v]) =>
-      rows.push([`Quoted when asked (${lvl})`, pct(v)]),
+      rows.push([`Quoted a verse (${lvl})`, pct(v)]),
     );
   } else if (trackKey === "phantom") {
-    rows.push(["Declined fake references", pct(ts.refusal_rate)]);
+    rows.push(["Correctly declined", pct(ts.refusal_rate)]);
     rows.push(["Invented / substituted a verse", pct(ts.hallucination_rate)]);
   } else if (trackKey === "adversarial") {
     rows.push(["Held firm on 1st attempt", pct(ts.resistance_at_1)]);

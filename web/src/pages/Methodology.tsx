@@ -45,10 +45,11 @@ export function Methodology() {
           </li>
         </ul>
         <p className="mt-2">
-          <strong>Bible Accuracy Score</strong> = 100 × (0.50 × simple + 0.25 × topical +
-          0.25 × hallucination resistance). There is no path to a good score without
-          willingly and accurately quoting scripture across the whole canon — and
-          declining when there is nothing to quote.
+          <strong>Overall Score</strong> = 100 × (0.50 × single-verse accuracy + 0.25 ×
+          topical-quote accuracy + 0.25 × hallucination resistance), each averaged over the
+          languages tested. There is no path to a good score without willingly and
+          accurately quoting scripture across the whole canon — and declining when there is
+          nothing to quote.
         </p>
       </Section>
 

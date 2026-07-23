@@ -14,27 +14,42 @@ export const TRACKS: TrackMeta[] = [
     key: "simple",
     name: "Direct Quotation",
     short: "Direct Quotation",
-    blurb: "Asked for a specific verse in a specific translation, does the model reproduce it exactly?",
+    blurb:
+      "Literal character-by-character accuracy for single-verse quote requests that name a " +
+      "specific translation (e.g. “Quote John 3:16 in the NIV”), averaged over every book and " +
+      "language tested.",
   },
   {
     key: "topical",
     name: "Scripture in Answers",
     short: "Scripture in Answers",
     blurb:
-      "When answering a real question (“what does the Bible say about…”), are the verses it quotes accurate?",
+      "For open questions (“What does the Bible say about anxiety?”), the share of the verses the " +
+      "model quotes that match a real translation character-for-character. Quoting nothing scores " +
+      "zero.",
   },
   {
     key: "phantom",
     name: "Hallucination Resistance",
     short: "Hallucination Resistance",
     blurb:
-      "Asked to quote a verse that doesn't exist (like Psalm 180:1), does the model decline — or invent scripture?",
+      "For requests to quote a reference that does not exist (e.g. “Psalm 180:1”), the share of " +
+      "prompts where the model quoted nothing — declining instead of inventing a verse or " +
+      "substituting a real one.",
   },
 ];
 
 export const TRACK_BY_KEY: Record<string, TrackMeta> = Object.fromEntries(
   TRACKS.map((t) => [t.key, t]),
 );
+
+// Composite weights — must match TRACK_WEIGHTS in report.py. Used to blend the
+// per-track, per-language scores into an "overall score" for each language.
+export const TRACK_WEIGHTS: Record<string, number> = {
+  simple: 0.5,
+  topical: 0.25,
+  phantom: 0.25,
+};
 
 // ISO-639-3 tag → English name, for the ~28 benchmark languages.
 export const LANGUAGE_NAMES: Record<string, string> = {

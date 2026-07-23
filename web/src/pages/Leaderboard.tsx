@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type LeaderboardEntry } from "../api";
 import { ErrorMsg, Loading, ScoreBadge } from "../components";
-import { heatColor, langName, orderLanguages } from "../constants";
+import { TRACK_WEIGHTS, heatColor, langName, orderLanguages } from "../constants";
 import { FilterBar, buildVersionsByLang, sliceLabel, type VersionsByLang } from "../FilterBar";
 import { useAsync } from "../hooks";
 
@@ -46,20 +46,20 @@ export function Leaderboard() {
       const vers = versionsByLang.get(filterLang) || [];
       const overall: Col = {
         key: `lang:${filterLang}`,
-        label: vers.length > 1 ? `${langName(filterLang)} overall` : langName(filterLang),
-        title:
-          vers.length > 1 ? "Average across all versions in this language" : undefined,
-        get: (e) => e.by_language?.[filterLang],
+        label: "Overall",
+        title: `Overall score (blended across tracks) for ${langName(filterLang)}`,
+        get: (e) => overallForLang(e, filterLang),
       };
-      // A single-version language: the "overall" already is that version — no
-      // point in a redundant duplicate column.
+      // Single-version language: a per-version column would just duplicate the
+      // one version every track used, so show only the blended Overall.
       if (vers.length <= 1) return [overall];
       return [overall, ...vers.map((v) => verCol(filterLang, v.version_id, v.version_abbrev))];
     }
     return languages.map((lang) => ({
       key: `lang:${lang}`,
       label: langName(lang),
-      get: (e: LeaderboardEntry) => e.by_language?.[lang],
+      title: `Overall score for ${langName(lang)}`,
+      get: (e: LeaderboardEntry) => overallForLang(e, lang),
     }));
   }, [filterLang, filterVersion, languages, versionsByLang]);
 
@@ -86,9 +86,11 @@ export function Leaderboard() {
       <section className="mb-8 max-w-3xl">
         <h1 className="text-3xl font-bold mb-3">How accurately do LLMs quote the Bible?</h1>
         <p className="text-slate-300 leading-relaxed">
-          Every score is produced by deterministic comparison against the actual verse text of the
-          cited translation — never by an AI judge. The headline is an overall Bible Accuracy Score;
-          the columns show how faithfully each model quotes scripture in each language.
+          Every score is deterministic: the model's text is compared against the actual verse in the
+          cited translation — no AI judge is involved. The <strong>Overall Score</strong> column is
+          each model's weighted result across all languages; every other cell is that model's Overall
+          Score for one language — a blend of single-verse quote accuracy (50%), accuracy of verses
+          quoted in topical answers (25%), and resistance to quoting verses that don't exist (25%).
         </p>
       </section>
 
@@ -130,7 +132,8 @@ export function Leaderboard() {
                     Model
                   </th>
                   <SortableTh
-                    label="Bible Accuracy"
+                    label="Overall Score"
+                    title="Overall score across all languages"
                     active={sortKey === HEADLINE}
                     onClick={() => setSortKey(HEADLINE)}
                   />
@@ -175,9 +178,11 @@ export function Leaderboard() {
             </table>
           </div>
           <p className="mt-3 text-xs text-slate-500">
-            Click a column header to sort, or filter by language and Bible version above. Cells show
-            direct-quote accuracy (0–100); the Bible Accuracy Score also folds in topical quoting and
-            misquote resistance. Grey = not run for that model.
+            Each cell is a model's Overall Score (0–100) for that language: 50% single-verse quote
+            accuracy + 25% topical-quote accuracy + 25% hallucination resistance (renormalized over
+            the tracks that cover the language). Select a Bible version to see literal single-verse
+            (character-by-character) accuracy for that version instead. Grey = not run for that
+            model. Click a header to sort.
           </p>
         </>
       )}
@@ -185,13 +190,33 @@ export function Leaderboard() {
   );
 }
 
+// A single Bible version's single-verse (direct-quote) accuracy column.
 function verCol(lang: string, versionId: number, abbrev?: string): Col {
   return {
     key: `ver:${versionId}`,
     label: abbrev || `#${versionId}`,
-    title: `${langName(lang)} · ${abbrev || versionId}`,
+    title: `Single-verse quote accuracy · ${langName(lang)} · ${abbrev || versionId}`,
     get: (e) => e.versions?.find((v) => v.version_id === versionId)?.score,
   };
+}
+
+// A model's blended Overall Score (0..1) for one language: the same weighted
+// mix as the headline (50% single-verse / 25% topical / 25% hallucination),
+// renormalized over the tracks that cover this language. Falls back to
+// single-verse accuracy when per-track detail isn't present.
+function overallForLang(e: LeaderboardEntry, lang: string): number | undefined {
+  const td = e.tracks_detail;
+  if (!td) return e.by_language?.[lang];
+  let num = 0;
+  let den = 0;
+  for (const [track, w] of Object.entries(TRACK_WEIGHTS)) {
+    const v = td[track]?.by_language?.[lang];
+    if (v != null) {
+      num += w * v;
+      den += w;
+    }
+  }
+  return den > 0 ? num / den : e.by_language?.[lang];
 }
 
 function SortableTh({
@@ -235,15 +260,15 @@ interface CardSpec {
   sub?: string;
 }
 
-// Direct-quote accuracy (0..1) for the active slice: a specific version, else a
-// language, else the composite headline.
+// Score (0..1) for the active slice: a specific version's single-verse accuracy,
+// else a language's blended Overall Score, else the model's overall headline.
 function sliceScore(
   e: LeaderboardEntry,
   lang: string | null,
   version: number | null,
 ): number | undefined {
   if (version != null) return e.versions?.find((v) => v.version_id === version)?.score;
-  if (lang) return e.by_language?.[lang];
+  if (lang) return overallForLang(e, lang);
   return e.headline_score == null ? undefined : e.headline_score / 100;
 }
 
@@ -258,7 +283,7 @@ function overallCards(entries: LeaderboardEntry[], languages: string[]): CardSpe
     (a, b) => medianLang(b, languages) - medianLang(a, languages),
   )[0];
   return [
-    { title: "Most accurate overall", e: best, val: best?.headline_score ?? undefined },
+    { title: "Highest overall score", e: best, val: best?.headline_score ?? undefined },
     {
       title: "Most resistant to hallucination",
       e: mostResistant,
@@ -286,15 +311,18 @@ function sliceCards(
       ? versionsByLang.get(lang)?.find((v) => v.version_id === version)?.version_abbrev
       : undefined;
   const label = sliceLabel(lang, abbrev);
+  // A version slice is literal single-verse accuracy; a language slice is the
+  // blended Overall Score.
+  const metric = version != null ? "single-verse" : "overall";
   const scored = entries
     .map((e) => ({ e, v: sliceScore(e, lang, version) }))
     .filter((x): x is { e: LeaderboardEntry; v: number } => x.v != null)
     .sort((a, b) => b.v - a.v);
-  if (!scored.length) return [{ title: `Most accurate · ${label}`, val: undefined }];
+  if (!scored.length) return [{ title: `Highest ${metric} · ${label}`, val: undefined }];
 
   const avg = scored.reduce((s, x) => s + x.v, 0) / scored.length;
   const cards: CardSpec[] = [
-    { title: `Most accurate · ${label}`, e: scored[0].e, val: scored[0].v * 100 },
+    { title: `Highest ${metric} · ${label}`, e: scored[0].e, val: scored[0].v * 100 },
     {
       title: `Field average · ${label}`,
       val: avg * 100,
@@ -303,7 +331,7 @@ function sliceCards(
   ];
   if (scored.length > 1) {
     const worst = scored[scored.length - 1];
-    cards.push({ title: `Lowest · ${label}`, e: worst.e, val: worst.v * 100 });
+    cards.push({ title: `Lowest ${metric} · ${label}`, e: worst.e, val: worst.v * 100 });
   }
   return cards;
 }
@@ -349,10 +377,12 @@ function LeaderCards({
   );
 }
 
+// Median of a model's per-language Overall Scores — a breadth measure that a few
+// zero-scoring languages can't dominate.
 function medianLang(e: LeaderboardEntry | undefined, languages: string[]): number {
   if (!e) return 0;
   const vals = languages
-    .map((l) => e.by_language?.[l])
+    .map((l) => overallForLang(e, l))
     .filter((v): v is number => v != null)
     .map((v) => v * 100)
     .sort((a, b) => a - b);

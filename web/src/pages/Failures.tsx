@@ -51,8 +51,9 @@ export function Failures() {
         </Link>
         <h1 className="text-2xl font-bold mt-1">Failure browser</h1>
         <p className="text-slate-400 text-sm">
-          Where the model presented scripture inaccurately. Expected text is the actual
-          verse in the cited translation.
+          Every item where the model's quoted text did not match the actual verse (or, for
+          the Hallucination track, where it quoted a reference that doesn't exist). "Expected"
+          is the real verse text in the cited translation; highlights mark the differences.
         </p>
       </div>
 
