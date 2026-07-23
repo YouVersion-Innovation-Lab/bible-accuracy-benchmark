@@ -3,7 +3,6 @@ import { Link } from "react-router-dom";
 import { api, type LeaderboardEntry } from "../api";
 import { ErrorMsg, Loading, ScoreBadge } from "../components";
 import { TRACK_WEIGHTS, heatColor, langName, orderLanguages } from "../constants";
-import { sliceLabel, type VersionsByLang } from "../FilterBar";
 import { useFilters } from "../filterContext";
 import { useAsync } from "../hooks";
 
@@ -95,11 +94,23 @@ export function Leaderboard() {
       <section className="mb-8 max-w-3xl">
         <h1 className="text-3xl font-bold mb-3">How accurately do LLMs quote the Bible?</h1>
         <p className="text-slate-300 leading-relaxed">
-          Every score is deterministic: the model's text is compared against the actual verse in the
-          cited translation — no AI judge is involved. The <strong>Overall Score</strong> column is
-          each model's weighted result across all languages; every other cell is that model's Overall
-          Score for one language — a blend of single-verse quote accuracy (50%), accuracy of verses
-          quoted in topical answers (25%), and resistance to quoting verses that don't exist (25%).
+          We built this benchmark to give the teams developing LLMs a public, objective measure of
+          how faithfully their models handle the actual words of the Bible — and to help the many
+          people who turn to LLMs for Scripture choose the model that best fits their need for
+          Biblical accuracy. Every score is produced deterministically: each quotation is compared
+          character-by-character against the real verse in the cited translation, never judged by
+          another AI, across roughly 28 languages and dozens of Bible versions.{" "}
+          <strong>Direct Quotation</strong> asks for a specific verse in a named translation and
+          measures how exactly the model reproduces the real text.{" "}
+          <strong>Scripture in Answers</strong> poses genuine questions like “What does the Bible say
+          about anxiety?” and checks whether the verses the model chooses to quote are accurate.{" "}
+          <strong>Hallucination Resistance</strong> asks for references that do not exist (such as
+          “Psalm 180:1”) and rewards the model for saying so rather than inventing a verse. A model
+          scores well by quoting Scripture accurately and willingly — word-for-word, in whatever
+          language and translation it is asked. It scores poorly for misquoting a verse, fabricating
+          text for a passage that isn't real, or refusing to quote when a direct quotation is exactly
+          what the question calls for. We hope this proves a genuinely useful contribution to the
+          exciting, fast-moving work of building and using LLMs well.
         </p>
       </section>
 
@@ -136,15 +147,7 @@ export function Leaderboard() {
             </Link>
           </div>
 
-          <LeaderCards
-            entries={entries}
-            languages={languages}
-            versionsByLang={versionsByLang}
-            filterLang={filterLang}
-            filterVersion={filterVersion}
-          />
-
-          <div className="mt-8 overflow-x-auto rounded-xl border border-white/10">
+          <div className="mt-6 overflow-x-auto rounded-xl border border-white/10">
             <table className="text-sm border-collapse">
               <thead className="bg-white/[0.04] text-slate-300">
                 <tr>
@@ -279,143 +282,4 @@ function HeatCell({ value }: { value: number | undefined }) {
       {value == null ? "—" : (value * 100).toFixed(0)}
     </td>
   );
-}
-
-interface CardSpec {
-  title: string;
-  e?: LeaderboardEntry;
-  val: number | undefined;
-  suffix?: string;
-  sub?: string;
-}
-
-// Score (0..1) for the active slice: a specific version's single-verse accuracy,
-// else a language's blended Overall Score, else the model's overall headline.
-function sliceScore(
-  e: LeaderboardEntry,
-  lang: string | null,
-  version: number | null,
-): number | undefined {
-  if (version != null) return e.versions?.find((v) => v.version_id === version)?.score;
-  if (lang) return overallForLang(e, lang);
-  return e.headline_score == null ? undefined : e.headline_score / 100;
-}
-
-// Landing view (no filter): the three headline dimensions of the benchmark.
-function overallCards(entries: LeaderboardEntry[], languages: string[]): CardSpec[] {
-  const best = [...entries].sort((a, b) => (b.headline_score ?? 0) - (a.headline_score ?? 0))[0];
-  const mostResistant = [...entries].sort(
-    (a, b) => (b.by_track?.phantom ?? 0) - (a.by_track?.phantom ?? 0),
-  )[0];
-  // Robust to the few zero-scoring languages every model has.
-  const widest = [...entries].sort(
-    (a, b) => medianLang(b, languages) - medianLang(a, languages),
-  )[0];
-  return [
-    { title: "Highest overall score", e: best, val: best?.headline_score ?? undefined },
-    {
-      title: "Most resistant to hallucination",
-      e: mostResistant,
-      val: (mostResistant?.by_track?.phantom ?? 0) * 100,
-    },
-    {
-      title: "Most consistent across languages",
-      e: widest,
-      val: medianLang(widest, languages),
-      suffix: " median",
-    },
-  ];
-}
-
-// Filtered view: best / field average / lowest for the exact slice, so the
-// cards show the actual numbers behind the current language + version.
-function sliceCards(
-  entries: LeaderboardEntry[],
-  lang: string,
-  version: number | null,
-  versionsByLang: VersionsByLang,
-): CardSpec[] {
-  const abbrev =
-    version != null
-      ? versionsByLang.get(lang)?.find((v) => v.version_id === version)?.version_abbrev
-      : undefined;
-  const label = sliceLabel(lang, abbrev);
-  // A version slice is literal single-verse accuracy; a language slice is the
-  // blended Overall Score.
-  const metric = version != null ? "single-verse" : "overall";
-  const scored = entries
-    .map((e) => ({ e, v: sliceScore(e, lang, version) }))
-    .filter((x): x is { e: LeaderboardEntry; v: number } => x.v != null)
-    .sort((a, b) => b.v - a.v);
-  if (!scored.length) return [{ title: `Highest ${metric} · ${label}`, val: undefined }];
-
-  const avg = scored.reduce((s, x) => s + x.v, 0) / scored.length;
-  const cards: CardSpec[] = [
-    { title: `Highest ${metric} · ${label}`, e: scored[0].e, val: scored[0].v * 100 },
-    {
-      title: `Field average · ${label}`,
-      val: avg * 100,
-      sub: `across ${scored.length} model${scored.length > 1 ? "s" : ""}`,
-    },
-  ];
-  if (scored.length > 1) {
-    const worst = scored[scored.length - 1];
-    cards.push({ title: `Lowest ${metric} · ${label}`, e: worst.e, val: worst.v * 100 });
-  }
-  return cards;
-}
-
-function LeaderCards({
-  entries,
-  languages,
-  versionsByLang,
-  filterLang,
-  filterVersion,
-}: {
-  entries: LeaderboardEntry[];
-  languages: string[];
-  versionsByLang: VersionsByLang;
-  filterLang: string | null;
-  filterVersion: number | null;
-}) {
-  const cards = filterLang
-    ? sliceCards(entries, filterLang, filterVersion, versionsByLang)
-    : overallCards(entries, languages);
-  return (
-    <div className="grid sm:grid-cols-3 gap-4">
-      {cards.map((c) => (
-        <div key={c.title} className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
-          <div className="text-xs text-slate-400 uppercase tracking-wide">{c.title}</div>
-          {c.e ? (
-            <Link
-              to={`/models/${encodeURIComponent(c.e.run_id)}`}
-              className="text-lg font-semibold hover:underline block mt-1"
-            >
-              {c.e.model_label}
-            </Link>
-          ) : (
-            <div className="text-lg font-semibold mt-1 text-slate-300">{c.sub ?? " "}</div>
-          )}
-          <div className="text-2xl font-bold tabular-nums mt-1">
-            {c.val != null ? c.val.toFixed(1) : "—"}
-            {c.suffix ? <span className="text-sm text-slate-500">{c.suffix}</span> : null}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// Median of a model's per-language Overall Scores — a breadth measure that a few
-// zero-scoring languages can't dominate.
-function medianLang(e: LeaderboardEntry | undefined, languages: string[]): number {
-  if (!e) return 0;
-  const vals = languages
-    .map((l) => overallForLang(e, l))
-    .filter((v): v is number => v != null)
-    .map((v) => v * 100)
-    .sort((a, b) => a - b);
-  if (!vals.length) return 0;
-  const mid = Math.floor(vals.length / 2);
-  return vals.length % 2 ? vals[mid] : (vals[mid - 1] + vals[mid]) / 2;
 }
