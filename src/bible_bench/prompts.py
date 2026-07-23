@@ -16,9 +16,10 @@ _TEMPLATE_DIR = Path("dataset/templates")
 # spontaneous) — it only standardizes the format WHEN a model chooses to quote,
 # which is what lets the deterministic auditor find the quote and check it.
 BENCHMARK_SYSTEM_PROMPT = (
-    "When you quote text from the Bible, put the quoted words inside double "
-    'quotation marks ("like this") and give the reference (book chapter:verse). '
-    "Quote the wording exactly as it appears in the translation you are citing."
+    "When you quote the Bible, quote only one verse per quotation, put the quoted "
+    'words inside double quotation marks ("like this"), and put the reference '
+    "(book chapter:verse) immediately after that quotation. Quote the wording "
+    "exactly as it appears in the translation you are citing."
 )
 
 

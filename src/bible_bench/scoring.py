@@ -34,7 +34,6 @@ WRONG_VERSION_MARGIN = 0.05
 WRONG_VERSE_SIM = 0.90
 WRONG_VERSE_TARGET_MAX = 0.50
 ATTEMPT_SIM_FLOOR = 0.30      # below this vs every candidate → no_attempt
-QER_SCORE_SLOPE = 4.0         # item_score = 1 - slope * QER for minor/major
 OVERQUOTE_LEN_RATIO = 1.25
 
 GRADE_FIXED_SCORES = {"perfect": 1.0, "near_perfect": 0.98, "wrong_version": 0.25}
@@ -299,8 +298,12 @@ def score_item(
     if grade in GRADE_FIXED_SCORES:
         score = GRADE_FIXED_SCORES[grade]
     elif grade in ("minor", "major"):
-        score = max(0.0, 1.0 - QER_SCORE_SLOPE * item_qer)
+        # Continuous reverse-QER: a credible attempt at the right verse scores in
+        # proportion to how close it is (was 1 - 4*QER, which snapped to 0 fast).
+        score = sim_t
     else:
+        # Miss (wrong verse, fabricated) or non-attempt / refusal scores 0 — a
+        # coincidental character overlap is not partial credit.
         score = 0.0
 
     return ItemScore(

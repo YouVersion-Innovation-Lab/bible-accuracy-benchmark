@@ -1,12 +1,35 @@
 {
-  "description": "Simple-track prompt templates. {reference} is the localized human reference (from the version's own book names); {version_title} and {version_abbrev} come from version.json. A global system prompt (bible_bench.prompts.BENCHMARK_SYSTEM_PROMPT) already tells the model to wrap quotes in quotation marks and include the reference, so these per-item prompts no longer forbid that; the scorer strips any quotes/reference before aligning against the actual verse. Native-language wording is machine-drafted and pending human localization review (see docs).",
+  "description": "Simple-track prompt templates, one per benchmark language. {reference} is the localized human reference (from the version's own book names); {version_title} and {version_abbrev} come from version.json. A global system prompt (bible_bench.prompts.BENCHMARK_SYSTEM_PROMPT) tells the model to wrap quotes in quotation marks and include the reference, so these per-item prompts no longer forbid that; the scorer strips any quotes/reference before aligning against the actual verse. Every non-English template is machine-drafted and MUST get native-speaker review before those languages are run for the public board.",
   "templates": {
     "quote_exact": {
       "eng": "Quote {reference} from the {version_title} ({version_abbrev}) translation of the Bible. Give only the verse itself, with no commentary or explanation.",
       "spa": "Cita {reference} de la traducción {version_title} ({version_abbrev}) de la Biblia. Responde solo con el versículo mismo, sin comentarios ni explicaciones.",
+      "por": "Cite {reference} da tradução {version_title} ({version_abbrev}) da Bíblia. Responda apenas com o versículo em si, sem comentários ou explicações.",
+      "fra": "Cite {reference} d'après la traduction {version_title} ({version_abbrev}) de la Bible. Donne uniquement le verset lui-même, sans commentaire ni explication.",
+      "deu": "Zitiere {reference} aus der Bibelübersetzung {version_title} ({version_abbrev}). Gib nur den Vers selbst an, ohne Kommentar oder Erklärung.",
+      "ita": "Cita {reference} dalla traduzione {version_title} ({version_abbrev}) della Bibbia. Rispondi solo con il versetto stesso, senza commenti né spiegazioni.",
+      "nld": "Citeer {reference} uit de Bijbelvertaling {version_title} ({version_abbrev}). Geef alleen het vers zelf, zonder commentaar of uitleg.",
+      "ron": "Citează {reference} din traducerea {version_title} ({version_abbrev}) a Bibliei. Răspunde doar cu versetul în sine, fără comentarii sau explicații.",
+      "pol": "Zacytuj {reference} z przekładu Biblii {version_title} ({version_abbrev}). Podaj tylko sam werset, bez komentarza ani wyjaśnień.",
+      "rus": "Процитируй {reference} из перевода Библии {version_title} ({version_abbrev}). Дай только сам стих, без комментариев и пояснений.",
+      "ukr": "Процитуй {reference} з перекладу Біблії {version_title} ({version_abbrev}). Дай лише сам вірш, без коментарів і пояснень.",
+      "ell": "Παράθεσε το {reference} από τη μετάφραση {version_title} ({version_abbrev}) της Βίβλου. Δώσε μόνο το ίδιο το εδάφιο, χωρίς σχόλια ή επεξηγήσεις.",
+      "arb": "اقتبس {reference} من ترجمة {version_title} ({version_abbrev}) للكتاب المقدس. أجب بنص الآية نفسها فقط، دون تعليق أو شرح.",
+      "pes": "‏{reference} را از ترجمهٔ {version_title} ({version_abbrev}) کتاب مقدس نقل کن. فقط خودِ آیه را بنویس، بدون توضیح یا تفسیر.",
+      "tur": "{reference} ayetini Kutsal Kitap'ın {version_title} ({version_abbrev}) çevirisinden aktar. Yalnızca ayetin kendisini ver; yorum veya açıklama ekleme.",
+      "swh": "Nukuu {reference} kutoka tafsiri ya Biblia ya {version_title} ({version_abbrev}). Toa mstari wenyewe tu, bila maelezo wala ufafanuzi.",
+      "amh": "{reference}ን ከመጽሐፍ ቅዱስ {version_title} ({version_abbrev}) ትርጉም ጥቀስ። ማብራሪያ ወይም ማስረጃ ሳታክል ጥቅሱን ብቻ ስጥ።",
+      "hin": "बाइबल के {version_title} ({version_abbrev}) अनुवाद से {reference} उद्धृत करें। केवल पद ही दें, कोई टिप्पणी या व्याख्या न करें।",
+      "ben": "বাইবেলের {version_title} ({version_abbrev}) অনুবাদ থেকে {reference} উদ্ধৃত করুন। শুধু পদটিই দিন, কোনো মন্তব্য বা ব্যাখ্যা ছাড়া।",
+      "tam": "பைபிளின் {version_title} ({version_abbrev}) மொழிபெயர்ப்பிலிருந்து {reference} ஐ மேற்கோள் காட்டவும். விளக்கமோ கருத்துரையோ இல்லாமல் வசனத்தை மட்டும் தரவும்.",
+      "tel": "బైబిల్ {version_title} ({version_abbrev}) అనువాదం నుండి {reference} ను ఉటంకించండి. వ్యాఖ్యానం లేదా వివరణ లేకుండా వచనాన్ని మాత్రమే ఇవ్వండి.",
+      "ind": "Kutip {reference} dari terjemahan Alkitab {version_title} ({version_abbrev}). Berikan hanya ayatnya saja, tanpa komentar atau penjelasan.",
+      "tgl": "Sipiin ang {reference} mula sa saling {version_title} ({version_abbrev}) ng Bibliya. Ibigay lamang ang mismong talata, walang komentaryo o paliwanag.",
+      "vie": "Trích dẫn {reference} từ bản dịch {version_title} ({version_abbrev}) của Kinh Thánh. Chỉ đưa ra chính câu Kinh Thánh, không bình luận hay giải thích.",
+      "jpn": "聖書の{version_title}（{version_abbrev}）訳から{reference}を引用してください。解説や説明はつけず、その節だけを答えてください。",
+      "zho": "请从圣经{version_title}（{version_abbrev}）译本中引用{reference}。只给出经文本身，不要评论或解释。",
       "kor": "성경 {version_title}({version_abbrev}) 번역에서 {reference}을(를) 인용해 주세요. 구절 자체만 답하고, 해설이나 설명은 넣지 마세요.",
-      "tha": "โปรดยกข้อพระคัมภีร์ {reference} จากฉบับแปล {version_title} ({version_abbrev}) ตอบเฉพาะตัวข้อพระคัมภีร์เท่านั้น ไม่ต้องมีคำอธิบายหรือคำขยายความ",
-      "arb": "اقتبس {reference} من ترجمة {version_title} ({version_abbrev}) للكتاب المقدس. أجب بنص الآية نفسها فقط، دون تعليق أو شرح."
+      "tha": "โปรดยกข้อพระคัมภีร์ {reference} จากฉบับแปล {version_title} ({version_abbrev}) ตอบเฉพาะตัวข้อพระคัมภีร์เท่านั้น ไม่ต้องมีคำอธิบายหรือคำขยายความ"
     }
   },
   "english_instruction_fallback": "Quote {reference} from the {version_title} ({version_abbrev}) translation of the Bible. Give only the verse itself, with no commentary or explanation."

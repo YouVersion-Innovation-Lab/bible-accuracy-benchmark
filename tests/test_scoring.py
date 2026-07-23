@@ -153,3 +153,13 @@ def test_extract_trivial_path_for_clean_response():
     ex = extract_attempt(LATIN, LATIN)
     assert ex.method == "trivial"
     assert ex.format_ok
+
+
+def test_minor_error_scores_continuous_reverse_qer():
+    # A quote with a small error is graded minor/major and scored as reverse-QER
+    # (1 - QER), not the old steep 1 - 4*QER that snapped partial quotes to zero.
+    resp = LATIN.replace("gardener", "farmer")  # one-word change
+    s = score_item(resp, LATIN, {}, {})
+    assert s.grade in ("minor", "major")
+    assert abs(s.item_score - (1.0 - s.qer)) < 1e-6
+    assert s.item_score > 0.85  # a single-word change is close, not near-zero
