@@ -1,0 +1,19 @@
+# The website image (root Dockerfile) only needs the benchmark app. Keep the
+# independent baseline system, local caches, and dev cruft out of the build context
+# so they can never be built into or deployed with the website.
+baseline/
+bible-cache/
+results/
+runs/
+.venv/
+web/node_modules/
+web/dist/
+.git/
+.github/
+.pytest_cache/
+.ruff_cache/
+**/__pycache__/
+*.pyc
+.env
+.env.*
+!.env.example

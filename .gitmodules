@@ -1,0 +1,3 @@
+[submodule "baseline/vendor/jittle"]
+	path = baseline/vendor/jittle
+	url = https://github.com/youversion/jittle

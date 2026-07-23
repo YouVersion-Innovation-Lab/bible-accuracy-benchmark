@@ -1,0 +1,27 @@
+[project]
+name = "bible-baseline"
+version = "0.1.0"
+description = "Independent OpenAI-compatible chat endpoint over YouVersion's Jot & Tittle (jittle) Scripture-quotation accuracy harness. Knows nothing about the benchmark."
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "openai>=1.30",
+    "python-dotenv>=1.0",
+]
+# NOTE: jittle ("jot-and-tittle") is a vendored git submodule at vendor/jittle and is
+# installed editable separately (see README / scripts/run.sh). It is intentionally NOT
+# a PyPI dependency here — the whole point is to run the code in the submodule.
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "httpx>=0.27"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

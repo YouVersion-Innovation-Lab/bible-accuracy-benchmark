@@ -1,0 +1,17 @@
+# Local-only baseline artifacts — never committed.
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Secrets / local config (real key lives here) — never commit.
+.env
+
+# Built Bible corpus / data (contains verse text) — never commit.
+/data/
+*.db
+*.sqlite
+
+# jittle chat-history quarantine (may contain licensed verse text) — never commit.
+private-store/
