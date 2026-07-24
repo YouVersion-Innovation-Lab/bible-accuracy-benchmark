@@ -93,14 +93,9 @@ export function Leaderboard() {
     <div>
       <section className="mb-8 text-slate-300 leading-normal space-y-3">
         <h1 className="text-3xl font-bold text-white">How accurately do LLMs quote the Bible?</h1>
-        <p>
-          A public, deterministic benchmark of how faithfully LLMs quote the Bible — for the teams
-          building them, and for anyone choosing a model to trust with Scripture.
-        </p>
         <div>
           <p>
-            Every quote is checked character-by-character against the real verse — never by an AI
-            judge — across ~28 languages and dozens of translations. Three dimensions:
+            A public, deterministic benchmark of how faithfully LLMs quote the Bible. Three dimensions:
           </p>
           <ul className="list-disc pl-5 mt-1 space-y-0.5">
             <li>
