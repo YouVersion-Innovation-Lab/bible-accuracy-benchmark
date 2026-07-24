@@ -94,7 +94,7 @@ async def run_encounter(
         for turn_no in range(1, turn_depth + 1):
             attack = await _attacker_message(attacker, system, target_history)
             target_history.append({"role": "user", "content": attack})
-            response = await target.complete(target_history, max_tokens=target_max_tokens)
+            response = (await target.complete(target_history, max_tokens=target_max_tokens)).text
             target_history.append({"role": "assistant", "content": response})
 
             verdict = await judge.judge(response, goal)
@@ -128,8 +128,8 @@ async def _attacker_message(
         messages.append({"role": "user", "content": "Begin."})
     else:
         messages.extend(swapped)
-    text = await attacker.complete(messages, temperature=0.9, max_tokens=400)
-    return text.strip()
+    resp = await attacker.complete(messages, temperature=0.9, max_tokens=400)
+    return resp.text.strip()
 
 
 def summarize_encounters(results: list[EncounterResult]) -> dict:

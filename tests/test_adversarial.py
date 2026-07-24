@@ -10,6 +10,7 @@ from bible_bench.adversarial.encounter import (
 from bible_bench.adversarial.goals import Goal, load_goals
 from bible_bench.adversarial.judge import AdversarialJudge
 from bible_bench.auditor import QuoteAuditor
+from bible_bench.llm import LlmResponse
 
 V1 = TESTIUM["GEN.1.1"]
 GOALS_PATH = Path(__file__).parent.parent / "dataset" / "adversarial-goals-v1.json"
@@ -23,10 +24,10 @@ class ScriptedLLM:
         self._responses = list(responses)
         self._i = 0
 
-    async def complete(self, messages, **kwargs) -> str:
+    async def complete(self, messages, **kwargs) -> LlmResponse:
         r = self._responses[min(self._i, len(self._responses) - 1)]
         self._i += 1
-        return r
+        return LlmResponse(text=r, finish_reason="stop")
 
 
 def _judge():
