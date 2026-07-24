@@ -52,7 +52,8 @@ export const TRACK_WEIGHTS: Record<string, number> = {
   phantom: 0.25,
 };
 
-// ISO-639-3 tag → English name, for the ~28 benchmark languages.
+// ISO-639-3 tag → English name for benchmark languages (extra entries are
+// harmless; only the languages present in a run's data are ever rendered).
 export const LANGUAGE_NAMES: Record<string, string> = {
   eng: "English", spa: "Spanish", por: "Portuguese", fra: "French", deu: "German",
   ita: "Italian", nld: "Dutch", ron: "Romanian", pol: "Polish", rus: "Russian",

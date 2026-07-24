@@ -26,7 +26,7 @@ export function Methodology() {
         <ul className="list-disc pl-6 space-y-1">
           <li>
             <strong>Direct Quotation (50%).</strong> Direct quote requests ("Quote John 3:16 in the
-            NIV") sampled across every book of the Bible, many translations, and ~28
+            NIV") sampled across every book of the Bible, many translations, and 11
             languages.
           </li>
           <li>

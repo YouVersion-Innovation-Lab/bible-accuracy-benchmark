@@ -33,7 +33,8 @@ Status legend: ☐ open · ☑ done
 - ☐ **Native-speaker review of all non-English prompts.** Every non-English
   string below is machine-drafted and needs localization-team review before
   those languages go on the public board:
-  - `dataset/templates/simple.json` — direct-quote templates for all 28 languages.
+  - `dataset/templates/simple.json` — direct-quote templates for the 11 active
+    languages (the file retains templates for the full 28 for a possible later round).
   - `dataset/topics-v1.json` — topical L1/L2 templates + topic names (10 non-English).
   - `dataset/phantom-v1.json` — hallucination-track templates (10 non-English).
   (Until reviewed, run English + reviewed languages only.)
@@ -101,8 +102,8 @@ Status legend: ☐ open · ☑ done
 - ☐ **Expand the adversarial goal set** toward the ~160 in the plan (currently
   ~78) if broader coverage is wanted for v1.
 - ☐ **Per-language version IDs**: verify/curate the Bible version chosen for
-  each of the 28 languages (Claude picked these from `versions.json`; a quick
-  human sanity-check per language is worthwhile).
+  each of the 11 active languages (Claude picked these from `versions.json`; a
+  quick human sanity-check per language is worthwhile).
 - ☐ **Versification mapping** (v2): the famous-verse list uses standard
   (Protestant/Hebrew) numbering, so a version with different versification
   (e.g. the Greek/Septuagint Psalms — Psalm 23 doesn't exist there) simply

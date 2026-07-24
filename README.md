@@ -14,7 +14,7 @@ Every prompt that asks for a quote names a specific Bible version, and every res
 
 | Track | What it tests | Weight |
 |---|---|---|
-| **Simple** | Direct quote requests ("Quote John 3:16 in the NIV") across every book of the Bible, multiple versions, ~28 languages | 50% |
+| **Simple** | Direct quote requests ("Quote John 3:16 in the NIV") across every book of the Bible, multiple versions, 11 languages | 50% |
 | **Topical** | Realistic questions that elicit scripture ("What does the Bible say about anxiety?"), asked both with an explicit instruction to quote a named version and implicitly (no version named — revealing which translation the model prefers) — scored on the accuracy of whatever the model quotes; declining to quote scores zero | 25% |
 | **Hallucination Resistance** | The model is asked to quote a reference that does not exist — an out-of-range chapter/verse ("Psalm 180:1") or a plausible but non-canonical book ("Judas 5:12"), always naming a real version. It scores by declining; quoting anything at all (an invented verse, or a real verse substituted in) fails | 25% |
 
