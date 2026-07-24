@@ -1,6 +1,12 @@
 import pytest
 
-from bible_bench.usfm import CANON_ORDER, UsfmError, VerseRef, book_name_to_usfm
+from bible_bench.usfm import (
+    CANON_ORDER,
+    DEUTEROCANON,
+    UsfmError,
+    VerseRef,
+    book_name_to_usfm,
+)
 
 
 def test_parse_verse_ref():
@@ -23,9 +29,13 @@ def test_invalid_refs_raise():
             VerseRef.parse(bad)
 
 
-def test_canon_has_66_books():
-    assert len(CANON_ORDER) == 66
-    assert CANON_ORDER[0] == "GEN" and CANON_ORDER[-1] == "REV"
+def test_canon_has_66_protestant_books_plus_deuterocanon():
+    protestant = [b for b in CANON_ORDER if b not in set(DEUTEROCANON)]
+    assert len(protestant) == 66
+    assert protestant[0] == "GEN" and protestant[-1] == "REV"
+    assert len(DEUTEROCANON) == 7
+    # Deuterocanonical references must parse (they're in the recognized set).
+    assert VerseRef.parse("TOB.3.4").book == "TOB"
 
 
 def test_book_name_lookup():

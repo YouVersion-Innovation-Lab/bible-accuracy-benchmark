@@ -1,4 +1,5 @@
-"""USFM reference types and canonical book tables (Protestant 66-book canon).
+"""USFM reference types and canonical book tables (Protestant 66-book canon
+plus the deuterocanonical books carried by Catholic and some other canons).
 
 USFM verse references look like ``JHN.3.16`` (book.chapter.verse). Chapter
 references are ``JHN.3``. Some printed editions merge verses; the Bible API
@@ -31,8 +32,20 @@ BOOK_NAME_TO_USFM: dict[str, str] = {
     "Titus": "TIT", "Philemon": "PHM", "Hebrews": "HEB", "James": "JAS",
     "1 Peter": "1PE", "2 Peter": "2PE", "1 John": "1JN", "2 John": "2JN",
     "3 John": "3JN", "Jude": "JUD", "Revelation": "REV",
+    # Deuterocanonical / apocryphal books (present in Catholic and some other
+    # canons, e.g. NABRE). Only versions that carry them are tested on them.
+    "Tobit": "TOB", "Judith": "JDT", "Wisdom": "WIS", "Wisdom of Solomon": "WIS",
+    "Sirach": "SIR", "Ecclesiasticus": "SIR", "Ben Sira": "SIR", "Baruch": "BAR",
+    "1 Maccabees": "1MA", "2 Maccabees": "2MA",
 }
 
+# The extra books beyond the Protestant 66 that appear in Catholic (and some
+# other) canons. Sampled only from versions whose metadata actually lists them.
+DEUTEROCANON: list[str] = ["TOB", "JDT", "WIS", "SIR", "BAR", "1MA", "2MA"]
+
+# Book codes the benchmark recognizes. Order is not significant (used only for
+# membership); it includes the deuterocanonical books so their references parse
+# and resolve for the versions that contain them.
 CANON_ORDER: list[str] = [
     "GEN", "EXO", "LEV", "NUM", "DEU", "JOS", "JDG", "RUT", "1SA", "2SA",
     "1KI", "2KI", "1CH", "2CH", "EZR", "NEH", "EST", "JOB", "PSA", "PRO",
@@ -41,6 +54,7 @@ CANON_ORDER: list[str] = [
     "MRK", "LUK", "JHN", "ACT", "ROM", "1CO", "2CO", "GAL", "EPH", "PHP",
     "COL", "1TH", "2TH", "1TI", "2TI", "TIT", "PHM", "HEB", "JAS", "1PE",
     "2PE", "1JN", "2JN", "3JN", "JUD", "REV",
+    *DEUTEROCANON,
 ]
 
 _CANON_SET = frozenset(CANON_ORDER)

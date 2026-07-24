@@ -38,3 +38,4 @@ bible-cache/
 
 # Local web-review demo data
 web-review-results/
+.claude/worktrees/

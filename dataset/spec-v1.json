@@ -31,8 +31,14 @@
     "description": "Textual-variant verses reported separately, never in the headline score.",
     "usfms": ["MRK.16.9", "MRK.16.20", "JHN.7.53", "JHN.8.11", "ACT.8.37", "MAT.17.21", "MAT.18.11", "MAT.23.14", "MRK.7.16", "MRK.9.44", "MRK.11.26", "LUK.17.36", "LUK.23.17", "JHN.5.4", "ACT.15.34", "ACT.24.7", "ACT.28.29", "ROM.16.24", "1JN.5.7"]
   },
+  "deuterocanon": {
+    "description": "Deuterocanonical / apocryphal books, sampled only from versions in a language that actually contain them (e.g. the NABRE Catholic Bible). Protestant versions don't carry these books, so they're never tested on them.",
+    "books": ["TOB", "JDT", "WIS", "SIR", "BAR", "1MA", "2MA"],
+    "english_count": 30,
+    "other_language_count": 10
+  },
   "languages": {
-    "eng": {"name": "English", "versions": [111, 1, 116], "primary": 111},
+    "eng": {"name": "English", "versions": [111, 1, 116, 463], "primary": 111},
     "spa": {"name": "Spanish", "versions": [149], "primary": 149},
     "por": {"name": "Portuguese", "versions": [1608], "primary": 1608},
     "fra": {"name": "French", "versions": [93], "primary": 93},

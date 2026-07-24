@@ -241,6 +241,40 @@ class DatasetSampler:
             chosen.add(usfm)
             await add(usfm, "edge", "quote_exact")
 
+        # deuterocanon — the extra (apocryphal) books, sampled ONLY from versions
+        # in this language whose metadata actually carries them (e.g. a Catholic
+        # Bible like NABRE). Protestant versions don't contain these books, so
+        # only the version that has them is tested on them.
+        deutero = self._spec.get("deuterocanon")
+        if deutero:
+            d_books = set(deutero.get("books", []))
+            count_key = "english_count" if is_eng else "other_language_count"
+            d_count = max(0, round(deutero[count_key] * counts_scale))
+            for vid in version_ids if d_count else []:
+                vmeta = await self._client.version(vid)
+                d_chapters = [
+                    c["usfm"]
+                    for b in vmeta.get("books", [])
+                    if b.get("usfm") in d_books
+                    for c in b.get("chapters", [])
+                    if c.get("canonical", True)
+                    and "." in c.get("usfm", "")
+                    and "INTRO" not in c["usfm"]
+                ]
+                if not d_chapters:
+                    continue
+                d_chosen: set[str] = set()
+                for usfm in await self._sample_from_chapter_pool(
+                    rng, vid, d_chapters, d_count, d_chosen
+                ):
+                    item = await self._make_item(
+                        "simple", lang, lang_name, vid,
+                        vmeta.get("abbreviation", "").upper(),
+                        usfm, "deuterocanon", "quote_exact", distractors,
+                    )
+                    if item:
+                        items.append(item)
+
         return items
 
     async def sample(self, seed: str, counts_scale: float = 1.0) -> list[BenchmarkItem]:
