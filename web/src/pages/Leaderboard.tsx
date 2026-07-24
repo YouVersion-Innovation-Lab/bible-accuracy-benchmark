@@ -91,7 +91,7 @@ export function Leaderboard() {
 
   return (
     <div>
-      <section className="mb-8 max-w-3xl text-slate-300 leading-relaxed space-y-4">
+      <section className="mb-8 text-slate-300 leading-normal space-y-3">
         <h1 className="text-3xl font-bold text-white">How accurately do LLMs quote the Bible?</h1>
         <p>
           A public, deterministic benchmark of how faithfully LLMs quote the Bible — for the teams
@@ -102,7 +102,7 @@ export function Leaderboard() {
             Every quote is checked character-by-character against the real verse — never by an AI
             judge — across ~28 languages and dozens of translations. Three dimensions:
           </p>
-          <ul className="list-disc pl-5 mt-2 space-y-1">
+          <ul className="list-disc pl-5 mt-1 space-y-0.5">
             <li>
               <strong>Direct Quotation</strong> — asked for a specific verse, does it reproduce the
               exact text?
@@ -116,12 +116,15 @@ export function Leaderboard() {
               it decline or invent one?
             </li>
           </ul>
-          <p className="mt-2">
+          <p className="mt-1">
             Accurate, willing quotation scores high; misquotes, invented verses, and refusing to
             quote when a quote is warranted score low.
           </p>
         </div>
-        <p>We hope it's a helpful contribution to the work of building and using LLMs well.</p>
+        <p className="text-slate-400">
+          This benchmark rates only the accuracy of quoted scripture — it does not score or rate the
+          theological positions or theological accuracy of a response.
+        </p>
       </section>
 
       {loading && <Loading />}
@@ -217,13 +220,6 @@ export function Leaderboard() {
               </tbody>
             </table>
           </div>
-          <p className="mt-3 text-xs text-slate-500">
-            Overall Score blends single-verse accuracy (50%), topical-quote accuracy (25%), and
-            hallucination resistance (25%), and always reflects the current filter. With no filter,
-            each language column is that language's Overall Score; choose a language to break it out
-            by Bible version (single-verse, character-by-character accuracy). Grey = not run. Click a
-            header to sort.
-          </p>
         </>
       )}
     </div>

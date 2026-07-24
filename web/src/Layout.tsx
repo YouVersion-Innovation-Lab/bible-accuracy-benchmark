@@ -1,5 +1,4 @@
 import { Link, Outlet } from "react-router-dom";
-import { SCOPE_NOTE } from "./api";
 import { langName } from "./constants";
 import { useFilters } from "./filterContext";
 
@@ -35,7 +34,6 @@ export function Layout() {
 
       <footer className="border-t border-white/10 text-xs text-slate-400">
         <div className="max-w-6xl mx-auto px-6 py-5 space-y-1">
-          <p className="max-w-3xl">{SCOPE_NOTE}</p>
           <p>
             A project of{" "}
             <a href="https://www.youversion.com" className="underline">
