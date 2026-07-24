@@ -265,19 +265,22 @@ async def cmd_run(args) -> int:
             await _generate_track(
                 store, run_dir, "responses.jsonl", "Querying model (simple)",
                 lambda done, cp, tick: generate_simple(
-                    items, client, model, already_done=done, checkpoint=cp, progress=tick),
+                    items, client, model, already_done=done, checkpoint=cp, progress=tick,
+                    concurrency=args.concurrency),
             )
         if topical_items:
             await _generate_track(
                 store, run_dir, "responses_topical.jsonl", "Querying model (topical)",
                 lambda done, cp, tick: generate_topical(
-                    topical_items, model, already_done=done, checkpoint=cp, progress=tick),
+                    topical_items, model, already_done=done, checkpoint=cp, progress=tick,
+                    concurrency=args.concurrency),
             )
         if phantom_items:
             await _generate_track(
                 store, run_dir, "responses_phantom.jsonl", "Querying model (phantom)",
                 lambda done, cp, tick: generate_phantom(
-                    phantom_items, model, already_done=done, checkpoint=cp, progress=tick),
+                    phantom_items, model, already_done=done, checkpoint=cp, progress=tick,
+                    concurrency=args.concurrency),
             )
         if adv_goals:
             adv_meta = manifest["adversarial"]
@@ -643,6 +646,9 @@ def main(argv: list[str] | None = None) -> int:
                         "to (e.g. 'eng'); default all languages in the phantom file")
     r.add_argument("--scale", type=float, default=1.0,
                    help="Scale factor on per-tier counts (use <1 for quick pilots)")
+    r.add_argument("--concurrency", type=int, default=12,
+                   help="Max concurrent model requests per track (lower it — e.g. 3-4 — "
+                        "to stay under a provider's rate limit; e.g. OpenRouter models)")
     r.add_argument("--dummy", action="store_true", help="Echo mode; no API key needed")
     _add_cache_arg(r)
     _add_store_args(r)
