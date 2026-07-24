@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type LeaderboardEntry } from "../api";
-import { ErrorMsg, Loading, ScoreBadge } from "../components";
-import { TRACK_WEIGHTS, heatColor, langName, orderLanguages } from "../constants";
+import { ErrorMsg, HeatCell, Loading, ScoreBadge } from "../components";
+import { TRACK_WEIGHTS, langName, orderLanguages } from "../constants";
 import { useFilters } from "../filterContext";
 import { useAsync } from "../hooks";
 
@@ -307,14 +307,5 @@ function SortableTh({
     >
       {label} {active ? "▼" : ""}
     </th>
-  );
-}
-
-function HeatCell({ value }: { value: number | undefined }) {
-  const { bg, fg } = heatColor(value);
-  return (
-    <td className="px-3 py-3 text-center tabular-nums" style={{ background: bg, color: fg }}>
-      {value == null ? "—" : (value * 100).toFixed(0)}
-    </td>
   );
 }

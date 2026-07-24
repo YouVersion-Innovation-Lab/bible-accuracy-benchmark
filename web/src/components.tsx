@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { heatColor } from "./constants";
 
 export function ScoreBadge({ score }: { score: number | null | undefined }) {
   if (score == null) return <span className="text-slate-500">—</span>;
@@ -10,6 +11,32 @@ export function ScoreBadge({ score }: { score: number | null | undefined }) {
     >
       {score.toFixed(1)}
     </span>
+  );
+}
+
+// Heat-map matrix cell for a 0..1 score (leaderboard + model-detail tables).
+// Given onClick, the whole cell is a click target (e.g. drill into evaluations).
+export function HeatCell({
+  value,
+  title,
+  onClick,
+}: {
+  value: number | undefined;
+  title?: string;
+  onClick?: () => void;
+}) {
+  const { bg, fg } = heatColor(value);
+  return (
+    <td
+      className={`px-3 py-3 text-center tabular-nums ${
+        onClick ? "cursor-pointer hover:brightness-125" : ""
+      }`}
+      style={{ background: bg, color: fg }}
+      title={title}
+      onClick={onClick}
+    >
+      {value == null ? "—" : (value * 100).toFixed(0)}
+    </td>
   );
 }
 
