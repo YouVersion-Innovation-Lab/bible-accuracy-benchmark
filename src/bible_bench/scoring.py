@@ -120,6 +120,11 @@ def _candidate_similarity(candidate_loose: str, trivial_loose: str, response_loo
     the trivially-stripped attempt and the candidate's own best window in the
     full response (a candidate must get the same extraction chance the target
     verse gets, or wrong-version/wrong-verse detection breaks)."""
+    # A candidate (distractor version / chapter neighbor) can have empty text —
+    # not every version carries every verse, and some chapter slots are blank.
+    # An empty candidate can't be matched, so it contributes no similarity.
+    if not candidate_loose:
+        return 0.0
     s1 = similarity(trivial_loose, candidate_loose) if trivial_loose else 0.0
     s2, _ = _best_infix_similarity(candidate_loose, response_loose)
     return max(s1, s2)

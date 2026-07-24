@@ -147,7 +147,10 @@ async def _score_one(item: BenchmarkItem | None, resp: dict, client: BibleClient
     if item is None:
         return None
     truth_span = await client.verse(item.version_id, item.usfm)
-    if truth_span is None:
+    # Drop items whose ground-truth verse has no text (absent or blank in this
+    # version) — there is nothing to score a quote against, same as a missing
+    # verse. Prevents a blank truth from reaching qer(), which requires it.
+    if truth_span is None or not truth_span.text.strip():
         return None
     distractors: dict[str, str] = {}
     for vid in item.distractor_version_ids:

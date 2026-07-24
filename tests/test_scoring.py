@@ -106,6 +106,17 @@ def test_empty_response_is_no_attempt():
     assert s.grade == "no_attempt"
 
 
+def test_blank_candidate_verses_do_not_crash():
+    # A distractor version or chapter neighbor can carry blank text (not every
+    # version has every verse). Those must be treated as unmatchable candidates,
+    # never fed to qer() as an empty truth (which raises). A correct quote should
+    # still score perfect despite the blank candidates alongside it.
+    s = score_item(LATIN, LATIN, {"alt-version": "", "other": LATIN_ALT_VERSION},
+                   {"NEI.1.2": "", "NEI.1.3": LATIN_NEIGHBOR})
+    assert s.grade == "perfect"
+    assert s.item_score == 1.0
+
+
 def test_quote_buried_in_commentary_loses_format_not_accuracy():
     response = (
         "What a wonderful passage this is. The text reads: "

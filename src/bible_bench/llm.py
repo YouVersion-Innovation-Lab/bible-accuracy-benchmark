@@ -72,7 +72,7 @@ class LlmResponse:
     raw: dict | None = None               # full response payload, nothing dropped
 
 
-def _to_response(resp) -> "LlmResponse":
+def _to_response(resp) -> LlmResponse:
     """Pull our standardized fields out of an OpenAI-compatible response while
     keeping the full raw payload, so provider-specific extras survive."""
     choice = resp.choices[0] if getattr(resp, "choices", None) else None
