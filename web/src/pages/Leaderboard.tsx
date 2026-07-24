@@ -44,36 +44,26 @@ export function Leaderboard() {
     return orderLanguages([...tags]);
   }, [entries]);
 
-  // Follow the global filter: sort by the active version, else language, else overall.
+  // The Overall Score column itself reflects the active slice, so default to
+  // sorting by it whenever the filter changes.
   useEffect(() => {
-    setSortKey(
-      filterVersion != null
-        ? `ver:${filterVersion}`
-        : filterLang
-          ? `lang:${filterLang}`
-          : HEADLINE,
-    );
+    setSortKey(HEADLINE);
   }, [filterLang, filterVersion]);
 
-  // The data columns depend on the active filter.
+  // Data columns beside the (filter-aware) Overall Score column.
   const cols: Col[] = useMemo(() => {
-    if (filterLang && filterVersion != null) {
-      const v = versionsByLang.get(filterLang)?.find((x) => x.version_id === filterVersion);
-      return [verCol(filterLang, filterVersion, v?.version_abbrev)];
-    }
+    // A specific version: the Overall Score column already shows that version's
+    // slice, so there's nothing to add.
+    if (filterVersion != null) return [];
+    // A language: one single-verse (direct-quote) column per version of that
+    // language. The blended overall for the language is the Overall Score
+    // column, so we don't repeat it as its own column.
     if (filterLang) {
-      const vers = versionsByLang.get(filterLang) || [];
-      const overall: Col = {
-        key: `lang:${filterLang}`,
-        label: "Overall",
-        title: `Overall score (blended across tracks) for ${langName(filterLang)}`,
-        get: (e) => overallForLang(e, filterLang),
-      };
-      // Single-version language: a per-version column would just duplicate the
-      // one version every track used, so show only the blended Overall.
-      if (vers.length <= 1) return [overall];
-      return [overall, ...vers.map((v) => verCol(filterLang, v.version_id, v.version_abbrev))];
+      return (versionsByLang.get(filterLang) || []).map((v) =>
+        verCol(filterLang, v.version_id, v.version_abbrev),
+      );
     }
+    // No filter: one Overall Score column per language.
     return languages.map((lang) => ({
       key: `lang:${lang}`,
       label: langName(lang),
@@ -82,36 +72,56 @@ export function Leaderboard() {
     }));
   }, [filterLang, filterVersion, languages, versionsByLang]);
 
+  // The model's Overall Score for the current slice (0..100): the headline when
+  // unfiltered, else the blended overall restricted to the language/version.
+  const overallScore = (e: LeaderboardEntry): number | null => {
+    if (!filterLang) return e.headline_score;
+    const v = overallForSlice(e, filterLang, filterVersion);
+    return v == null ? null : v * 100;
+  };
+
   const rows = useMemo(() => {
     const col = cols.find((c) => c.key === sortKey);
-    const val = (e: LeaderboardEntry) =>
-      sortKey === HEADLINE || !col ? (e.headline_score ?? -1) : (col.get(e) ?? -1) * 100;
+    const val = (e: LeaderboardEntry) => {
+      if (sortKey !== HEADLINE && col) return (col.get(e) ?? -1) * 100;
+      return overallScore(e) ?? -1;
+    };
     return [...entries].sort((a, b) => val(b) - val(a));
-  }, [entries, cols, sortKey]);
+  }, [entries, cols, sortKey, filterLang, filterVersion]);
 
   return (
     <div>
-      <section className="mb-8 max-w-3xl">
-        <h1 className="text-3xl font-bold mb-3">How accurately do LLMs quote the Bible?</h1>
-        <p className="text-slate-300 leading-relaxed">
-          We built this benchmark to give the teams developing LLMs a public, objective measure of
-          how faithfully their models handle the actual words of the Bible — and to help the many
-          people who turn to LLMs for Scripture choose the model that best fits their need for
-          Biblical accuracy. Every score is produced deterministically: each quotation is compared
-          character-by-character against the real verse in the cited translation, never judged by
-          another AI, across roughly 28 languages and dozens of Bible versions.{" "}
-          <strong>Direct Quotation</strong> asks for a specific verse in a named translation and
-          measures how exactly the model reproduces the real text.{" "}
-          <strong>Scripture in Answers</strong> poses genuine questions like “What does the Bible say
-          about anxiety?” and checks whether the verses the model chooses to quote are accurate.{" "}
-          <strong>Hallucination Resistance</strong> asks for references that do not exist (such as
-          “Psalm 180:1”) and rewards the model for saying so rather than inventing a verse. A model
-          scores well by quoting Scripture accurately and willingly — word-for-word, in whatever
-          language and translation it is asked. It scores poorly for misquoting a verse, fabricating
-          text for a passage that isn't real, or refusing to quote when a direct quotation is exactly
-          what the question calls for. We hope this proves a genuinely useful contribution to the
-          exciting, fast-moving work of building and using LLMs well.
+      <section className="mb-8 max-w-3xl text-slate-300 leading-relaxed space-y-4">
+        <h1 className="text-3xl font-bold text-white">How accurately do LLMs quote the Bible?</h1>
+        <p>
+          A public, deterministic benchmark of how faithfully LLMs quote the Bible — for the teams
+          building them, and for anyone choosing a model to trust with Scripture.
         </p>
+        <div>
+          <p>
+            Every quote is checked character-by-character against the real verse — never by an AI
+            judge — across ~28 languages and dozens of translations. Three dimensions:
+          </p>
+          <ul className="list-disc pl-5 mt-2 space-y-1">
+            <li>
+              <strong>Direct Quotation</strong> — asked for a specific verse, does it reproduce the
+              exact text?
+            </li>
+            <li>
+              <strong>Scripture in Answers</strong> — answering a real question, are the verses it
+              quotes accurate?
+            </li>
+            <li>
+              <strong>Hallucination Resistance</strong> — asked for a verse that doesn't exist, does
+              it decline or invent one?
+            </li>
+          </ul>
+          <p className="mt-2">
+            Accurate, willing quotation scores high; misquotes, invented verses, and refusing to
+            quote when a quote is warranted score low.
+          </p>
+        </div>
+        <p>We hope it's a helpful contribution to the work of building and using LLMs well.</p>
       </section>
 
       {loading && <Loading />}
@@ -159,7 +169,11 @@ export function Leaderboard() {
                   </th>
                   <SortableTh
                     label="Overall Score"
-                    title="Overall score across all languages"
+                    title={
+                      filterLang
+                        ? "Overall score for the current filter"
+                        : "Overall score across all languages"
+                    }
                     active={sortKey === HEADLINE}
                     onClick={() => setSortKey(HEADLINE)}
                   />
@@ -193,7 +207,7 @@ export function Leaderboard() {
                       </div>
                     </td>
                     <td className="px-3 py-3 text-center">
-                      <ScoreBadge score={e.headline_score} />
+                      <ScoreBadge score={overallScore(e)} />
                     </td>
                     {cols.map((c) => (
                       <HeatCell key={c.key} value={c.get(e)} />
@@ -204,11 +218,11 @@ export function Leaderboard() {
             </table>
           </div>
           <p className="mt-3 text-xs text-slate-500">
-            Each cell is a model's Overall Score (0–100) for that language: 50% single-verse quote
-            accuracy + 25% topical-quote accuracy + 25% hallucination resistance (renormalized over
-            the tracks that cover the language). Select a Bible version to see literal single-verse
-            (character-by-character) accuracy for that version instead. Grey = not run for that
-            model. Click a header to sort.
+            Overall Score blends single-verse accuracy (50%), topical-quote accuracy (25%), and
+            hallucination resistance (25%), and always reflects the current filter. With no filter,
+            each language column is that language's Overall Score; choose a language to break it out
+            by Bible version (single-verse, character-by-character accuracy). Grey = not run. Click a
+            header to sort.
           </p>
         </>
       )}
@@ -249,6 +263,31 @@ function overallForLang(e: LeaderboardEntry, lang: string): number | undefined {
     }
   }
   return den > 0 ? num / den : e.by_language?.[lang];
+}
+
+// Overall Score (0..1) for the active slice. A language slice blends by-language
+// track scores; a specific version blends the per-version track scores (only the
+// tracks that were run in that version contribute), matching the model-detail
+// page. Falls back to the single-verse score when per-track detail is absent.
+function overallForSlice(
+  e: LeaderboardEntry,
+  lang: string,
+  version: number | null,
+): number | undefined {
+  if (version == null) return overallForLang(e, lang);
+  const single = e.versions?.find((v) => v.version_id === version)?.score;
+  const td = e.tracks_detail;
+  if (!td) return single;
+  let num = 0;
+  let den = 0;
+  for (const [track, w] of Object.entries(TRACK_WEIGHTS)) {
+    const v = td[track]?.versions?.find((x) => x.version_id === version)?.score;
+    if (v != null) {
+      num += w * v;
+      den += w;
+    }
+  }
+  return den > 0 ? num / den : single;
 }
 
 function SortableTh({
