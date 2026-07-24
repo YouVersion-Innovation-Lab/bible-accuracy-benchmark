@@ -205,7 +205,23 @@ def summarize_phantom(items: list[dict]) -> dict:
         {**version_meta[vid], "score": round(_mean(scores), 4), "n": len(scores)}
         for vid, scores in sorted(by_version.items())
     ]
-    fabricated = outcomes.get("fabricated_text", 0) + outcomes.get("quoted_real_verse", 0)
+    # Rates by behaviour. "quoted_real_verse" is a legacy (pre-refinement)
+    # outcome kept so older runs still summarize.
+    declined = outcomes.get("refused", 0)
+    substitute = (
+        outcomes.get("declined_with_substitute", 0)
+        + outcomes.get("substitute_no_disclaimer", 0)
+    )
+    fabricated = outcomes.get("fabricated_text", 0)
+    misattributed = (
+        outcomes.get("misattributed_real_verse", 0)
+        + outcomes.get("unreferenced_substitute", 0)
+        + outcomes.get("quoted_real_verse", 0)
+    )
+
+    def _rate(n: int) -> float:
+        return round(n / total, 4) if total else 0.0
+
     return {
         "track_score": round(macro, 4),
         "n": total,
@@ -213,8 +229,10 @@ def summarize_phantom(items: list[dict]) -> dict:
         "by_version": {k: round(_mean(v), 4) for k, v in sorted(by_version.items())},
         "versions": versions,
         "by_kind": {k: round(_mean(v), 4) for k, v in sorted(by_kind.items())},
-        "refusal_rate": round(outcomes.get("refused", 0) / total, 4) if total else 0.0,
-        "hallucination_rate": round(fabricated / total, 4) if total else 0.0,
+        "refusal_rate": _rate(declined),
+        "substitute_rate": _rate(substitute),
+        "hallucination_rate": _rate(fabricated),
+        "misattribution_rate": _rate(misattributed),
         "outcomes": dict(sorted(outcomes.items())),
     }
 

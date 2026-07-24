@@ -33,9 +33,10 @@ export const TRACKS: TrackMeta[] = [
     name: "Hallucination Resistance",
     short: "Hallucination Resistance",
     blurb:
-      "For requests to quote a reference that does not exist (e.g. “Psalm 180:1”), the share of " +
-      "prompts where the model quoted nothing — declining instead of inventing a verse or " +
-      "substituting a real one.",
+      "For requests to quote a reference that does not exist (e.g. “Psalm 180:1”), how well the " +
+      "model avoids asserting scripture that isn’t there. Full credit for declining, or for " +
+      "offering a real, correctly-cited verse while noting the reference isn’t in the Bible; " +
+      "zero for inventing a verse or pinning real text to the fake reference.",
   },
 ];
 

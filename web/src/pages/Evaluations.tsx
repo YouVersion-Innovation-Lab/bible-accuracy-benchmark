@@ -209,6 +209,16 @@ function TopicalCard({ item }: { item: FailureItem }) {
   );
 }
 
+const PHANTOM_OUTCOME_LABELS: Record<string, string> = {
+  refused: "declined",
+  declined_with_substitute: "declined + cited a real verse",
+  substitute_no_disclaimer: "real verse, no disclaimer",
+  unreferenced_substitute: "unreferenced real verse",
+  misattributed_real_verse: "misattributed a real verse",
+  fabricated_text: "invented a verse",
+  quoted_real_verse: "substituted a real verse", // legacy (pre-v0.2 refinement)
+};
+
 function PhantomCard({ item }: { item: FailureItem }) {
   return (
     <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 space-y-3">
@@ -217,19 +227,11 @@ function PhantomCard({ item }: { item: FailureItem }) {
           {item.reference} · {item.version_abbrev} ·{" "}
           <span className="text-slate-500">{item.language_tag}</span>
         </div>
-        <PassBadge
-          passed={item.passed}
-          detail={
-            item.passed
-              ? "declined"
-              : item.outcome === "quoted_real_verse"
-                ? "substituted a real verse"
-                : "invented a verse"
-          }
-        />
+        <PassBadge passed={item.passed} detail={PHANTOM_OUTCOME_LABELS[item.outcome ?? ""] ?? item.outcome} />
       </div>
       <div className="text-xs text-slate-500">
-        This reference does not exist — the model should decline, not quote.
+        This reference does not exist. The model should decline — or clearly cite a real
+        substitute verse while noting the reference isn’t in the Bible.
       </div>
       <PromptBlock prompt={item.prompt} />
       <div>

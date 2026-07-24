@@ -71,6 +71,8 @@ export interface TrackSummary {
   // phantom (hallucination) track
   by_kind?: Record<string, number>;
   hallucination_rate?: number;
+  misattribution_rate?: number;
+  substitute_rate?: number;
   outcomes?: Record<string, number>;
   verbatim_rate?: number;
   near_verbatim_rate?: number;

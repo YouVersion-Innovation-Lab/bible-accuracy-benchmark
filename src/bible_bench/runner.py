@@ -40,6 +40,29 @@ def _messages(prompt: str) -> list[dict[str, str]]:
     ]
 
 
+def _response_record(item_id: str, prompt: str, resp, error: str | None) -> dict:
+    """One generation record: the reply text plus all captured response metadata
+    (finish_reason, refusal, token/reasoning counts, served model, provider, and
+    the full raw payload) so any oddity is drillable after the fact. ``resp`` is
+    an LlmResponse, or None when the call raised (``error`` set)."""
+    return {
+        "item_id": item_id,
+        "prompt": prompt,
+        "response_text": resp.text if resp else "",
+        "finish_reason": resp.finish_reason if resp else None,
+        "refusal": resp.refusal if resp else None,
+        "input_tokens": resp.prompt_tokens if resp else 0,
+        "output_tokens": resp.completion_tokens if resp else 0,
+        "reasoning_tokens": resp.reasoning_tokens if resp else None,
+        "model_served": resp.model if resp else None,
+        "response_id": resp.response_id if resp else None,
+        "system_fingerprint": resp.system_fingerprint if resp else None,
+        "provider": resp.provider if resp else None,
+        "error": error,
+        "raw": resp.raw if resp else None,
+    }
+
+
 async def generate_simple(
     items: list[BenchmarkItem],
     client: BibleClient,
@@ -65,30 +88,16 @@ async def generate_simple(
     async def one(item: BenchmarkItem) -> None:
         async with sem:
             error = None
-            text = ""
-            in_tok = out_tok = 0
+            resp = None
+            prompt = ""
             try:
                 prompt = await render_simple_prompt(
                     client, item.version_id, item.usfm, item.template_id, item.language_tag
                 )
-                async with lock:
-                    before_in = model.usage.input_tokens
-                    before_out = model.usage.output_tokens
-                text = await model.complete(_messages(prompt), max_tokens=1024)
-                async with lock:
-                    in_tok = model.usage.input_tokens - before_in
-                    out_tok = model.usage.output_tokens - before_out
+                resp = await model.complete(_messages(prompt))
             except Exception as e:  # noqa: BLE001 — record per-item failures, don't abort the run
                 error = f"{type(e).__name__}: {e}"
-                prompt = ""
-            rec = {
-                "item_id": item.id,
-                "prompt": prompt,
-                "response_text": text,
-                "input_tokens": in_tok,
-                "output_tokens": out_tok,
-                "error": error,
-            }
+            rec = _response_record(item.id, prompt, resp, error)
             async with lock:
                 collected.append(rec)
                 if progress:
@@ -195,27 +204,13 @@ async def generate_topical(
 
     async def one(item: TopicalItem) -> None:
         error = None
-        text = ""
-        in_tok = out_tok = 0
+        resp = None
         async with sem:
             try:
-                async with lock:
-                    before_in = model.usage.input_tokens
-                    before_out = model.usage.output_tokens
-                text = await model.complete(_messages(item.prompt), max_tokens=2048)
-                async with lock:
-                    in_tok = model.usage.input_tokens - before_in
-                    out_tok = model.usage.output_tokens - before_out
+                resp = await model.complete(_messages(item.prompt))
             except Exception as e:  # noqa: BLE001
                 error = f"{type(e).__name__}: {e}"
-        rec = {
-            "item_id": item.id,
-            "prompt": item.prompt,
-            "response_text": text,
-            "input_tokens": in_tok,
-            "output_tokens": out_tok,
-            "error": error,
-        }
+        rec = _response_record(item.id, item.prompt, resp, error)
         async with lock:
             collected.append(rec)
             if progress:
@@ -303,27 +298,13 @@ async def generate_phantom(
 
     async def one(item: PhantomItem) -> None:
         error = None
-        text = ""
-        in_tok = out_tok = 0
+        resp = None
         async with sem:
             try:
-                async with lock:
-                    before_in = model.usage.input_tokens
-                    before_out = model.usage.output_tokens
-                text = await model.complete(_messages(item.prompt), max_tokens=1024)
-                async with lock:
-                    in_tok = model.usage.input_tokens - before_in
-                    out_tok = model.usage.output_tokens - before_out
+                resp = await model.complete(_messages(item.prompt))
             except Exception as e:  # noqa: BLE001
                 error = f"{type(e).__name__}: {e}"
-        rec = {
-            "item_id": item.id,
-            "prompt": item.prompt,
-            "response_text": text,
-            "input_tokens": in_tok,
-            "output_tokens": out_tok,
-            "error": error,
-        }
+        rec = _response_record(item.id, item.prompt, resp, error)
         async with lock:
             collected.append(rec)
             if progress:
@@ -345,9 +326,11 @@ async def score_phantom_items(
     *,
     progress: ProgressCb | None = None,
 ) -> list[dict]:
-    """Audit each phantom response and apply deterministic scoring: presenting
-    ANY scripture quotation for a non-existent reference fails; declining (no
-    quote) passes."""
+    """Audit each phantom response and apply deterministic scoring: asserting
+    scripture where none exists (invented text, or real text pinned to the
+    phantom reference) fails; declining — or offering a real, clearly-cited
+    substitute, ideally with a "that isn't in the Bible" note — passes. See
+    phantom.score_phantom for the full outcome ladder."""
     auditor = QuoteAuditor(client)
     results: list[dict] = []
     for i, resp in enumerate(responses, 1):
@@ -361,7 +344,7 @@ async def score_phantom_items(
             candidate_version_ids=item.accepted_version_ids or [item.version_id],
             use_reverse_index=True,
         )
-        pscore = score_phantom(audit)
+        pscore = score_phantom(audit, text, item.denial_markers)
         results.append({
             "item_id": item.id,
             "track": "phantom",

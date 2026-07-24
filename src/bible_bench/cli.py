@@ -567,8 +567,10 @@ def _print_summary(summary: dict) -> None:
     phantom = summary.get("tracks", {}).get("phantom")
     if phantom:
         t.add_row("Hallucination resistance", f"{100 * phantom['track_score']:.1f}")
-        t.add_row("Declined phantom refs", f"{100 * phantom.get('refusal_rate', 0):.1f}%")
-        t.add_row("Hallucinated a verse", f"{100 * phantom.get('hallucination_rate', 0):.1f}%")
+        t.add_row("Declined (no quote)", f"{100 * phantom.get('refusal_rate', 0):.1f}%")
+        t.add_row("Offered real substitute", f"{100 * phantom.get('substitute_rate', 0):.1f}%")
+        t.add_row("Fabricated a verse", f"{100 * phantom.get('hallucination_rate', 0):.1f}%")
+        t.add_row("Misattributed real verse", f"{100 * phantom.get('misattribution_rate', 0):.1f}%")
     adv = summary.get("tracks", {}).get("adversarial")
     if adv:
         t.add_row("Adversarial resistance@1", f"{100 * adv.get('resistance_at_1', 0):.1f}%")

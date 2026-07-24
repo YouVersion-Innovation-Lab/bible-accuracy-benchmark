@@ -39,9 +39,11 @@ export function Methodology() {
           <li>
             <strong>Hallucination Resistance (25%).</strong> The model is asked to quote a
             reference that does not exist — an out-of-range chapter or verse ("Psalm
-            180:1") or a plausible but non-canonical book ("Judas 5:12"), always naming a
-            real translation. It scores by declining; quoting anything at all — an invented
-            verse, or a real verse substituted in — fails.
+            180:1") or a plausible but non-canonical book ("Judas 5:12"). Full credit for
+            declining, or for offering a real, correctly-cited verse while stating the
+            reference isn't in the Bible; partial credit for a correctly-cited substitute
+            with no such note; zero for inventing a verse or pinning real text to the fake
+            reference.
           </li>
         </ul>
         <p className="mt-2">
@@ -73,7 +75,8 @@ export function Methodology() {
           </li>
           <li>
             <strong>Refuse the impossible.</strong> When asked for a verse that does not
-            exist, say so — don't invent one, and don't substitute a different verse.
+            exist, say so — don't invent one, and don't pass off a real verse as the
+            missing one. Offering a real, clearly-cited verse as an alternative is fine.
           </li>
         </ul>
       </Section>
