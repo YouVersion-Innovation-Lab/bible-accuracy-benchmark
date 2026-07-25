@@ -3,6 +3,14 @@
 Generation and scoring are separate passes sharing one run directory, so a
 run can be re-scored under a new SCORING_VERSION without re-querying the model.
 Both passes are resumable — re-running skips items already present.
+
+Generation FAILS FAST. A model call that exhausts its retries aborts the whole
+run (see EvaluationError). A benchmark result assembled from a partially-failed
+generation pass is not a measurement of the model — failed calls land in the
+scorers as "no attempt", which silently deflates the direct-quote and topical
+scores and silently INFLATES hallucination resistance (an empty response reads
+as "declined to quote", i.e. a pass). Better to abort loudly and re-run than to
+publish a plausible-looking invalid number.
 """
 
 from __future__ import annotations
@@ -29,6 +37,15 @@ ProgressCb = Callable[[dict], None]
 CheckpointCb = Callable[[list[dict]], Awaitable[None] | None]
 
 _CHECKPOINT_EVERY = 25
+
+
+class EvaluationError(RuntimeError):
+    """A model call failed after all retries, so the run's data is incomplete.
+
+    Raised to abort the run rather than record a hole in the results. Carries the
+    item id and the underlying cause so the failure is diagnosable from the CLI
+    output alone.
+    """
 
 
 def _messages(prompt: str) -> list[dict[str, str]]:
@@ -95,8 +112,10 @@ async def generate_simple(
                     client, item.version_id, item.usfm, item.template_id, item.language_tag
                 )
                 resp = await model.complete(_messages(prompt))
-            except Exception as e:  # noqa: BLE001 — record per-item failures, don't abort the run
-                error = f"{type(e).__name__}: {e}"
+            except Exception as e:
+                # Fail fast: retries are already exhausted inside the client, so
+                # this item's data is unrecoverable and the run is invalid.
+                raise EvaluationError(f"simple item {item.id}: {type(e).__name__}: {e}") from e
             rec = _response_record(item.id, prompt, resp, error)
             async with lock:
                 collected.append(rec)
@@ -211,8 +230,10 @@ async def generate_topical(
         async with sem:
             try:
                 resp = await model.complete(_messages(item.prompt))
-            except Exception as e:  # noqa: BLE001
-                error = f"{type(e).__name__}: {e}"
+            except Exception as e:
+                # Fail fast — see module docstring.
+                raise EvaluationError(
+                    f"{item.track} item {item.id}: {type(e).__name__}: {e}") from e
         rec = _response_record(item.id, item.prompt, resp, error)
         async with lock:
             collected.append(rec)
@@ -305,8 +326,10 @@ async def generate_phantom(
         async with sem:
             try:
                 resp = await model.complete(_messages(item.prompt))
-            except Exception as e:  # noqa: BLE001
-                error = f"{type(e).__name__}: {e}"
+            except Exception as e:
+                # Fail fast — see module docstring.
+                raise EvaluationError(
+                    f"{item.track} item {item.id}: {type(e).__name__}: {e}") from e
         rec = _response_record(item.id, item.prompt, resp, error)
         async with lock:
             collected.append(rec)

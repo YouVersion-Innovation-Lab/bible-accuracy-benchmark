@@ -48,6 +48,7 @@ from .results_store import (
     rebuild_leaderboard,
 )
 from .runner import (
+    EvaluationError,
     generate_phantom,
     generate_simple,
     generate_topical,
@@ -302,6 +303,20 @@ async def cmd_run(args) -> int:
         await _score_and_summarize(
             store, run_dir, items, topical_items, phantom_items, client, model
         )
+    except EvaluationError as e:
+        # A model call ran out of retries. The run is aborted UNSCORED and
+        # UNFINISHED on purpose: a partial generation pass yields a wrong score,
+        # not a missing one (failed calls read as "no attempt", deflating the
+        # quote tracks and inflating hallucination resistance).
+        console.print()
+        console.print("[bold red]EVALUATION FAILED — run aborted, nothing scored.[/bold red]")
+        console.print(f"[red]{e}[/red]")
+        console.print(
+            "[yellow]The model call exhausted its retries, so this run cannot produce a "
+            "valid result. Fix the cause (credits/quota, rate limits, endpoint) and "
+            f"re-run; the partial output in {run_dir} is kept for diagnosis only.[/yellow]"
+        )
+        return 1
     finally:
         await client.aclose()
 
@@ -311,7 +326,13 @@ async def cmd_run(args) -> int:
 
 
 async def _generate_track(store, run_dir, filename, desc, gen, *, id_key="item_id") -> None:
-    """Run one generation pass, checkpointing progress to the run dir."""
+    """Run one generation pass, checkpointing progress to the run dir.
+
+    Aborts the whole run if any item's model call fails after its retries — a
+    partially-generated pass cannot produce a valid score (see runner's
+    EvaluationError). Whatever was checkpointed stays on disk for diagnosis, but
+    the run is left unfinished and unscored so it can never be published.
+    """
     with _progress(desc) as (prog, task):
         def write_checkpoint(new_records: list[dict]) -> None:
             lines = "\n".join(json.dumps(r, ensure_ascii=False) for r in new_records)
@@ -321,7 +342,10 @@ async def _generate_track(store, run_dir, filename, desc, gen, *, id_key="item_i
             if ev["phase"] == "generate":
                 prog.update(task, total=ev["total"], completed=ev["completed"])
 
-        await gen(set(), write_checkpoint, tick)
+        try:
+            await gen(set(), write_checkpoint, tick)
+        except EvaluationError as e:
+            raise EvaluationError(f"{desc}: {e}") from e
 
 
 async def _score_and_summarize(
