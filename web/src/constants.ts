@@ -25,8 +25,9 @@ export const TRACKS: TrackMeta[] = [
     short: "Scripture in Answers",
     blurb:
       "For open questions (“What does the Bible say about anxiety?”), the share of the verses the " +
-      "model quotes that match a real translation character-for-character. Quoting nothing scores " +
-      "zero.",
+      "model quotes that match a real translation character-for-character. No translation is " +
+      "requested — quoting any real one faithfully counts, and each verse is checked against every " +
+      "translation of its language. Quoting nothing scores zero.",
   },
   {
     key: "phantom",

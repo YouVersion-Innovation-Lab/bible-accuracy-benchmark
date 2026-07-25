@@ -173,6 +173,34 @@ class BibleClient:
     def _version_path(self, version_id: int) -> Path:
         return self._cache_dir / f"v{version_id}" / "version.json"
 
+    def _languages_path(self) -> Path:
+        return self._cache_dir / "languages.json"
+
+    # --- language -> translations manifest --------------------------------
+    # Scoring needs the FULL list of a language's translations (a quotation is
+    # identified against all of them), but versions.json is a live lookup and
+    # evaluation runs are offline. prefetch records the list here so a run can
+    # read it back without network access.
+    def save_language_versions(self, by_language: dict[str, list[int]]) -> None:
+        if not self._cache_dir:
+            return
+        p = self._languages_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        existing: dict[str, list[int]] = {}
+        if p.exists():
+            existing = json.loads(p.read_text(encoding="utf-8"))
+        existing.update({k: sorted(v) for k, v in by_language.items()})
+        p.write_text(json.dumps(existing, indent=2, sort_keys=True), encoding="utf-8")
+
+    def load_language_versions(self, language_tag: str) -> list[int]:
+        """Translation ids recorded for a language, or [] if never prefetched."""
+        if not self._cache_dir:
+            return []
+        p = self._languages_path()
+        if not p.exists():
+            return []
+        return list(json.loads(p.read_text(encoding="utf-8")).get(language_tag, []))
+
     def _load_chapter_disk(self, version_id: int, chapter_usfm: str) -> dict[str, VerseSpan] | None:
         p = self._chapter_path(version_id, chapter_usfm)
         if not p.exists():

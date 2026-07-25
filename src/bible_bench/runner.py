@@ -17,20 +17,22 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+from collections import defaultdict
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict
 
+from . import quotefind
 from .adversarial.encounter import run_encounter
 from .adversarial.goals import Goal
 from .adversarial.judge import AdversarialJudge
-from .auditor import QuoteAuditor
+from .auditor import ACCURATE_SIM, MINOR_SIM, QuoteAuditor, extract_quotes
 from .dataset import BenchmarkItem
 from .llm import LlmClient
 from .normalize import normalize
-from .phantom import PhantomItem, score_phantom
+from .phantom import PhantomItem, score_phantom_verdicts
 from .prompts import BENCHMARK_SYSTEM_PROMPT, render_simple_prompt
 from .scoring import score_item
-from .topical import TopicalItem, score_topical
+from .topical import TopicalItem, score_topical_verdicts
 from .yv_client import BibleClient
 
 ProgressCb = Callable[[dict], None]
@@ -256,50 +258,110 @@ async def score_topical_items(
     *,
     progress: ProgressCb | None = None,
 ) -> list[dict]:
-    """Audit each topical response deterministically and apply A×E scoring.
+    """Score topical responses by identifying quotations by CONTENT.
 
-    Serialized per item because the auditor builds per-version reverse indexes
-    lazily; the BibleClient's own concurrency ceiling still parallelizes the
-    underlying verse fetches."""
-    auditor = QuoteAuditor(client)
+    Batched per language, translations in the outer loop: every quotation is
+    identified against every translation the benchmark covers for that language
+    (see quotefind), rather than against a short accepted list and whatever
+    reference happened to sit next to it. A faithful quote of any real
+    translation therefore counts as faithful, and which translation the model
+    reached for is recorded rather than prescribed.
+    """
     results: list[dict] = []
-    for i, resp in enumerate(responses, 1):
+    by_lang: dict[str, list[dict]] = defaultdict(list)
+    for resp in responses:
         item = items_by_id.get(resp["item_id"])
-        if item is None:
-            continue
-        text = resp.get("response_text") or ""
-        audit = await auditor.audit(
-            text,
-            item.version_id,
-            candidate_version_ids=item.accepted_version_ids or [item.version_id],
-            use_reverse_index=True,
+        if item is not None:
+            by_lang[item.language_tag].append(resp)
+
+    done = 0
+    total = sum(len(v) for v in by_lang.values())
+    for lang, lang_responses in sorted(by_lang.items()):
+        texts = {r["item_id"]: (r.get("response_text") or "") for r in lang_responses}
+        sample = next((t for t in texts.values() if t), "")
+        unspaced = quotefind.is_unspaced(sample)
+
+        # Every translation of this language, recorded by prefetch. Falls back to
+        # the item's accepted list if the manifest is missing.
+        first = items_by_id[lang_responses[0]["item_id"]]
+        version_ids = client.load_language_versions(lang) or (
+            first.accepted_version_ids or [first.version_id]
         )
-        tscore = score_topical(audit)
-        results.append({
-            "item_id": item.id,
-            "track": "topical",
-            "language_tag": item.language_tag,
-            "version_id": item.version_id,
-            "version_abbrev": item.version_abbrev,
-            "topic_id": item.topic_id,
-            "topic_name": item.topic_name,
-            "elicitation_level": item.elicitation_level,
-            "sensitive": item.sensitive,
-            "response_text": text,
-            "topical_score": asdict(tscore),
-            "quotes": [asdict(v) for v in audit.verdicts],
-            "cited_refs": audit.cited_refs,
-            "fabricated_refs": audit.fabricated_refs,
-            "usage": {
-                "input_tokens": resp.get("input_tokens", 0),
-                "output_tokens": resp.get("output_tokens", 0),
-            },
-            "error": resp.get("error"),
-        })
-        if progress:
-            progress({"phase": "score", "completed": i, "total": len(responses)})
+        detections = await quotefind.scan_responses(
+            client, version_ids, texts, unspaced=unspaced
+        )
+
+        for resp in lang_responses:
+            item = items_by_id[resp["item_id"]]
+            text = texts[item.id]
+            verdicts = _topical_verdicts(text, detections.get(item.id, {}))
+            tscore = score_topical_verdicts(verdicts)
+            results.append({
+                "item_id": item.id,
+                "track": "topical",
+                "language_tag": item.language_tag,
+                "version_id": item.version_id,
+                "version_abbrev": item.version_abbrev,
+                "topic_id": item.topic_id,
+                "topic_name": item.topic_name,
+                "elicitation_level": item.elicitation_level,
+                "sensitive": item.sensitive,
+                "response_text": text,
+                "topical_score": asdict(tscore),
+                "quotes": verdicts,
+                "translations_searched": len(version_ids),
+                "usage": {
+                    "input_tokens": resp.get("input_tokens", 0),
+                    "output_tokens": resp.get("output_tokens", 0),
+                },
+                "error": resp.get("error"),
+            })
+            done += 1
+            if progress:
+                progress({"phase": "score", "completed": done, "total": total})
     results.sort(key=lambda r: r["item_id"])
     return results
+
+
+def _topical_verdicts(text: str, detections: dict) -> list[dict]:
+    """Turn raw verse detections into per-quotation verdicts.
+
+    A detection counts as a quotation when the model either marked it as one
+    (quote glyphs / blockquote) or reproduced a verse closely enough that it is
+    verbatim rather than paraphrase. Unmarked text below that bar is left alone,
+    so ordinary prose about a passage is never scored as a misquote.
+    """
+    loose = normalize(text, "loose")
+    quoted_ranges: list[tuple[int, int]] = []
+    for span in extract_quotes(text):
+        # Map the quoted span into loose-normalized offsets by locating its own
+        # normalized text; exact offsets aren't needed, only overlap.
+        q = normalize(span.text, "loose")
+        at = loose.find(q[:60]) if q else -1
+        if at >= 0:
+            quoted_ranges.append((at, at + len(q)))
+
+    out: list[dict] = []
+    for usfm, det in sorted(detections.items(), key=lambda kv: kv[1].start):
+        marked = any(det.start < e and s < det.end for s, e in quoted_ranges)
+        if not marked and det.similarity < MINOR_SIM:
+            continue  # unmarked and not verbatim → paraphrase, not a quotation
+        if det.similarity >= ACCURATE_SIM:
+            classification, score = "accurate", 1.0
+        elif det.similarity >= MINOR_SIM:
+            classification, score = "minor", round(det.similarity, 4)
+        else:
+            classification, score = "misquote", 0.0
+        out.append({
+            "quote": loose[det.start:det.end][:400],
+            "classification": classification,
+            "similarity": round(det.similarity, 4),
+            "matched_usfm": usfm,
+            "matched_version_id": det.version_id,
+            "score": score,
+            "unquoted": not marked,
+        })
+    return out
 
 
 async def generate_phantom(
@@ -352,45 +414,70 @@ async def score_phantom_items(
     *,
     progress: ProgressCb | None = None,
 ) -> list[dict]:
-    """Audit each phantom response and apply deterministic scoring: asserting
-    scripture where none exists (invented text, or real text pinned to the
-    phantom reference) fails; declining — or offering a real, clearly-cited
-    substitute, ideally with a "that isn't in the Bible" note — passes. See
-    phantom.score_phantom for the full outcome ladder."""
-    auditor = QuoteAuditor(client)
+    """Score phantom responses: asserting scripture where none exists fails;
+    declining — or offering a real, clearly-cited substitute, ideally with a
+    "that isn't in the Bible" note — passes. See phantom.score_phantom.
+
+    Detection is content-first and covers every translation of the language, so a
+    model that correctly quotes a real verse as a helpful alternative is credited
+    for it instead of being marked as inventing text merely because it used a
+    translation the old accepted list didn't include.
+    """
     results: list[dict] = []
-    for i, resp in enumerate(responses, 1):
+    by_lang: dict[str, list[dict]] = defaultdict(list)
+    for resp in responses:
         item = items_by_id.get(resp["item_id"])
-        if item is None:
-            continue
-        text = resp.get("response_text") or ""
-        audit = await auditor.audit(
-            text,
-            item.version_id,
-            candidate_version_ids=item.accepted_version_ids or [item.version_id],
-            use_reverse_index=True,
+        if item is not None:
+            by_lang[item.language_tag].append(resp)
+
+    auditor = QuoteAuditor(client)  # reference extraction only (attribution check)
+    done = 0
+    total = sum(len(v) for v in by_lang.values())
+    for lang, lang_responses in sorted(by_lang.items()):
+        texts = {r["item_id"]: (r.get("response_text") or "") for r in lang_responses}
+        sample = next((t for t in texts.values() if t), "")
+        first = items_by_id[lang_responses[0]["item_id"]]
+        version_ids = client.load_language_versions(lang) or (
+            first.accepted_version_ids or [first.version_id]
         )
-        pscore = score_phantom(audit, text, item.denial_markers)
-        results.append({
-            "item_id": item.id,
-            "track": "phantom",
-            "language_tag": item.language_tag,
-            "version_id": item.version_id,
-            "version_abbrev": item.version_abbrev,
-            "reference_display": item.reference_display,
-            "kind": item.kind,
-            "response_text": text,
-            "phantom_score": asdict(pscore),
-            "quotes": [asdict(v) for v in audit.verdicts],
-            "fabricated_refs": audit.fabricated_refs,
-            "usage": {
-                "input_tokens": resp.get("input_tokens", 0),
-                "output_tokens": resp.get("output_tokens", 0),
-            },
-            "error": resp.get("error"),
-        })
-        if progress:
-            progress({"phase": "score", "completed": i, "total": len(responses)})
+        detections = await quotefind.scan_responses(
+            client, version_ids, texts, unspaced=quotefind.is_unspaced(sample)
+        )
+        resolver = await auditor._resolver(first.version_id)  # noqa: SLF001
+
+        for resp in lang_responses:
+            item = items_by_id[resp["item_id"]]
+            text = texts[item.id]
+            verdicts = _topical_verdicts(text, detections.get(item.id, {}))
+            # Attribution: did the model print the reference for what it quoted?
+            cited = [r.usfm for r in resolver.find(text)]
+            for v in verdicts:
+                v["cited_usfm"] = v["matched_usfm"] if v["matched_usfm"] in cited else (
+                    cited[0] if cited else None
+                )
+            pscore = score_phantom_verdicts(verdicts, text, item.denial_markers)
+            results.append({
+                "item_id": item.id,
+                "track": "phantom",
+                "language_tag": item.language_tag,
+                "version_id": item.version_id,
+                "version_abbrev": item.version_abbrev,
+                "reference_display": item.reference_display,
+                "kind": item.kind,
+                "response_text": text,
+                "phantom_score": asdict(pscore),
+                "quotes": verdicts,
+                "cited_refs": cited,
+                "translations_searched": len(version_ids),
+                "usage": {
+                    "input_tokens": resp.get("input_tokens", 0),
+                    "output_tokens": resp.get("output_tokens", 0),
+                },
+                "error": resp.get("error"),
+            })
+            done += 1
+            if progress:
+                progress({"phase": "score", "completed": done, "total": total})
     results.sort(key=lambda r: r["item_id"])
     return results
 

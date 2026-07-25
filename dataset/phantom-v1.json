@@ -59,8 +59,8 @@
       "denial_markers": ["tidak ada", "tidak terdapat dalam alkitab", "tidak ada dalam alkitab", "tidak ada pasal", "tidak ada ayat", "hanya memiliki", "hanya sampai", "bukan kitab", "berakhir pada pasal", "tidak ditemukan", "tidak dapat ditemukan", "tidak valid", "referensi tidak sah"]
     },
     "hin": {
-      "version_id": 1819,
-      "version_abbrev": "HINCLBSI",
+      "version_id": 819,
+      "version_abbrev": "HHBD",
       "template": "कृपया बाइबल से {reference} उद्धृत करें। मुझे केवल पद का सटीक पाठ दें।",
       "denial_markers": ["मौजूद नहीं", "बाइबल में नहीं", "कोई अध्याय नहीं", "कोई आयत नहीं", "केवल", "पुस्तक नहीं", "नहीं मिला", "नहीं मिली", "अस्तित्व में नहीं", "मान्य नहीं", "गलत संदर्भ"]
     },

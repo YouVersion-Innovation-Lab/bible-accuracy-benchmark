@@ -161,18 +161,27 @@ class VersionIndex:
                 best_usfm, best_sim = usfm, sim
         return best_usfm, best_sim
 
-    def present(self, loose_response: str) -> dict[str, float]:
+    def present(self, loose_response: str) -> dict[str, tuple[float, int, int]]:
         """Verses of this translation that appear anywhere in a whole response.
 
         Verse-driven rather than window-driven, so an unmarked quotation is found
-        without guessing where it starts. Returns {usfm: similarity}.
+        without guessing where it starts. Returns {usfm: (similarity, start, end)}
+        with offsets into the loose-normalized response, so the caller can tell
+        whether a detection sits inside a span the model explicitly quoted.
         """
-        out: dict[str, float] = {}
+        from rapidfuzz import fuzz
+
+        out: dict[str, tuple[float, int, int]] = {}
         for usfm in self.propose(loose_response):
             vloose = self.verses[usfm]
-            sim = similarity(vloose, loose_response)
+            aln = fuzz.partial_ratio_alignment(vloose, loose_response)
+            if aln is None:
+                continue
+            start, end = aln.dest_start, aln.dest_end
+            window = loose_response[start:end]
+            sim = max(similarity(vloose, window), similarity(vloose, loose_response))
             if sim >= IDENTIFY_FLOOR:
-                out[usfm] = sim
+                out[usfm] = (sim, start, end)
         return out
 
 
@@ -191,6 +200,54 @@ async def load_verses(client, version_id: int) -> dict[str, str]:
                 out.update(await client.chapter_verses(version_id, cu))
             except Exception:  # noqa: BLE001 — a missing chapter shouldn't sink the run
                 continue
+    return out
+
+
+@dataclass
+class Detection:
+    """A verse found in a response, with where it sits in the response."""
+
+    usfm: str
+    version_id: int
+    similarity: float
+    start: int
+    end: int
+
+
+async def scan_responses(
+    client,
+    version_ids: list[int],
+    texts: dict[str, str],
+    *,
+    unspaced: bool = False,
+    progress=None,
+) -> dict[str, dict[str, Detection]]:
+    """Every verse detectable in each response, across every translation.
+
+    One pass covers quoted and unquoted scripture alike, because detection is
+    verse-driven. Translations are the outer loop so peak memory is one index.
+
+    Returns {response_key: {usfm: best Detection}} — best meaning the translation
+    the text most closely matches, which is how the model's preferred translation
+    is observed rather than assumed.
+    """
+    loose = {k: normalize(t, "loose") for k, t in texts.items()}
+    out: dict[str, dict[str, Detection]] = {k: {} for k in texts}
+    for n, vid in enumerate(version_ids, 1):
+        verses = await load_verses(client, vid)
+        if not verses:
+            continue
+        index = VersionIndex(vid, verses, unspaced=unspaced)
+        for key, text in loose.items():
+            if not text:
+                continue
+            for usfm, (sim, start, end) in index.present(text).items():
+                cur = out[key].get(usfm)
+                if cur is None or sim > cur.similarity:
+                    out[key][usfm] = Detection(usfm, vid, sim, start, end)
+        del index, verses
+        if progress:
+            progress({"phase": "identify", "completed": n, "total": len(version_ids)})
     return out
 
 

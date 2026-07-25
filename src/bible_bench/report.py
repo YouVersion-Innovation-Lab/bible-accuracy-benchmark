@@ -124,11 +124,13 @@ def summarize_topical(items: list[dict]) -> dict:
             "language_tag": it["language_tag"],
             "version_abbrev": it.get("version_abbrev", ""),
         })
-        if it.get("elicitation_level") == "L2":
-            for q in it.get("quotes", []):
-                mv = q.get("matched_version_id")
-                if mv is not None and q.get("classification") in ("accurate", "minor"):
-                    pref[it["language_tag"]][mv] += 1
+        # Which translation the model reaches for, counted at BOTH levels: from
+        # v0.3 neither prompt names a translation, so every accurate quotation is
+        # a free choice and therefore evidence of preference.
+        for q in it.get("quotes", []):
+            mv = q.get("matched_version_id")
+            if mv is not None and q.get("classification") in ("accurate", "minor"):
+                pref[it["language_tag"]][mv] += 1
 
     lang_means = {lang: _mean(v) for lang, v in by_lang.items()}
     macro = _mean(list(lang_means.values()))

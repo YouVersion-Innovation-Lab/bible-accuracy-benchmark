@@ -109,6 +109,38 @@ class TopicalScore:
     grades: dict[str, int] = field(default_factory=dict)
 
 
+def score_topical_verdicts(verdicts: list[dict]) -> TopicalScore:
+    """A x E over content-identified quotations (see quotefind).
+
+    A = mean per-quotation score; E = 1.0 if it quoted at all, else 0. Unchanged
+    from v0.2 in form — what changed is how a quotation's score is arrived at: by
+    identifying the verse from its content across every translation of the
+    language, so quoting a real translation faithfully is never counted as a
+    misquote just because a different translation was expected.
+    """
+    grades: dict[str, int] = {}
+    for v in verdicts:
+        grades[v["classification"]] = grades.get(v["classification"], 0) + 1
+
+    if verdicts:
+        accuracy = sum(v["score"] for v in verdicts) / len(verdicts)
+        emission = 1.0
+    else:
+        accuracy = None
+        emission = 0.0
+
+    return TopicalScore(
+        item_score=round((accuracy or 0.0) * emission, 4),
+        accuracy=round(accuracy, 4) if accuracy is not None else None,
+        emission=emission,
+        n_quotes=len(verdicts),
+        n_accurate=sum(1 for v in verdicts if v["classification"] == "accurate"),
+        n_fabricated=sum(1 for v in verdicts if v["classification"] == "misquote"),
+        n_fabricated_refs=0,  # references are no longer the basis of a verdict
+        grades=grades,
+    )
+
+
 def score_topical(audit: AuditResult) -> TopicalScore:
     verifiable = audit.verifiable
     grades: dict[str, int] = {}

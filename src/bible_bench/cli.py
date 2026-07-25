@@ -520,6 +520,23 @@ def _prefetch_version_ids(args, tracks: set[str]) -> list[int]:
     return sorted(ids)
 
 
+async def _all_language_versions(client, languages: list[str]) -> dict[str, list[int]]:
+    """Every translation the API offers for each benchmark language.
+
+    Quotations are identified against a language's whole set of translations, so
+    the set has to be enumerated (and cached) rather than hand-picked — that's
+    what stops a faithful quote of an unanticipated translation from being scored
+    as a misquote.
+    """
+    out: dict[str, list[int]] = {}
+    for lang in languages:
+        try:
+            out[lang] = sorted({v.id for v in await client.versions(lang)})
+        except Exception as e:  # noqa: BLE001
+            console.print(f"[yellow]  {lang}: version list failed ({e}); skipped[/yellow]")
+    return out
+
+
 async def cmd_prefetch(args) -> int:
     cache = _cache_dir(args)
     if not cache:
@@ -531,9 +548,24 @@ async def cmd_prefetch(args) -> int:
     except ConfigError as e:
         console.print(f"[red]{e}[/red]")
         return 2
+    client = _bible_client(args)
+    try:
+        # Full coverage: every translation of every benchmark language, recorded
+        # to the cache so offline scoring can enumerate them.
+        langs = sorted(load_spec(args.spec).get("languages", {}))
+        console.print(f"Resolving all translations for {len(langs)} languages…")
+        by_lang = await _all_language_versions(client, langs)
+        client.save_language_versions(by_lang)
+        extra = sorted({v for ids in by_lang.values() for v in ids})
+        console.print(
+            "  " + ", ".join(f"{lg}:{len(ids)}" for lg, ids in sorted(by_lang.items()))
+        )
+        version_ids = sorted(set(version_ids) | set(extra))
+    except Exception as e:  # noqa: BLE001
+        console.print(f"[yellow]Could not enumerate all translations ({e}); "
+                      f"prefetching the configured set only.[/yellow]")
     console.print(f"Prefetching [bold]{len(version_ids)}[/bold] versions "
                   f"({', '.join(sorted(tracks))}) into [cyan]{cache}[/cyan]")
-    client = _bible_client(args)
     try:
         with _progress("Caching Bible text") as (prog, task):
             def tick(ev: dict) -> None:

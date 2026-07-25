@@ -58,9 +58,9 @@ def _topical_item(lang, level, vid, abbrev, item_score, quotes):
     }
 
 
-def test_topical_version_preference_uses_only_L2():
-    # At L2 no version is named, so which translation the model quotes reveals
-    # its spontaneous preference. L1 (version named) must not count.
+def test_topical_version_preference_counts_both_levels():
+    # From v0.3 NEITHER level names a translation, so every accurate quotation is
+    # a free choice and counts as evidence of which translation the model prefers.
     items = [
         _topical_item("eng", "L2", 111, "NIV", 1.0, [
             {"classification": "accurate", "matched_version_id": 1},    # KJV
@@ -68,11 +68,11 @@ def test_topical_version_preference_uses_only_L2():
             {"classification": "accurate", "matched_version_id": 111},  # NIV
         ]),
         _topical_item("eng", "L1", 111, "NIV", 1.0, [
-            {"classification": "accurate", "matched_version_id": 111},  # ignored
+            {"classification": "accurate", "matched_version_id": 1},    # KJV — now counts
         ]),
     ]
     s = summarize_topical(items)
     pref = s["version_preference"]["eng"]
-    assert pref["top_version_id"] == 1  # KJV preferred (2 vs 1)
-    assert pref["n"] == 3               # only the three L2 quotes
+    assert pref["top_version_id"] == 1  # KJV preferred (3 vs 1)
+    assert pref["n"] == 4               # all four quotations, both levels
     assert any(v["version_id"] == 111 for v in s["versions"])
