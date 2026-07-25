@@ -135,8 +135,26 @@ async def smoke_model(m: dict, simple, topical, phantom, client: BibleClient) ->
     return out
 
 
+SMOKE_TRANSLATIONS = 3
+
+
+class SmokeClient(BibleClient):
+    """BibleClient that searches only a few translations per language.
+
+    A real run identifies quotations against every translation of a language (87
+    for English), which means loading and indexing all of them — minutes of work
+    that says nothing extra about whether the PIPELINE works. This harness caps
+    it so a two-item smoke test stays a smoke test. Scores from a smoke run are
+    therefore not comparable to a real run's, which is fine: the check is
+    "non-empty and scorable", not accuracy.
+    """
+
+    def load_language_versions(self, language_tag: str) -> list[int]:
+        return super().load_language_versions(language_tag)[:SMOKE_TRANSLATIONS]
+
+
 async def main() -> int:
-    client = BibleClient(load_bible_api_config(),
+    client = SmokeClient(load_bible_api_config(),
                          cache_dir=os.environ.get("BENCH_CACHE_DIR", "./bible-cache"),
                          offline=True)
     try:
