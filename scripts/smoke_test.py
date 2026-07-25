@@ -92,17 +92,31 @@ async def build_items(client: BibleClient):
 
 
 def _verdict(items, responses, scored) -> tuple[bool, str]:
-    """OK iff every item came back non-empty, error-free, and got a scored record."""
+    """OK iff every item is accounted for, error-free, and got a scored record.
+
+    A provider content filter that returns nothing is a real observation about the
+    model, not a fault in our setup — Gemini's anti-recitation filter blocks
+    verbatim scripture, which is exactly what this benchmark asks for. Those score
+    zero and are reported; they don't fail the smoke check. An empty reply with no
+    such explanation IS a fault, and still fails.
+    """
     n = len(items)
     real = sum(1 for r in responses if (r.get("response_text") or "").strip())
+    filtered = sum(
+        1 for r in responses
+        if not (r.get("response_text") or "").strip()
+        and "content_filter" in (r.get("finish_reason") or "")
+    )
     errs = [r["error"] for r in responses if r.get("error")]
     n_scored = sum(1 for r in scored if isinstance(r, dict))
-    ok = (real == n) and (not errs) and (n_scored == n)
+    ok = (real + filtered == n) and (not errs) and (n_scored == n)
     bits = [f"resp {real}/{n}", f"scored {n_scored}/{n}"]
+    if filtered:
+        bits.append(f"{filtered} content-filtered")
     if errs:
         bits.append(f"ERR: {errs[0][:60]}")
-    elif real < n:
-        bits.append("EMPTY output")
+    elif real + filtered < n:
+        bits.append("EMPTY output (unexplained)")
     elif n_scored < n:
         bits.append("unscorable / dropped")
     return ok, ", ".join(bits)
