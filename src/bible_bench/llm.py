@@ -195,8 +195,12 @@ class LlmClient:
             except Exception as e:  # noqa: BLE001 — retry all transient failures
                 last_err = e
                 await asyncio.sleep(min(2**attempt, 30))
+        # Include the underlying cause in the message: this string is what gets
+        # persisted per-item in responses.jsonl, and "failed after N attempts"
+        # alone makes a failed run impossible to diagnose after the fact.
         raise RuntimeError(
-            f"LLM call to {self.cfg.model} failed after {self.max_retries} attempts"
+            f"LLM call to {self.cfg.model} failed after {self.max_retries} attempts: "
+            f"{type(last_err).__name__}: {str(last_err)[:300]}"
         ) from last_err
 
     def _dummy(self, messages: list[dict[str, str]], return_json: bool) -> LlmResponse:
