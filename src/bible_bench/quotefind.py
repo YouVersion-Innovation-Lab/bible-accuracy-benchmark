@@ -205,13 +205,36 @@ async def load_verses(client, version_id: int) -> dict[str, str]:
 
 @dataclass
 class Detection:
-    """A verse found in a response, with where it sits in the response."""
+    """A verse found in a response, with where it sits in the response.
+
+    ``similarity`` is verse-as-needle: how much of the VERSE is present in the
+    response. That conflates two things a scorer needs to keep apart — whether
+    the quoted words are faithful, and how much of the verse was delivered — so
+    ``verse_loose`` is carried along, letting the caller measure fidelity against
+    the model's own quoted span and scale it by coverage.
+    """
 
     usfm: str
     version_id: int
     similarity: float
     start: int
     end: int
+    verse_loose: str = ""
+
+    def fidelity_and_coverage(self, span_loose: str) -> tuple[float, float]:
+        """(fidelity, coverage) of a marked quotation against this verse.
+
+        fidelity — are the quoted words right? Best alignment of the span inside
+        the verse, so a faithful fragment reads as faithful (1.0), not as a
+        partly-wrong whole verse.
+        coverage — how much of the verse was actually delivered. Capped at 1.0, so
+        quoting across a verse boundary isn't credited above a full verse.
+        """
+        if not span_loose or not self.verse_loose:
+            return 0.0, 0.0
+        fidelity = similarity(span_loose, self.verse_loose)
+        coverage = min(1.0, len(span_loose) / len(self.verse_loose))
+        return fidelity, coverage
 
 
 async def scan_responses(
@@ -244,7 +267,9 @@ async def scan_responses(
             for usfm, (sim, start, end) in index.present(text).items():
                 cur = out[key].get(usfm)
                 if cur is None or sim > cur.similarity:
-                    out[key][usfm] = Detection(usfm, vid, sim, start, end)
+                    out[key][usfm] = Detection(
+                        usfm, vid, sim, start, end, verse_loose=index.verses[usfm]
+                    )
         del index, verses
         if progress:
             progress({"phase": "identify", "completed": n, "total": len(version_ids)})

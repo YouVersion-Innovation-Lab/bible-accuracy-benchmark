@@ -323,6 +323,38 @@ async def score_topical_items(
     return results
 
 
+# The system prompt asks for the reference immediately AFTER the quotation, so a
+# following reference is the expected form and gets a generous window. A
+# PRECEDING reference only counts when it's tight against the quote ("Psalm 23:1:
+# ...") — widen this and a denial like "Psalm 153:1 does not exist … you may mean:
+# '<verse>'" would wrongly read the denied reference as the quote's attribution.
+_ATTRIBUTION_AFTER = 120
+_ATTRIBUTION_BEFORE = 30
+
+
+def _attribute(verdicts: list[dict], refs) -> None:
+    """Attach the reference the model gave for each quotation, or None.
+
+    Adjacency-gated on purpose: only a reference actually next to the quoted span
+    is a claim about it. A reference elsewhere in the answer leaves the quotation
+    unattributed rather than borrowing someone else's citation — the bug that
+    turned correct answers into "misattributed", including the ideal
+    hallucination-track answer (deny the reference, then offer a real verse).
+    """
+    for v in verdicts:
+        v["cited_usfm"] = None
+        start, end = v.get("raw_start"), v.get("raw_end")
+        if start is None or end is None:
+            continue  # unmarked quotation: no span to anchor a reference to
+        near = [r for r in refs if end <= r.start <= end + _ATTRIBUTION_AFTER]
+        if not near:
+            near = [r for r in refs if start - _ATTRIBUTION_BEFORE <= r.end <= start]
+        if near:
+            v["cited_usfm"] = min(
+                near, key=lambda r: min(abs(r.start - end), abs(start - r.end))
+            ).usfm
+
+
 def _topical_verdicts(text: str, detections: dict) -> list[dict]:
     """Turn raw verse detections into per-quotation verdicts.
 
@@ -332,35 +364,98 @@ def _topical_verdicts(text: str, detections: dict) -> list[dict]:
     so ordinary prose about a passage is never scored as a misquote.
     """
     loose = normalize(text, "loose")
-    quoted_ranges: list[tuple[int, int]] = []
+    # (loose_start, loose_end, raw_start, raw_end, loose_span_text) per marked
+    # quotation. Raw offsets ride along so attribution can be adjacency-gated
+    # against references extracted from the raw text.
+    marked_spans: list[tuple[int, int, int, int, str]] = []
     for span in extract_quotes(text):
-        # Map the quoted span into loose-normalized offsets by locating its own
-        # normalized text; exact offsets aren't needed, only overlap.
         q = normalize(span.text, "loose")
         at = loose.find(q[:60]) if q else -1
         if at >= 0:
-            quoted_ranges.append((at, at + len(q)))
+            marked_spans.append((at, at + len(q), span.start, span.end, q))
 
-    out: list[dict] = []
+    # Score every candidate first, then keep the best one per stretch of text.
+    # One quotation is one verdict: several verses can match the same words (Luke
+    # 4:18 quotes Isaiah 61:1, and translations of a psalm echo each other), and
+    # emitting a verdict for each would let the runners-up drag the mean down for
+    # a quotation the model got right.
+    scored: list[tuple[float, int, int, dict]] = []
     for usfm, det in sorted(detections.items(), key=lambda kv: kv[1].start):
-        marked = any(det.start < e and s < det.end for s, e in quoted_ranges)
-        if not marked and det.similarity < MINOR_SIM:
+        hit = next(
+            (m for m in marked_spans if det.start < m[1] and m[0] < det.end), None
+        )
+        if hit is None and det.similarity < MINOR_SIM:
             continue  # unmarked and not verbatim → paraphrase, not a quotation
-        if det.similarity >= ACCURATE_SIM:
-            classification, score = "accurate", 1.0
-        elif det.similarity >= MINOR_SIM:
-            classification, score = "minor", round(det.similarity, 4)
+
+        if hit is not None:
+            # The model marked this as a quotation, so judge the words it actually
+            # put in quotes: fidelity says whether they're right, coverage says how
+            # much of the verse it delivered. A verbatim fragment is faithful (not
+            # a misquote) but earns credit in proportion to what it quoted.
+            span_loose = hit[4]
+            fidelity, coverage = det.fidelity_and_coverage(span_loose)
+            quote_text, raw_start, raw_end = span_loose, hit[2], hit[3]
         else:
-            classification, score = "misquote", 0.0
-        out.append({
-            "quote": loose[det.start:det.end][:400],
+            # Unmarked near-verbatim scripture: verse-as-needle already required
+            # the whole verse to be present, so coverage is implicitly complete.
+            fidelity, coverage = det.similarity, 1.0
+            quote_text, raw_start, raw_end = loose[det.start:det.end], None, None
+
+        if fidelity >= ACCURATE_SIM:
+            classification = "accurate"
+        elif fidelity >= MINOR_SIM:
+            classification = "minor"
+        else:
+            classification = "misquote"
+        score = 0.0 if classification == "misquote" else round(fidelity * coverage, 4)
+
+        lo, hi = (hit[0], hit[1]) if hit is not None else (det.start, det.end)
+        scored.append((score, lo, hi, {
+            "quote": quote_text[:400],
             "classification": classification,
-            "similarity": round(det.similarity, 4),
+            "similarity": round(fidelity, 4),
+            "coverage": round(coverage, 4),
             "matched_usfm": usfm,
             "matched_version_id": det.version_id,
             "score": score,
-            "unquoted": not marked,
+            "unquoted": hit is None,
+            "raw_start": raw_start,
+            "raw_end": raw_end,
+        }))
+
+    # Best-first, keeping a verdict only if its text doesn't overlap one already
+    # kept — so each quotation is attributed to the verse it matches best.
+    out: list[dict] = []
+    taken: list[tuple[int, int]] = []
+    for _score, lo, hi, verdict in sorted(scored, key=lambda t: -t[0]):
+        if any(lo < e and s < hi for s, e in taken):
+            continue
+        taken.append((lo, hi))
+        out.append(verdict)
+
+    # Anything the model explicitly presented as a quotation but which matches no
+    # verse in any translation is invented scripture, and must be scored as such.
+    # Content-first detection only yields verdicts for text that MATCHES, so
+    # without this a fabricated quote would produce no verdict at all — reading as
+    # "quoted nothing", which is a pass on the hallucination track and free
+    # omission from the topical average.
+    claimed = {(v["raw_start"], v["raw_end"]) for v in out if v["raw_start"] is not None}
+    for _lo, _hi, raw_start, raw_end, span_loose in marked_spans:
+        if (raw_start, raw_end) in claimed:
+            continue
+        out.append({
+            "quote": span_loose[:400],
+            "classification": "fabricated",
+            "similarity": 0.0,
+            "coverage": 0.0,
+            "matched_usfm": None,
+            "matched_version_id": None,
+            "score": 0.0,
+            "unquoted": False,
+            "raw_start": raw_start,
+            "raw_end": raw_end,
         })
+    out.sort(key=lambda v: (v["raw_start"] if v["raw_start"] is not None else 1 << 30))
     return out
 
 
@@ -449,12 +544,11 @@ async def score_phantom_items(
             item = items_by_id[resp["item_id"]]
             text = texts[item.id]
             verdicts = _topical_verdicts(text, detections.get(item.id, {}))
-            # Attribution: did the model print the reference for what it quoted?
-            cited = [r.usfm for r in resolver.find(text)]
-            for v in verdicts:
-                v["cited_usfm"] = v["matched_usfm"] if v["matched_usfm"] in cited else (
-                    cited[0] if cited else None
-                )
+            # Attribution is adjacency-gated (see _attribute), which is what
+            # keeps the denied phantom reference from being read as the citation
+            # for a substitute verse offered later in the answer.
+            refs = resolver.find(text)
+            _attribute(verdicts, refs)
             pscore = score_phantom_verdicts(verdicts, text, item.denial_markers)
             results.append({
                 "item_id": item.id,
@@ -467,7 +561,7 @@ async def score_phantom_items(
                 "response_text": text,
                 "phantom_score": asdict(pscore),
                 "quotes": verdicts,
-                "cited_refs": cited,
+                "cited_refs": [r.usfm for r in refs],
                 "translations_searched": len(version_ids),
                 "usage": {
                     "input_tokens": resp.get("input_tokens", 0),
