@@ -218,6 +218,7 @@ def summarize_phantom(items: list[dict]) -> dict:
         + outcomes.get("unreferenced_substitute", 0)
         + outcomes.get("quoted_real_verse", 0)
     )
+    no_response = outcomes.get("no_response", 0)
 
     def _rate(n: int) -> float:
         return round(n / total, 4) if total else 0.0
@@ -233,6 +234,7 @@ def summarize_phantom(items: list[dict]) -> dict:
         "substitute_rate": _rate(substitute),
         "hallucination_rate": _rate(fabricated),
         "misattribution_rate": _rate(misattributed),
+        "no_response_rate": _rate(no_response),
         "outcomes": dict(sorted(outcomes.items())),
     }
 

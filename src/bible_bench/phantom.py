@@ -7,7 +7,7 @@ a plausible but non-canonical book ("Judas 5:12"). Scoring is fully
 deterministic (no LLM), reusing the QuoteAuditor to classify every quoted span.
 The graded outcomes, best to worst:
 
-  * refused (1.0) — quotes nothing at all;
+  * refused (1.0) — answers, but quotes nothing at all;
   * declined_with_substitute (1.0) — quotes only real, correctly-attributed
     scripture AND deterministically signals the reference isn't in the Bible
     (an "out of range / no such chapter" phrase, matched per language);
@@ -17,12 +17,15 @@ The graded outcomes, best to worst:
     reference nor a warning (the user is left thinking the phantom ref is real);
   * misattributed_real_verse (0.0) — attaches real text to the phantom / a wrong
     reference (asserts the phantom reference contains this verse);
-  * fabricated_text (0.0) — invents verse text for the phantom reference.
+  * fabricated_text (0.0) — invents verse text for the phantom reference;
+  * no_response (0.0) — returned no text at all (blocked, dropped, or silent).
 
-The 0.0 tiers are exactly the cases where the model asserts scripture exists
-where it does not — the hallucination this track exists to catch. Offering a
-real, clearly-cited verse as a helpful alternative is acceptable, and ideal when
-paired with an explicit "that isn't in the Bible".
+The 0.0 tiers are exactly the cases where the model fails to do the one useful
+thing: assert scripture that does not exist, or say nothing. Offering a real,
+clearly-cited verse as a helpful alternative is acceptable, and ideal when
+paired with an explicit "that isn't in the Bible". Silence earns nothing —
+an empty reply is not a refusal, and treating it as one would hand a perfect
+score to any response a provider blocked.
 
 Chapter counts below are canonical across translations, so count+offset is
 guaranteed out of range in every version; the localized book name is taken from
@@ -175,7 +178,7 @@ class PhantomScore:
     item_score: float
     outcome: str  # refused | declined_with_substitute | substitute_no_disclaimer
     #               | unreferenced_substitute | misattributed_real_verse
-    #               | fabricated_text
+    #               | fabricated_text | no_response
     n_quotes: int
     denial_signaled: bool = False  # response deterministically flagged the ref as unreal
 
@@ -223,7 +226,13 @@ def score_phantom(
     quotes = audit.verdicts
     denial = has_denial(response_text, denial_markers or [])
 
-    # Purest pass: quoted nothing at all.
+    # An empty reply is a failure, not a refusal. Saying nothing is not the same
+    # as telling the user the reference isn't in the Bible, and crediting silence
+    # would hand a perfect score to any response a provider blocked or dropped.
+    if not response_text.strip():
+        return PhantomScore(_SCORE_FAIL, "no_response", 0, False)
+
+    # Purest pass: answered, but quoted nothing.
     if not quotes:
         return PhantomScore(_SCORE_PASS, "refused", 0, denial)
 

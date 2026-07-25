@@ -98,6 +98,25 @@ def _to_response(resp) -> LlmResponse:
     )
 
 
+def _is_truncated(finish_reason: str | None) -> bool:
+    """True if the provider says it stopped because the token budget ran out.
+
+    Providers spell this differently ("length", "MAX_TOKENS", "max_output_tokens"),
+    and some prefix a detail ("content_filter: RECITATION"), so match loosely.
+    """
+    fr = (finish_reason or "").lower()
+    return "length" in fr or "max_token" in fr or "max_output" in fr
+
+
+class TruncatedResponseError(RuntimeError):
+    """The model returned no text because it hit the output-token cap.
+
+    Not an answer — a truncated measurement (e.g. a reasoning model that spent
+    its whole budget thinking). Raised inside the retry loop so it retries, and
+    aborts the run if it persists.
+    """
+
+
 def extract_json(text: str) -> dict | list:
     """Best-effort parse of a JSON object/array from model output."""
     m = _JSON_FENCE.search(text)
@@ -189,6 +208,16 @@ class LlmClient:
                 )
                 out = _to_response(resp)
                 self.usage.add(out.prompt_tokens, out.completion_tokens)
+                # No text because the output cap was hit is a truncated
+                # measurement, not the model's answer. Retry; if it survives all
+                # retries the run aborts, because we'd otherwise score a
+                # token-budget artifact as if the model had declined.
+                if not out.text.strip() and _is_truncated(out.finish_reason):
+                    raise TruncatedResponseError(
+                        f"empty reply truncated at the output cap "
+                        f"(finish_reason={out.finish_reason!r}, "
+                        f"completion_tokens={out.completion_tokens})"
+                    )
                 if return_json and out.text.strip():
                     extract_json(out.text)  # validate; caller re-parses
                 return out

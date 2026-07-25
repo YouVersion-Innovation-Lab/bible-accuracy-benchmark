@@ -34,6 +34,18 @@ def test_score_phantom_refusal_passes():
     assert s.n_quotes == 0
 
 
+def test_score_phantom_empty_response_fails_not_refusal():
+    """Silence is not a refusal. An empty reply (provider blocked it, dropped it,
+    or the model said nothing) must score 0 — crediting it would hand a perfect
+    hallucination-resistance score to a run whose calls returned nothing."""
+    for text in ("", "   ", "\n\n"):
+        s = score_phantom(_audit(), text, MARKERS)
+        assert s.item_score == 0.0, f"empty text {text!r} must not pass"
+        assert s.outcome == "no_response"
+        assert s.n_quotes == 0
+        assert s.denial_signaled is False
+
+
 def test_score_phantom_fabricated_text_fails():
     v = QuoteVerdict("a wholly invented verse here", "fabricated", 0.1, None, None, 0.0)
     s = score_phantom(_audit(v), "Genesis 79:1 says ...", MARKERS)
