@@ -70,8 +70,9 @@ export function ModelDetail() {
     return den > 0 ? (num / den) * 100 : null;
   })();
 
+  // One dedicated page per dimension.
   const evalHref = (trackKey: string) =>
-    `/models/${encodeURIComponent(runId)}/evaluations?track=${trackKey}`;
+    `/models/${encodeURIComponent(runId)}/evaluations/${trackKey}`;
 
   // Matrix columns mirror the leaderboard: one per language when unfiltered,
   // one per Bible version of the chosen language, or just the chosen version.

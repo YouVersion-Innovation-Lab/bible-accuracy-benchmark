@@ -97,11 +97,12 @@ def create_app(cache: CachedStore | None = None, http_max_age: int | None = None
         (all/pass/fail), language, and — for the direct-quote track — version."""
         if not store.is_published(run_id):
             raise HTTPException(404, "Run not found or not published")
-        prompts = {
-            r.get("item_id"): r.get("prompt", "") for r in store.responses(run_id, track)
-        }
+        # Join the generation record so each row can show the prompt actually
+        # sent plus the call metadata (which upstream served it, why it stopped,
+        # token counts) — the raw evidence behind the score.
+        sent = {r.get("item_id"): r for r in store.responses(run_id, track)}
         rows, n_pass, n_fail = _select_evaluations(
-            store.items(run_id, track), track, language, version_id, outcome, prompts
+            store.items(run_id, track), track, language, version_id, outcome, sent
         )
         page = rows[offset : offset + limit]
         return _cached_json({
@@ -199,44 +200,94 @@ def _eval_passed(track: str, r: dict) -> bool:
     return True
 
 
-def _eval_row(track: str, r: dict, prompt: str, passed: bool) -> dict:
-    """Display record for one evaluation: prompt + response + scoring detail."""
+def _call_meta(sent: dict) -> dict:
+    """The model-call metadata worth showing next to a score: which upstream
+    served it, why generation stopped, and what it cost."""
+    return {
+        "finish_reason": sent.get("finish_reason"),
+        "refusal": sent.get("refusal"),
+        "model_served": sent.get("model_served"),
+        "provider": sent.get("provider"),
+        "response_id": sent.get("response_id"),
+        "input_tokens": sent.get("input_tokens"),
+        "output_tokens": sent.get("output_tokens"),
+        "reasoning_tokens": sent.get("reasoning_tokens"),
+        "error": sent.get("error"),
+    }
+
+
+def _eval_row(track: str, r: dict, sent: dict, passed: bool) -> dict:
+    """Display record for one evaluation.
+
+    Carries the FULL deterministic scoring detail, not just the final number, so
+    the website can show how each score was derived rather than asserting it.
+    """
     row = {
         "id": r.get("item_id"),
-        "prompt": prompt,
+        "prompt": sent.get("prompt", ""),
         "response_text": r.get("response_text"),
         "passed": passed,
         "language_tag": r.get("language_tag"),
         "version_abbrev": r.get("version_abbrev"),
+        "version_id": r.get("version_id"),
+        "call": _call_meta(sent),
     }
     if track == "simple":
         s = r.get("score", {})
         row.update({
             "reference": r.get("usfm"), "usfm": r.get("usfm"),
+            "tier": r.get("tier"),
             "grade": s.get("grade"), "score": s.get("item_score"), "qer": s.get("qer"),
             "expected_text": r.get("expected_text"),
+            # Everything the severity decision tree looked at.
+            "wer": s.get("wer"),
+            "verbatim_strict": s.get("verbatim_strict"),
+            "verbatim_loose": s.get("verbatim_loose"),
+            "format_ok": s.get("format_ok"),
+            "overquote": s.get("overquote"),
+            "extraction_method": s.get("extraction_method"),
+            "edit_ops": s.get("edit_ops"),
+            "best_distractor": s.get("best_distractor"),
+            "best_neighbor": s.get("best_neighbor"),
+            "ground_truth_drift": r.get("ground_truth_drift"),
+            "scoring_version": s.get("scoring_version"),
         })
     elif track == "topical":
         ts = r.get("topical_score", {})
         row.update({
+            "topic_id": r.get("topic_id"),
             "topic_name": r.get("topic_name"),
             "elicitation_level": r.get("elicitation_level"),
-            "sensitive": r.get("sensitive"), "score": ts.get("item_score"),
+            "sensitive": r.get("sensitive"),
+            "score": ts.get("item_score"),
+            # The A x E decomposition, so the score is reproducible by eye.
+            "accuracy": ts.get("accuracy"),
+            "emission": ts.get("emission"),
+            "n_quotes": ts.get("n_quotes"),
+            "n_accurate": ts.get("n_accurate"),
+            "n_fabricated": ts.get("n_fabricated"),
+            "n_fabricated_refs": ts.get("n_fabricated_refs"),
+            "grades": ts.get("grades"),
             "quotes": r.get("quotes", []),
+            "cited_refs": r.get("cited_refs", []),
+            "fabricated_refs": r.get("fabricated_refs", []),
         })
     elif track == "phantom":
         ps = r.get("phantom_score", {})
         row.update({
             "reference": r.get("reference_display"), "kind": r.get("kind"),
             "outcome": ps.get("outcome"), "score": ps.get("item_score"),
+            "n_quotes": ps.get("n_quotes"),
+            "denial_signaled": ps.get("denial_signaled"),
             "quotes": r.get("quotes", []),
+            "fabricated_refs": r.get("fabricated_refs", []),
         })
     return row
 
 
 def _select_evaluations(
     records: list[dict], track: str, language: str | None,
-    version_id: int | None, outcome: str, prompts: dict[str, str],
+    version_id: int | None, outcome: str, sent: dict[str, dict],
 ) -> tuple[list[dict], int, int]:
     """All scored items for the language/version filter, tagged pass/fail, then
     narrowed to the requested outcome. Returns (rows, n_pass, n_fail) where the
@@ -253,7 +304,7 @@ def _select_evaluations(
         n_fail += int(not passed)
         if (outcome == "pass" and not passed) or (outcome == "fail" and passed):
             continue
-        rows.append(_eval_row(track, r, prompts.get(r.get("item_id"), ""), passed))
+        rows.append(_eval_row(track, r, sent.get(r.get("item_id"), {}), passed))
     # Failures first (lowest score), so problems surface even in the "all" view.
     rows.sort(key=lambda x: (x["passed"], x.get("score") if x.get("score") is not None else 0.0))
     return rows, n_pass, n_fail

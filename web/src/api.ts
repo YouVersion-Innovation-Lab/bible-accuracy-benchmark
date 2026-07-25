@@ -115,6 +115,87 @@ export interface FailureItem {
   reasons?: string[];
 }
 
+/** One quote span the auditor found and verified. */
+export interface QuoteVerdict {
+  quote: string;
+  classification: string;
+  similarity: number;
+  matched_usfm?: string | null;
+  cited_usfm?: string | null;
+  score: number;
+  matched_version_id?: number | null;
+  unquoted?: boolean;
+}
+
+/** Metadata about the model call itself. */
+export interface CallMeta {
+  finish_reason?: string | null;
+  refusal?: string | null;
+  model_served?: string | null;
+  provider?: string | null;
+  response_id?: string | null;
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  reasoning_tokens?: number | null;
+  error?: string | null;
+}
+
+/**
+ * One scored test case with the FULL deterministic scoring detail, so the site
+ * can show how the score was derived instead of just asserting it.
+ */
+export interface EvalItem {
+  id: string;
+  prompt?: string;
+  response_text?: string;
+  passed?: boolean;
+  language_tag?: string;
+  version_abbrev?: string;
+  version_id?: number;
+  score?: number;
+  call?: CallMeta;
+
+  // ---- Direct Quotation ----
+  reference?: string;
+  usfm?: string;
+  tier?: string;
+  grade?: string;
+  qer?: number;
+  wer?: number | null;
+  expected_text?: string;
+  verbatim_strict?: boolean;
+  verbatim_loose?: boolean;
+  format_ok?: boolean;
+  overquote?: boolean;
+  extraction_method?: string;
+  edit_ops?: { insert?: number; delete?: number; replace?: number };
+  best_distractor?: { key: string; similarity: number } | null;
+  best_neighbor?: { usfm: string; similarity: number } | null;
+  ground_truth_drift?: boolean;
+  scoring_version?: string;
+
+  // ---- Scripture in Answers ----
+  topic_id?: string;
+  topic_name?: string;
+  elicitation_level?: string;
+  sensitive?: boolean;
+  accuracy?: number | null;
+  emission?: number;
+  n_quotes?: number;
+  n_accurate?: number;
+  n_fabricated?: number;
+  n_fabricated_refs?: number;
+  grades?: Record<string, number>;
+  quotes?: QuoteVerdict[];
+  cited_refs?: string[];
+  fabricated_refs?: string[];
+
+  // ---- Hallucination Resistance ----
+  kind?: string;
+  outcome?: string;
+  denial_signaled?: boolean;
+}
+
 export interface FailuresPage {
   total: number;
   offset: number;
@@ -131,7 +212,7 @@ export interface EvaluationsPage {
   limit: number;
   track: string;
   outcome: string;
-  items: FailureItem[];
+  items: EvalItem[];
 }
 
 async function get<T>(url: string): Promise<T> {

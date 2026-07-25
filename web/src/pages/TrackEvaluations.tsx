@@ -1,0 +1,208 @@
+/**
+ * One page per (model, dimension): every test case for that dimension, each
+ * showing how its score was derived. Reached from the dimension cards on the
+ * model page — there is deliberately no dimension switcher here, because the
+ * three dimensions are scored by different rules and read best on their own
+ * terms.
+ */
+import { useEffect, useState } from "react";
+import { Link, useParams, useSearchParams } from "react-router-dom";
+import { api } from "../api";
+import { ErrorMsg, Loading } from "../components";
+import { TRACK_BY_KEY } from "../constants";
+import { PhantomWork, SimpleWork, TopicalWork } from "../evalWork";
+import { useFilters } from "../filterContext";
+import { useAsync } from "../hooks";
+
+const OUTCOMES = [
+  { key: "all", label: "All" },
+  { key: "fail", label: "Failed" },
+  { key: "pass", label: "Passed" },
+] as const;
+
+/** What each dimension asks of the model, and how a case passes. */
+const INTRO: Record<string, string> = {
+  simple:
+    "Each test names one verse and one translation and asks for that verse only. The response is " +
+    "compared character-by-character against the real verse; a case passes when the wording is " +
+    "accurate enough to be a faithful quotation.",
+  topical:
+    "Each test asks an open question that invites scripture. Nothing is prescribed — the model " +
+    "chooses what to quote — and it is scored on the accuracy of whatever it presents as " +
+    "scripture. Quoting nothing scores zero, because there is no quotation to check.",
+  phantom:
+    "Each test asks for a verse that does not exist. No translation is requested. A case passes " +
+    "when the model declines rather than producing scripture — ideally saying why the reference " +
+    "isn't in the Bible.",
+};
+
+export function TrackEvaluations() {
+  const { runId = "", track = "simple" } = useParams();
+  const { lang, version } = useFilters();
+  const [params, setParams] = useSearchParams();
+  const outcome = params.get("outcome") ?? "all";
+  const [offset, setOffset] = useState(0);
+
+  const meta = TRACK_BY_KEY[track];
+
+  // Any filter change re-queries from the top; keeping a deep offset across a
+  // narrower result set would land on an empty page.
+  useEffect(() => setOffset(0), [track, outcome, lang, version]);
+
+  const run = useAsync(() => api.run(runId), [runId]);
+  const { data, error, loading } = useAsync(
+    () => api.evaluations(runId, track, outcome, lang, version, offset),
+    [runId, track, outcome, lang, version, offset],
+  );
+
+  const label = run.data?.model.label ?? runId;
+  // Only the direct-quote track varies by translation; the others define one
+  // per language, so a version filter would silently do nothing there.
+  const versionApplies = track === "simple";
+  const scope = [
+    lang ? lang.toUpperCase() : "all languages",
+    version != null && versionApplies ? "one translation" : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  if (!meta) {
+    return (
+      <div className="space-y-3">
+        <p className="text-slate-300">Unknown evaluation dimension “{track}”.</p>
+        <Link to={`/models/${encodeURIComponent(runId)}`} className="text-indigo-300 hover:underline">
+          ← Back to model
+        </Link>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <Link
+          to={`/models/${encodeURIComponent(runId)}`}
+          className="text-sm text-slate-400 hover:underline"
+        >
+          ← Back to {label}
+        </Link>
+        <h1 className="text-2xl font-bold mt-1">
+          {label} <span className="text-slate-500">·</span> {meta.name}
+        </h1>
+        <p className="text-slate-400 text-sm mt-1 leading-normal">{INTRO[track]}</p>
+        <p className="text-slate-500 text-xs mt-2">
+          Showing {scope}. Every case below lists its own score and the steps that produced it;
+          nothing is recomputed in the browser.
+          {version != null && !versionApplies && (
+            <>
+              {" "}
+              The header’s translation filter doesn’t apply to this dimension — it defines one
+              translation per language.
+            </>
+          )}
+        </p>
+      </div>
+
+      <div className="flex flex-wrap gap-2 items-center">
+        {OUTCOMES.map((o) => {
+          const count = !data
+            ? null
+            : o.key === "all"
+              ? data.n_pass + data.n_fail
+              : o.key === "pass"
+                ? data.n_pass
+                : data.n_fail;
+          return (
+            <button
+              key={o.key}
+              onClick={() => {
+                const p = new URLSearchParams(params);
+                if (o.key === "all") p.delete("outcome");
+                else p.set("outcome", o.key);
+                setParams(p);
+              }}
+              className={`rounded-full px-3 py-1 text-xs ${
+                outcome === o.key
+                  ? "bg-white/15 text-white"
+                  : "bg-white/5 text-slate-400 hover:bg-white/10"
+              }`}
+            >
+              {o.label}
+              {count != null ? ` (${count})` : ""}
+            </button>
+          );
+        })}
+      </div>
+
+      {loading && <Loading />}
+      {error && <ErrorMsg error={error} />}
+      {data && (
+        <>
+          <p className="text-sm text-slate-500">
+            {data.total} test case{data.total === 1 ? "" : "s"} match this filter
+            {data.total > data.limit && (
+              <>
+                {" "}
+                · showing {offset + 1}–{Math.min(offset + data.limit, data.total)}
+              </>
+            )}
+            {outcome === "all" && ` · ${data.n_pass} passed / ${data.n_fail} failed`}
+          </p>
+          {data.items.length === 0 ? (
+            <p className="text-slate-400 text-sm">No test cases match this filter.</p>
+          ) : (
+            <div className="space-y-4">
+              {data.items.map((it) =>
+                track === "phantom" ? (
+                  <PhantomWork key={it.id} item={it} />
+                ) : track === "topical" ? (
+                  <TopicalWork key={it.id} item={it} />
+                ) : (
+                  <SimpleWork key={it.id} item={it} />
+                ),
+              )}
+            </div>
+          )}
+          <Pager total={data.total} offset={offset} limit={data.limit} onPage={setOffset} />
+        </>
+      )}
+    </div>
+  );
+}
+
+function Pager({
+  total,
+  offset,
+  limit,
+  onPage,
+}: {
+  total: number;
+  offset: number;
+  limit: number;
+  onPage: (n: number) => void;
+}) {
+  if (total <= limit) return null;
+  const page = Math.floor(offset / limit) + 1;
+  const pages = Math.ceil(total / limit);
+  return (
+    <div className="flex items-center gap-3 text-sm">
+      <button
+        disabled={offset === 0}
+        onClick={() => onPage(Math.max(0, offset - limit))}
+        className="rounded-lg bg-white/5 px-3 py-1.5 disabled:opacity-40 hover:bg-white/10"
+      >
+        Prev
+      </button>
+      <span className="text-slate-500">
+        Page {page} of {pages}
+      </span>
+      <button
+        disabled={offset + limit >= total}
+        onClick={() => onPage(offset + limit)}
+        className="rounded-lg bg-white/5 px-3 py-1.5 disabled:opacity-40 hover:bg-white/10"
+      >
+        Next
+      </button>
+    </div>
+  );
+}
