@@ -136,7 +136,10 @@ def test_identify_all_picks_the_translation_the_model_actually_quoted():
 
 def test_identify_all_reports_nothing_for_invented_text():
     client = FakeClient()
-    spans = [Span(key="x", item_id="i", text="And the auditor spake unto the ledger, saying", quoted=True)]
+    spans = [
+        Span(key="x", item_id="i", quoted=True,
+             text="And the auditor spake unto the ledger, saying"),
+    ]
     got = asyncio.run(identify_all(client, [1, 2], spans))
     assert "x" not in got
 
