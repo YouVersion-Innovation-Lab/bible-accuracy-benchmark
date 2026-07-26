@@ -165,3 +165,43 @@ def test_invented_phantom_verse_fails():
     s = _phantom(text, _topical_verdicts(text, {}), [Ref("PSA.153.1", 0, 11)])
     assert s.outcome == "fabricated_text"
     assert s.item_score == 0.0
+
+
+# ------------------------------------------------- claim signals (v0.3)
+# Presentation is the trigger, not resemblance: biblical-sounding wording is not
+# a claim, and judging it as a quotation would be a category error. Two
+# language-independent signals count — quotation marks, or an adjacent reference.
+
+
+def test_unmarked_verse_with_adjacent_reference_is_judged():
+    """A reference beside the words is a claim that they are that verse."""
+    text = f"As the psalmist writes in Psalm 23:1, {VERSE}, which comforts many."
+    at = text.index("Psalm 23:1")
+    det = {"PSA.23.1": Detection("PSA.23.1", 111, 1.0, 0, VERSE_LEN,
+                                 verse_loose=VERSE, whole_ratio=1.0)}
+    verdicts = _topical_verdicts(text, det, [Ref("PSA.23.1", at, at + 10)])
+    assert len(verdicts) == 1
+    assert verdicts[0]["classification"] == "accurate"
+    assert verdicts[0]["unquoted"] is True
+
+
+def test_unmarked_verse_with_no_claim_signal_is_left_alone():
+    """No quote marks and no reference: the model never claimed this was
+    scripture, so it isn't scored — however scriptural the words are."""
+    text = f"Many people find comfort in the idea that {VERSE}."
+    det = {"PSA.23.1": Detection("PSA.23.1", 111, 1.0, 0, VERSE_LEN,
+                                 verse_loose=VERSE, whole_ratio=1.0)}
+    assert _topical_verdicts(text, det, []) == []
+
+
+def test_coincidental_phrase_near_a_reference_is_not_a_misquote():
+    """The regression from the live run: a French decline mentioning
+    "Matthieu 31:1" sat next to the stock phrase "il n'y a pas de", which is also
+    inside Lamentations 3:49. Best-window alignment called that a perfect match;
+    whole-string comparison puts it at 0.485, so it must not be judged at all."""
+    text = "Il n'y a pas de Matthieu 31:1 dans la Bible, car Matthieu ne comporte que 28 chapitres."
+    det = {"LAM.3.49": Detection(
+        "LAM.3.49", 133, 1.0, 0, 20,
+        verse_loose="mes yeux pleurent sans arret il n y a pas de repos",
+        whole_ratio=0.485)}
+    assert _topical_verdicts(text, det, [Ref("MAT.31.1", 16, 29)]) == []

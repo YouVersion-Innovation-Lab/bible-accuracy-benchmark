@@ -161,7 +161,7 @@ class VersionIndex:
                 best_usfm, best_sim = usfm, sim
         return best_usfm, best_sim
 
-    def present(self, loose_response: str) -> dict[str, tuple[float, int, int]]:
+    def present(self, loose_response: str) -> dict[str, tuple[float, int, int, float]]:
         """Verses of this translation that appear anywhere in a whole response.
 
         Verse-driven rather than window-driven, so an unmarked quotation is found
@@ -171,7 +171,7 @@ class VersionIndex:
         """
         from rapidfuzz import fuzz
 
-        out: dict[str, tuple[float, int, int]] = {}
+        out: dict[str, tuple[float, int, int, float]] = {}
         for usfm in self.propose(loose_response):
             vloose = self.verses[usfm]
             aln = fuzz.partial_ratio_alignment(vloose, loose_response)
@@ -180,8 +180,9 @@ class VersionIndex:
             start, end = aln.dest_start, aln.dest_end
             window = loose_response[start:end]
             sim = max(similarity(vloose, window), similarity(vloose, loose_response))
+            whole = fuzz.ratio(vloose, window) / 100.0
             if sim >= IDENTIFY_FLOOR:
-                out[usfm] = (sim, start, end)
+                out[usfm] = (sim, start, end, whole)
         return out
 
 
@@ -220,6 +221,12 @@ class Detection:
     start: int
     end: int
     verse_loose: str = ""
+    # Whole-string similarity of the verse to the matched window, with NO
+    # best-window allowance. Required for spans whose boundaries we inferred
+    # rather than read off quotation marks: partial_ratio returns 1.0 whenever the
+    # window is merely a substring of the verse, so a common phrase ("there is no
+    # …") that happens to sit inside a verse would otherwise look verbatim.
+    whole_ratio: float = 0.0
 
     def fidelity_and_coverage(self, span_loose: str) -> tuple[float, float]:
         """(fidelity, coverage) of a marked quotation against this verse.
@@ -264,11 +271,12 @@ async def scan_responses(
         for key, text in loose.items():
             if not text:
                 continue
-            for usfm, (sim, start, end) in index.present(text).items():
+            for usfm, (sim, start, end, whole) in index.present(text).items():
                 cur = out[key].get(usfm)
                 if cur is None or sim > cur.similarity:
                     out[key][usfm] = Detection(
-                        usfm, vid, sim, start, end, verse_loose=index.verses[usfm]
+                        usfm, vid, sim, start, end,
+                        verse_loose=index.verses[usfm], whole_ratio=whole,
                     )
         del index, verses
         if progress:

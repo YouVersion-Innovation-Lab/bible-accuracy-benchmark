@@ -290,11 +290,15 @@ async def score_topical_items(
         detections = await quotefind.scan_responses(
             client, version_ids, texts, unspaced=unspaced
         )
+        # References are a claim signal ("these words are that verse") and are
+        # resolved from the language's own localized book names.
+        resolver = await QuoteAuditor(client)._resolver(first.version_id)  # noqa: SLF001
 
         for resp in lang_responses:
             item = items_by_id[resp["item_id"]]
             text = texts[item.id]
-            verdicts = _topical_verdicts(text, detections.get(item.id, {}))
+            refs = resolver.find(text)
+            verdicts = _topical_verdicts(text, detections.get(item.id, {}), refs)
             tscore = score_topical_verdicts(verdicts)
             results.append({
                 "item_id": item.id,
@@ -355,7 +359,30 @@ def _attribute(verdicts: list[dict], refs) -> None:
             ).usfm
 
 
-def _topical_verdicts(text: str, detections: dict) -> list[dict]:
+# A span whose boundaries we INFERRED (from a nearby reference) rather than read
+# off quotation marks needs a whole-string floor: we're guessing what the model
+# meant to quote, so only a confident match should be judged. Marked spans need
+# no floor — the model delimited them, so a poor match is a real misquote.
+_INFERRED_FLOOR = 0.90
+_CLAIM_WINDOW = 160  # chars either side of a reference that it plausibly labels
+
+
+def _topical_verdicts(text: str, detections: dict, refs=()) -> list[dict]:
+    """Verdicts for text the model PRESENTED as scripture.
+
+    Presentation is the trigger, not resemblance. Using biblical-sounding words is
+    not a claim, and judging it as a quotation would be a category error — so a
+    span is examined only when the model actually claimed it:
+
+      1. quotation marks or a blockquote — exact boundaries, no floor needed;
+      2. a Bible reference next to it — a claim that the neighbouring words are
+         that verse. Boundaries are inferred, so ``_INFERRED_FLOOR`` applies.
+
+    Everything else is left alone, however scriptural it sounds. (A third signal —
+    "the Bible says…" phrases — is deliberately not implemented yet: it would need
+    maintaining in 11 languages, and legs 1 and 2 are language-independent. Worth
+    measuring what they miss before taking that on.)
+    """
     """Turn raw verse detections into per-quotation verdicts.
 
     A detection counts as a quotation when the model either marked it as one
@@ -379,14 +406,20 @@ def _topical_verdicts(text: str, detections: dict) -> list[dict]:
     # 4:18 quotes Isaiah 61:1, and translations of a psalm echo each other), and
     # emitting a verdict for each would let the runners-up drag the mean down for
     # a quotation the model got right.
+    # Leg 2: regions the model labelled with a reference. Reference offsets are in
+    # the RAW text, so scale to loose offsets — approximate is fine, the window is
+    # deliberately loose.
+    scale = (len(loose) / len(text)) if text else 1.0
+    claim_regions = [
+        (max(0, int(r.start * scale) - _CLAIM_WINDOW), int(r.end * scale) + _CLAIM_WINDOW)
+        for r in refs
+    ]
+
     scored: list[tuple[float, int, int, dict]] = []
     for usfm, det in sorted(detections.items(), key=lambda kv: kv[1].start):
         hit = next(
             (m for m in marked_spans if det.start < m[1] and m[0] < det.end), None
         )
-        if hit is None and det.similarity < MINOR_SIM:
-            continue  # unmarked and not verbatim → paraphrase, not a quotation
-
         if hit is not None:
             # The model marked this as a quotation, so judge the words it actually
             # put in quotes: fidelity says whether they're right, coverage says how
@@ -396,9 +429,18 @@ def _topical_verdicts(text: str, detections: dict) -> list[dict]:
             fidelity, coverage = det.fidelity_and_coverage(span_loose)
             quote_text, raw_start, raw_end = span_loose, hit[2], hit[3]
         else:
-            # Unmarked near-verbatim scripture: verse-as-needle already required
-            # the whole verse to be present, so coverage is implicitly complete.
-            fidelity, coverage = det.similarity, 1.0
+            # No quotation marks: only examine this at all if the model put a
+            # reference beside it, which is the claim "these words are that verse".
+            claimed = any(det.start < e and s < det.end for s, e in claim_regions)
+            if not claimed:
+                continue
+            # Boundaries are inferred, so demand a confident whole-string match.
+            # whole_ratio has no best-window allowance: a stock phrase that happens
+            # to sit inside a verse scores low here even though partial alignment
+            # would call it perfect.
+            if det.whole_ratio < _INFERRED_FLOOR:
+                continue
+            fidelity, coverage = det.whole_ratio, 1.0
             quote_text, raw_start, raw_end = loose[det.start:det.end], None, None
 
         if fidelity >= ACCURATE_SIM:
