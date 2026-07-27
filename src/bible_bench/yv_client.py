@@ -193,13 +193,32 @@ class BibleClient:
         p.write_text(json.dumps(existing, indent=2, sort_keys=True), encoding="utf-8")
 
     def load_language_versions(self, language_tag: str) -> list[int]:
-        """Translation ids recorded for a language, or [] if never prefetched."""
+        """Translations to SEARCH when identifying a quotation, or [] if never
+        prefetched.
+
+        Editions carrying identical text are excluded (detection-duplicates.json,
+        written by prefetch): the API publishes the same translation under several
+        ids — packaging variants and deuterocanon-inclusive editions — and on an
+        exact tie the arbitrary winner corrupted the "which translation does this
+        model prefer" finding. "The Books of the Bible NT" took every New Testament
+        quotation from the NIV purely by having a lower id, and Russian Synodal is
+        published twice.
+
+        Scores are unaffected (identical text scores identically), and nothing is
+        removed from the cache — the direct-quote track still needs every edition
+        it names by version id.
+        """
         if not self._cache_dir:
             return []
         p = self._languages_path()
         if not p.exists():
             return []
-        return list(json.loads(p.read_text(encoding="utf-8")).get(language_tag, []))
+        ids = list(json.loads(p.read_text(encoding="utf-8")).get(language_tag, []))
+        dupes_path = self._cache_dir / "detection-duplicates.json"
+        if dupes_path.exists():
+            dupes = set(json.loads(dupes_path.read_text(encoding="utf-8")))
+            ids = [i for i in ids if i not in dupes]
+        return ids
 
     def _load_chapter_disk(self, version_id: int, chapter_usfm: str) -> dict[str, VerseSpan] | None:
         p = self._chapter_path(version_id, chapter_usfm)

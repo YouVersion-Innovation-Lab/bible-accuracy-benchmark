@@ -39,3 +39,6 @@ bible-cache/
 # Local web-review demo data
 web-review-results/
 .claude/worktrees/
+
+# Internal whitepapers/reviews — kept locally, deliberately not published
+docs/WHITEPAPER-*

@@ -36,7 +36,15 @@ Status legend: ☐ open · ☑ done
   - `dataset/templates/simple.json` — direct-quote templates for the 11 active
     languages (the file retains templates for the full 28 for a possible later round).
   - `dataset/topics-v1.json` — topical L1/L2 templates + topic names (10 non-English).
-  - `dataset/phantom-v1.json` — hallucination-track templates (10 non-English).
+  - `dataset/phantom-v1.json` — hallucination-track templates (10 non-English)
+    **and `denial_markers` for all 11 languages**. These are the most
+    consequential strings in the dataset: they decide whether a model's correct
+    "that reference isn't in the Bible" is recognised, and a missing phrasing
+    costs it full marks. A real example — French carried `ne contient que` and
+    `ne compte que` but not `ne comporte que`, so a perfect decline scored 0.
+    Reviewers should add every natural way their language says "there is no such
+    chapter/verse", "the book only has N chapters", and "that isn't in the Bible
+    / isn't canonical".
   (Until reviewed, run English + reviewed languages only.)
 - ☐ **Localize the benchmark system prompt, then A/B it.** The global system
   prompt (`bible_bench.prompts.BENCHMARK_SYSTEM_PROMPT` — "quote one verse per
@@ -130,3 +138,13 @@ Status legend: ☐ open · ☑ done
   protection enabled.
 - ☑ Scoring-scope disclaimer on the site (leaderboard footer + methodology) and
   in the README: we score quotation accuracy only, not theological positions.
+
+- ☐ **Decide whether denial detection stays deterministic.** Today it is a
+  per-language phrase list, which is fragile by construction (see above) but
+  keeps the benchmark's central promise: *no language model ever influences a
+  score*. A fine-tuned multilingual classifier would be more robust to phrasing,
+  at the cost of retiring that promise and disclosing model involvement
+  prominently. If that trade is made, the cleaner shape is a **model-assisted
+  metric reported alongside a deterministic score**, so the published number
+  stays auditable. Deferred deliberately — native-speaker review is the cheaper
+  fix and is already required above.

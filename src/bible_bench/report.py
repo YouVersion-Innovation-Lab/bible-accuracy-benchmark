@@ -209,7 +209,7 @@ def summarize_phantom(items: list[dict]) -> dict:
     ]
     # Rates by behaviour. "quoted_real_verse" is a legacy (pre-refinement)
     # outcome kept so older runs still summarize.
-    declined = outcomes.get("refused", 0)
+    declined = outcomes.get("refused", 0) + outcomes.get("declined_noncanonical", 0)
     substitute = (
         outcomes.get("declined_with_substitute", 0)
         + outcomes.get("substitute_no_disclaimer", 0)
