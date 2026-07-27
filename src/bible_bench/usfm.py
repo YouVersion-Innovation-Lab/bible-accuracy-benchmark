@@ -37,6 +37,14 @@ BOOK_NAME_TO_USFM: dict[str, str] = {
     "Tobit": "TOB", "Judith": "JDT", "Wisdom": "WIS", "Wisdom of Solomon": "WIS",
     "Sirach": "SIR", "Ecclesiasticus": "SIR", "Ben Sira": "SIR", "Baruch": "BAR",
     "1 Maccabees": "1MA", "2 Maccabees": "2MA",
+    # Books in Orthodox canons beyond the Catholic seven. Listed here so their
+    # references parse and render; whether any given version contains them is
+    # answered by that version's metadata, not by this table.
+    "1 Esdras": "1ES", "2 Esdras": "2ES", "Prayer of Manasseh": "MAN",
+    "Psalm 151": "PS2", "3 Maccabees": "3MA", "4 Maccabees": "4MA",
+    "Odes": "ODA", "Psalms of Solomon": "PSS", "Letter of Jeremiah": "LJE",
+    "Prayer of Azariah": "S3Y", "Susanna": "SUS", "Bel and the Dragon": "BEL",
+    "Greek Esther": "ESG", "Greek Daniel": "DAG",
 }
 
 # The extra books beyond the Protestant 66 that appear in Catholic (and some
@@ -68,7 +76,9 @@ for _name, _code in BOOK_NAME_TO_USFM.items():
 # Books with a single chapter (references like "Jude 4" mean Jude 1:4).
 SINGLE_CHAPTER_BOOKS = frozenset({"OBA", "PHM", "2JN", "3JN", "JUD"})
 
-_VERSE_USFM_RE = re.compile(r"^([1-3]?[A-Z]{2,3})\.(\d{1,3})\.(\d{1,3})$")
+# USFM book codes are exactly three characters and may carry a digit in any
+# position: GEN, 1SA, PS2 (Psalm 151), 4MA, S3Y (Prayer of Azariah).
+_VERSE_USFM_RE = re.compile(r"^([0-9A-Z]{3})\.(\d{1,3})\.(\d{1,3})$")
 
 
 class UsfmError(ValueError):
@@ -78,8 +88,7 @@ class UsfmError(ValueError):
 def is_standard_verse_usfm(usfm: str) -> bool:
     """True for clean BOOK.CH.V references. Some editions emit split-chapter or
     subdivided anchors (e.g. 'PSA.106_1.1') the benchmark doesn't sample."""
-    m = _VERSE_USFM_RE.match(usfm.strip().upper())
-    return bool(m) and m.group(1) in _CANON_SET
+    return bool(_VERSE_USFM_RE.match(usfm.strip().upper()))
 
 
 @dataclass(frozen=True, order=True)
@@ -92,13 +101,19 @@ class VerseRef:
 
     @classmethod
     def parse(cls, usfm: str) -> VerseRef:
+        """Parse a reference. Validates SYNTAX only, deliberately.
+
+        Whether a book exists is a property of a *version*, not of the reference:
+        the NIV has no Tobit, NABRE does, and Russian Synodal has 3 Maccabees.
+        Ask the client (``version_contains``) for that. Gating here on a
+        hard-coded canon made Orthodox books unparseable, so they could never be
+        sampled and were invisible to quote detection — a model quoting
+        3 Maccabees correctly was scored as having invented it.
+        """
         m = _VERSE_USFM_RE.match(usfm.strip().upper())
         if not m:
             raise UsfmError(f"Not a single-verse USFM reference: {usfm!r}")
-        book, chapter, verse = m.group(1), int(m.group(2)), int(m.group(3))
-        if book not in _CANON_SET:
-            raise UsfmError(f"Unknown USFM book code: {book!r}")
-        return cls(book=book, chapter=chapter, verse=verse)
+        return cls(book=m.group(1), chapter=int(m.group(2)), verse=int(m.group(3)))
 
     @property
     def usfm(self) -> str:
@@ -111,7 +126,7 @@ class VerseRef:
     def english_reference(self) -> str:
         """English human-readable form, e.g. 'John 3:16'. For localized forms
         use the version's own book names via the Bible API client."""
-        name = _USFM_TO_BOOK_NAME[self.book]
+        name = _USFM_TO_BOOK_NAME.get(self.book, self.book)
         if self.book in SINGLE_CHAPTER_BOOKS:
             return f"{name} {self.verse}"
         return f"{name} {self.chapter}:{self.verse}"
