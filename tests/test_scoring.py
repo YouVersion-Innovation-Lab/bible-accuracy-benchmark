@@ -174,3 +174,47 @@ def test_minor_error_scores_continuous_reverse_qer():
     assert s.grade in ("minor", "major")
     assert abs(s.item_score - (1.0 - s.qer)) < 1e-6
     assert s.item_score > 0.85  # a single-word change is close, not near-zero
+
+
+def test_verbatim_from_another_translation_is_wrong_version_not_fabricated():
+    """The bug this replaced: only four hand-picked distractors were checked, so a
+    faithful quotation from any other edition was recorded as invented text. Now
+    every translation of the language is a candidate."""
+    # Nahum 3:1 as it actually happened: asked in the NABRE, answered verbatim from
+    # another edition, similarity to the requested text only 0.38 — so the old tree
+    # called it invented scripture.
+    truth = "Ah! The bloody city, all lies, Full of plunder, whose looting never stops!"
+    other = "Woe to the city of bloodshed, totally deceitful, full of plunder, endless prey!"
+    # Keyed by version id, which is what score_simple now supplies for every
+    # translation of the language rather than a configured few.
+    s = score_item(other, truth, {"3523": other}, {})
+    assert s.grade == "wrong_version"
+    assert s.item_score == 0.25
+
+
+def test_recognisable_attempt_is_severe_not_fabricated():
+    """0.60-0.75 similarity to the requested verse is a recognisable attempt at it.
+    It used to fall to "fabricated" and score 0, so 0.750 earned 0.75 and 0.749
+    earned nothing."""
+    truth = ("Timna was a concubine of Eliphaz, the son of Esau, and she bore Amalek "
+             "to Eliphaz. Those were the sons of Adah, the wife of Esau.")
+    attempt = ("Timna was a concubine of Esau's son Eliphaz, and she bore Amalek to "
+               "Eliphaz. These were the descendants of Esau's wife Adah.")
+    s = score_item(attempt, truth, {}, {})
+    assert s.grade == "severe"
+    assert 0.6 <= s.item_score < 0.75, "scored on how close it is, not zero"
+
+
+def test_no_cliff_across_the_severe_boundary():
+    """Scores must be continuous through the band edges. The old tree dropped from
+    0.75 to 0.00 at MAJOR_SIM, so one edit could cost three quarters of the mark."""
+    truth = "a" * 200
+    scores = []
+    for keep in range(120, 200, 4):          # similarity ~0.60 upward
+        attempt = "a" * keep + "z" * (200 - keep)
+        s = score_item(attempt, truth, {}, {})
+        scores.append(s.item_score)
+    steps = list(zip(scores, scores[1:], strict=False))
+    assert all(b >= a for a, b in steps), "score must be monotonic"
+    assert scores[0] > 0.0, "the bottom of the severe band still earns credit"
+    assert all(abs(b - a) < 0.10 for a, b in steps), "no step changes"

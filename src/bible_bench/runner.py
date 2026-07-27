@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import re
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict
@@ -141,51 +142,89 @@ async def score_simple(
     concurrency: int = 12,
     progress: ProgressCb | None = None,
 ) -> list[dict]:
-    """Score generated responses against ground truth fetched live."""
-    sem = asyncio.Semaphore(concurrency)
-    results: list[dict] = []
-    lock = asyncio.Lock()
-    completed = 0
+    """Score generated responses against ground truth from the local cache.
 
-    async def one(resp: dict) -> None:
-        nonlocal completed
-        async with sem:
-            record = await _score_one(items_by_id.get(resp["item_id"]), resp, client)
-        async with lock:
+    The requested verse is looked up in EVERY translation of the language, not in
+    a handful of configured distractors. Without that, a model quoting the right
+    verse faithfully from an edition we didn't ask for looked like it had invented
+    the text: asked for Judges 11:11 in the NABRE, one model returned the verse
+    verbatim in another translation and scored zero as "fabricated". This is the
+    same content-first principle the topical track already used — identify what
+    the text actually IS before judging it.
+
+    Translations iterate in the outer loop and are released after use, so peak
+    memory is one translation's worth of chapters rather than 87.
+    """
+    by_lang: dict[str, list[dict]] = defaultdict(list)
+    for resp in responses:
+        item = items_by_id.get(resp["item_id"])
+        if item is not None:
+            by_lang[item.language_tag].append(resp)
+
+    results: list[dict] = []
+    completed = 0
+    total = sum(len(v) for v in by_lang.values())
+    for lang, lang_responses in sorted(by_lang.items()):
+        items = [items_by_id[r["item_id"]] for r in lang_responses]
+        # Every translation of the language, plus the ones the items name (a
+        # version tested but somehow absent from the cached language list must
+        # still supply its own ground truth).
+        candidates = client.load_language_versions(lang, include_duplicates=True)
+        version_ids = sorted({*candidates, *(i.version_id for i in items)})
+
+        # item_id -> {version_id: text of the requested verse in that translation}
+        alt: dict[str, dict[int, str]] = {i.id: {} for i in items}
+        # item_id -> same-chapter neighbours, from the version actually asked for
+        neighbors: dict[str, dict[str, str]] = {i.id: {} for i in items}
+        for vid in version_ids:
+            for item in items:
+                span = await client.verse(vid, item.usfm)
+                if span is not None and span.text.strip():
+                    alt[item.id][vid] = span.text
+                if vid == item.version_id:
+                    chapter = item.usfm.rsplit(".", 1)[0]
+                    neighbors[item.id] = {
+                        u: t
+                        for u, t in (await client.chapter_verses(vid, chapter)).items()
+                        if u != item.usfm
+                    }
+            client.release_version(vid)
+
+        # Grading is now pure CPU — every candidate text was gathered above — so a
+        # plain loop beats a semaphore and a gather.
+        for resp in lang_responses:
+            item = items_by_id[resp["item_id"]]
+            record = _score_one(item, resp, alt[item.id], neighbors[item.id])
             completed += 1
             if record:
                 results.append(record)
             if progress:
-                progress({"phase": "score", "completed": completed, "total": len(responses)})
-
-    await asyncio.gather(*(one(r) for r in responses))
+                progress({"phase": "score", "completed": completed, "total": total})
     # Stable order for reproducible output files.
     results.sort(key=lambda r: r["item_id"])
     return results
 
 
-async def _score_one(item: BenchmarkItem | None, resp: dict, client: BibleClient) -> dict | None:
-    if item is None:
-        return None
-    truth_span = await client.verse(item.version_id, item.usfm)
+def _score_one(
+    item: BenchmarkItem,
+    resp: dict,
+    alt_versions: dict[int, str],
+    neighbors: dict[str, str],
+) -> dict | None:
+    """Grade one answer. ``alt_versions`` is the requested verse as every
+    translation of the language renders it, keyed by version id."""
+    truth = alt_versions.get(item.version_id, "")
     # Drop items whose ground-truth verse has no text (absent or blank in this
     # version) — there is nothing to score a quote against, same as a missing
     # verse. Prevents a blank truth from reaching qer(), which requires it.
-    if truth_span is None or not truth_span.text.strip():
+    if not truth.strip():
         return None
-    distractors: dict[str, str] = {}
-    for vid in item.distractor_version_ids:
-        span = await client.verse(vid, item.usfm)
-        if span is not None:
-            distractors[str(vid)] = span.text
-    chapter_usfm = item.usfm.rsplit(".", 1)[0]
-    neighbors = {
-        u: t
-        for u, t in (await client.chapter_verses(item.version_id, chapter_usfm)).items()
-        if u != item.usfm
-    }
-    score = score_item(resp["response_text"], truth_span.text, distractors, neighbors)
-    truth_digest = hashlib.sha256(normalize(truth_span.text, "loose").encode()).hexdigest()
+    # Every OTHER translation's rendering of the same verse is a wrong-version
+    # candidate. Keyed by version id so the report can name which edition the
+    # model actually quoted.
+    distractors = {str(vid): t for vid, t in alt_versions.items() if vid != item.version_id}
+    score = score_item(resp["response_text"], truth, distractors, neighbors)
+    truth_digest = hashlib.sha256(normalize(truth, "loose").encode()).hexdigest()
     return {
         "item_id": item.id,
         "track": item.track,
@@ -201,7 +240,7 @@ async def _score_one(item: BenchmarkItem | None, resp: dict, client: BibleClient
         # scripture): both yield an empty reply scoring 0, for opposite reasons.
         "finish_reason": resp.get("finish_reason"),
         "response_text": resp["response_text"],
-        "expected_text": truth_span.text,
+        "expected_text": truth,
         "score": asdict(score),
         "ground_truth_drift": bool(item.truth_sha256) and truth_digest != item.truth_sha256,
         "usage": {
@@ -372,6 +411,12 @@ def _attribute(verdicts: list[dict], refs) -> None:
 _INFERRED_FLOOR = 0.90
 _CLAIM_WINDOW = 160  # chars either side of a reference that it plausibly labels
 
+# Shortest quoted span that can be called invented scripture. Below this it's a
+# phrase in quotation marks, not a claim about a verse — and any real verse this
+# short is now findable by content, so nothing genuine is lost by ignoring them.
+_MIN_FABRICATION_WORDS = 6
+_WORDS = re.compile(r"\w+", re.UNICODE)
+
 
 def _topical_verdicts(text: str, detections: dict, refs=()) -> list[dict]:
     """Verdicts for text the model PRESENTED as scripture.
@@ -428,9 +473,13 @@ def _topical_verdicts(text: str, detections: dict, refs=()) -> list[dict]:
         )
         if hit is not None:
             # The model marked this as a quotation, so judge the words it actually
-            # put in quotes: fidelity says whether they're right, coverage says how
-            # much of the verse it delivered. A verbatim fragment is faithful (not
-            # a misquote) but earns credit in proportion to what it quoted.
+            # put in quotes. Fidelity — are those words right? — is the whole
+            # question here. Coverage (how much of the verse was delivered) is
+            # recorded but no longer multiplied in: quoting one clause of a verse
+            # accurately inside a sentence is normal, honest use of scripture, and
+            # scaling it down scored a correct partial quotation of Matthew 4:10 at
+            # 0.45. This track asks whether what a model presents as scripture is
+            # accurate, not whether it presented enough of it.
             span_loose = hit[4]
             fidelity, coverage = det.fidelity_and_coverage(span_loose)
             quote_text, raw_start, raw_end = span_loose, hit[2], hit[3]
@@ -455,7 +504,7 @@ def _topical_verdicts(text: str, detections: dict, refs=()) -> list[dict]:
             classification = "minor"
         else:
             classification = "misquote"
-        score = 0.0 if classification == "misquote" else round(fidelity * coverage, 4)
+        score = 0.0 if classification == "misquote" else round(fidelity, 4)
 
         lo, hi = (hit[0], hit[1]) if hit is not None else (det.start, det.end)
         scored.append((score, lo, hi, {
@@ -487,9 +536,17 @@ def _topical_verdicts(text: str, detections: dict, refs=()) -> list[dict]:
     # without this a fabricated quote would produce no verdict at all — reading as
     # "quoted nothing", which is a pass on the hallucination track and free
     # omission from the topical average.
+    # A quoted PHRASE is not a claim to be quoting a verse, though. Models put
+    # short expressions in quotation marks constantly — «the Bible speaks of the
+    # "fear of the LORD"» — and calling those invented scripture is a false
+    # accusation that fired three times in a single answer about fear. Genuine
+    # short verses are unaffected: they now match by content ("You shall not
+    # murder" resolves to Exodus 20:13), so they never reach this branch.
     claimed = {(v["raw_start"], v["raw_end"]) for v in out if v["raw_start"] is not None}
     for _lo, _hi, raw_start, raw_end, span_loose in marked_spans:
         if (raw_start, raw_end) in claimed:
+            continue
+        if len(_WORDS.findall(span_loose)) < _MIN_FABRICATION_WORDS:
             continue
         out.append({
             "quote": span_loose[:400],

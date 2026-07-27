@@ -382,6 +382,19 @@ class BibleClient:
                     out.append(cu)
         return out
 
+    def release_version(self, version_id: int) -> None:
+        """Drop a version's cached chapter text from memory.
+
+        Scoring compares each answer against the requested verse in EVERY
+        translation of the language — 87 of them for English. Holding all their
+        chapters at once is hundreds of megabytes, so callers iterate translations
+        in the outer loop and release each when done, exactly as quote detection
+        does with its indexes. Metadata (version.json, book/chapter sets) is tiny
+        and stays cached; the disk cache means a re-read is cheap anyway.
+        """
+        for key in [k for k in self._chapters if k[0] == version_id]:
+            del self._chapters[key]
+
     async def version_books(self, version_id: int) -> frozenset[str]:
         """The USFM book codes this edition actually contains.
 

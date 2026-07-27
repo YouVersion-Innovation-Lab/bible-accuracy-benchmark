@@ -111,6 +111,7 @@ export interface TrackSummary {
   nonsensitive_topic_score?: number | null;
   fabricated_ref_count?: number;
   fabricated_quote_count?: number;
+  misquoted_quote_count?: number;
   quote_grades?: Record<string, number>;
   n_quotes?: number;
   unreferenced_rate?: number;
@@ -220,6 +221,7 @@ export interface EvalItem {
   n_quotes?: number;
   n_accurate?: number;
   n_fabricated?: number;
+  n_misquote?: number;
   n_fabricated_refs?: number;
   grades?: Record<string, number>;
   quotes?: QuoteVerdict[];

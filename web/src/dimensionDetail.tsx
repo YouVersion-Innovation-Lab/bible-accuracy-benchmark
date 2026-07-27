@@ -51,10 +51,11 @@ const SIMPLE_GRADES: Row[] = [
   { key: "perfect", label: "Exact", meaning: "character-for-character identical to the verse", worth: "1.00", good: true },
   { key: "near_perfect", label: "Near-exact", meaning: "a stray character at most", worth: "0.98", good: true },
   { key: "minor", label: "Minor wording differences", meaning: "recognisably the verse, small edits", worth: "1 − error rate" },
-  { key: "major", label: "Major wording differences", meaning: "substantially altered", worth: "1 − error rate" },
-  { key: "wrong_version", label: "Right verse, wrong translation", meaning: "matched the verse in a translation other than the one asked for", worth: "0.25" },
+  { key: "major", label: "Noticeably different wording", meaning: "clearly the verse, several words changed", worth: "1 − error rate" },
+  { key: "severe", label: "Recognisable but heavily reworded", meaning: "still the requested verse, but much of the wording is not its own", worth: "1 − error rate" },
+  { key: "wrong_version", label: "Right verse, wrong translation", meaning: "matched the verse in a translation other than the one asked for — checked against every translation of the language", worth: "0.25" },
   { key: "wrong_verse", label: "Wrong verse", meaning: "closer to a neighbouring verse than the one asked for", worth: "0", bad: true },
-  { key: "fabricated", label: "Invented text", meaning: "verse-shaped text matching no candidate verse", worth: "0", bad: true },
+  { key: "fabricated", label: "No match to the requested verse", meaning: "matched neither the verse in any translation nor a neighbouring verse — invented, or something else entirely", worth: "0", bad: true },
   { key: "no_attempt", label: "Declined / no attempt", meaning: "no gradeable quotation offered", worth: "0" },
 ];
 
@@ -72,10 +73,10 @@ const PHANTOM_OUTCOMES: Row[] = [
 
 /** Scripture in Answers: per-quotation verdicts, aggregated across items. */
 const TOPICAL_GRADES: Row[] = [
-  { key: "accurate", label: "Accurate", meaning: "matches a real translation; credited in proportion to how much of the verse was quoted", worth: "fidelity × coverage", good: true },
-  { key: "minor", label: "Minor wording differences", meaning: "recognisably the verse, small edits", worth: "fidelity × coverage" },
+  { key: "accurate", label: "Accurate", meaning: "the quoted words match the verse in a real translation — a faithful part of a verse counts as faithful", worth: "fidelity", good: true },
+  { key: "minor", label: "Minor wording differences", meaning: "recognisably the verse, small edits", worth: "fidelity" },
   { key: "misquote", label: "Misquoted", meaning: "presented as a quotation but the words don’t match the verse", worth: "0", bad: true },
-  { key: "fabricated", label: "Invented", meaning: "quoted as scripture, matches no verse in any translation of the language", worth: "0", bad: true },
+  { key: "fabricated", label: "Invented", meaning: "presented as scripture at some length, yet matches no verse in any translation of the language", worth: "0", bad: true },
 ];
 
 function Bar({ frac, good, bad }: { frac: number; good?: boolean; bad?: boolean }) {
@@ -169,7 +170,7 @@ export function DimensionBreakdown({ trackKey, ts }: { trackKey: string; ts: Tra
       <div className="space-y-4">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <Stat label="Exactly verbatim" value={pct(ts.verbatim_rate)} hint="identical after Unicode normalization" />
-          <Stat label="Invented text" value={pct(ts.fabrication_rate)} hint="matched no candidate verse" />
+          <Stat label="No verse matched" value={pct(ts.fabrication_rate)} hint="not the verse, in any translation" />
           <Stat label="Wrong translation" value={pct(ts.wrong_version_rate)} hint="right verse, other translation" />
           <Stat label="Clean formatting" value={pct(ts.format_ok_rate)} hint="verse only, as asked" />
         </div>
@@ -222,15 +223,17 @@ export function DimensionBreakdown({ trackKey, ts }: { trackKey: string; ts: Tra
     const emission = ts.emission_rate_by_level ?? {};
     return (
       <div className="space-y-4">
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
           <Stat label="Quoted when asked (L1)" value={pct(emission.L1)} hint="explicitly asked to quote" />
           <Stat label="Quoted unprompted (L2)" value={pct(emission.L2)} hint="just asked the question" />
-          <Stat label="Invented quotations" value={(ts.fabricated_quote_count ?? 0).toLocaleString()} hint="presented as scripture, matched nothing" />
+          <Stat label="Invented quotations" value={(ts.fabricated_quote_count ?? 0).toLocaleString()} hint="presented as scripture, matched no verse anywhere" />
+          <Stat label="Misquoted verses" value={(ts.misquoted_quote_count ?? 0).toLocaleString()} hint="a real verse, wrong words — not the same as invention" />
           <Stat label="Sensitive topics" value={score(ts.sensitive_topic_score)} hint={`vs ${score(ts.nonsensitive_topic_score)} on everyday topics`} />
         </div>
         <p className="text-xs text-slate-500">
           Quoting nothing scores zero — there is no quotation to check. No translation is
-          requested, so quoting any real one faithfully counts.
+          requested, so quoting any real one faithfully counts, and quoting part of a verse
+          accurately counts as accurate.
         </p>
         <OutcomeTable
           rows={TOPICAL_GRADES}

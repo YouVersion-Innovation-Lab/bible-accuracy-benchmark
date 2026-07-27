@@ -53,6 +53,10 @@ MIN_SHARED_CHARS = 8
 # Below this we make no claim about which verse a span is.
 IDENTIFY_FLOOR = 0.75
 
+# A short verse must be matched almost in full to count (see VersionIndex.present).
+# Same bar the auditor uses for "accurate", kept here to avoid a circular import.
+SHORT_VERSE_WHOLE_FLOOR = 0.98
+
 _WORD = re.compile(r"\w+", re.UNICODE)
 _UNSPACED = regex.compile(
     r"[\p{Han}\p{Hiragana}\p{Katakana}\p{Thai}\p{Khmer}\p{Lao}\p{Myanmar}]"
@@ -143,13 +147,32 @@ class VersionIndex:
                 self._index[g].append(usfm)
 
     def propose(self, loose_text: str) -> list[str]:
-        """Verses sharing enough n-grams with the text to be worth confirming."""
+        """Verses sharing enough n-grams with the text to be worth confirming.
+
+        A short span can't meet the usual shared-gram bar — "You shall not murder"
+        is four words, so it yields exactly one word 4-gram and could never reach
+        two. That made every verse under five words *unfindable*, and Exodus 20:13
+        quoted perfectly was recorded as invented scripture. The bar therefore
+        drops to what the span can actually offer. Precision is not lost: a span
+        this short is only credited if it matches nearly the whole verse (see
+        ``present``), so a stock phrase that happens to sit inside a long verse
+        still fails confirmation.
+        """
+        grams = ngrams(loose_text, unspaced=self.unspaced)
         hits: dict[str, int] = defaultdict(int)
-        for g in ngrams(loose_text, unspaced=self.unspaced):
+        for g in grams:
             for usfm in self._index.get(g, ()):
                 hits[usfm] += 1
         floor = MIN_SHARED_CHARS if self.unspaced else MIN_SHARED_WORDS
+        floor = max(1, min(floor, len(grams)))
         return [u for u, n in hits.items() if n >= floor]
+
+    def _is_short(self, loose_text: str) -> bool:
+        """True when the span is too short to clear the normal shared-gram bar, so
+        its match must be confirmed against the whole verse rather than a window."""
+        return len(ngrams(loose_text, unspaced=self.unspaced)) < (
+            MIN_SHARED_CHARS if self.unspaced else MIN_SHARED_WORDS
+        )
 
     def best(self, loose_text: str) -> tuple[str | None, float]:
         """Best (usfm, similarity) for a span within this translation."""
@@ -180,6 +203,12 @@ class VersionIndex:
             window = loose_response[start:end]
             sim = max(similarity(vloose, window), similarity(vloose, loose_response))
             whole = fuzz.ratio(vloose, window) / 100.0
+            if self._is_short(vloose) and whole < SHORT_VERSE_WHOLE_FLOOR:
+                # The VERSE is short, so a window match proves little: "the fear of
+                # the LORD" aligns perfectly inside dozens of verses. Only a
+                # near-complete match counts. This is what keeps the lowered
+                # proposal bar above from turning stock phrases into quotations.
+                continue
             if sim >= IDENTIFY_FLOOR:
                 out[usfm] = (sim, start, end, whole)
         return out

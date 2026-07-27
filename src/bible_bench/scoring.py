@@ -22,13 +22,25 @@ from rapidfuzz.distance import Levenshtein
 
 from .normalize import normalize
 
-SCORING_VERSION = "1.0.0"
+SCORING_VERSION = "1.1.0"
 
 # Severity thresholds (loose-normalized similarity). Tuned during the pilot;
 # changes bump SCORING_VERSION.
 NEAR_PERFECT_SIM = 0.995
 MINOR_SIM = 0.95
 MAJOR_SIM = 0.75
+# Recognisably the requested verse, materially reworded. Below MAJOR_SIM used to
+# fall straight to "fabricated" and score 0, which was wrong twice over: the label
+# accused the model of inventing text that was plainly the right verse, and the
+# score fell off a cliff (0.750 earned 0.75, 0.749 earned nothing). Judges 11:11
+# returned verbatim in a translation we don't carry sat at 0.75 and scored 0.
+#
+# 0.60 rather than 0.50: on real output the mislabelled cases cluster at 0.60-0.80
+# (148 of 232 in one run), while text that merely shares a verse's opening and
+# closing framing while inventing the middle lands around 0.51 — that is a
+# fabrication and should score nothing. More than half the characters matching the
+# requested verse is the bar for "recognisably an attempt at it".
+SEVERE_SIM = 0.60
 WRONG_VERSION_SIM = 0.95
 WRONG_VERSION_MARGIN = 0.05
 WRONG_VERSE_SIM = 0.90
@@ -37,6 +49,9 @@ ATTEMPT_SIM_FLOOR = 0.30      # below this vs every candidate → no_attempt
 OVERQUOTE_LEN_RATIO = 1.25
 
 GRADE_FIXED_SCORES = {"perfect": 1.0, "near_perfect": 0.98, "wrong_version": 0.25}
+# Grades scored continuously on similarity to the requested verse, rather than a
+# fixed value — a closer attempt is worth more, with no step changes.
+CONTINUOUS_GRADES = ("minor", "major", "severe")
 
 # Unspaced scripts where word-level metrics are meaningless.
 _UNSPACED = regex.compile(r"[\p{Han}\p{Hiragana}\p{Katakana}\p{Thai}\p{Khmer}\p{Lao}\p{Myanmar}]")
@@ -292,17 +307,24 @@ def score_item(
     elif sim_t >= MAJOR_SIM:
         grade = "major"
     elif d_sim >= WRONG_VERSION_SIM and d_sim >= sim_t + WRONG_VERSION_MARGIN:
+        # Verbatim in some OTHER translation of this language. Checked against
+        # every translation available, not a few hand-picked ones, so a faithful
+        # quotation from an edition we didn't ask for is recognised as such.
         grade = "wrong_version"
     elif n_sim >= WRONG_VERSE_SIM and sim_t < WRONG_VERSE_TARGET_MAX:
         grade = "wrong_verse"
+    elif sim_t >= SEVERE_SIM:
+        grade = "severe"
     elif attempted or max(sim_t, d_sim, n_sim) >= ATTEMPT_SIM_FLOOR:
+        # Matches neither the requested verse in ANY translation nor a neighbouring
+        # verse. This is the only case that earns the word "fabricated".
         grade = "fabricated"
     else:
         grade = "no_attempt"
 
     if grade in GRADE_FIXED_SCORES:
         score = GRADE_FIXED_SCORES[grade]
-    elif grade in ("minor", "major"):
+    elif grade in CONTINUOUS_GRADES:
         # Continuous reverse-QER: a credible attempt at the right verse scores in
         # proportion to how close it is (was 1 - 4*QER, which snapped to 0 fast).
         score = sim_t

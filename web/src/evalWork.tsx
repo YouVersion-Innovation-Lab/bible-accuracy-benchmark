@@ -13,7 +13,7 @@ import { SensitiveTag } from "./components";
 import { wordDiff, type DiffPart } from "./diff";
 
 // Mirrors of the Python constants, for explaining a branch (not for computing).
-const SIM = { nearPerfect: 0.995, minor: 0.95, major: 0.75 };
+const SIM = { nearPerfect: 0.995, minor: 0.95, major: 0.75, severe: 0.6 };
 const QUOTE_SIM = { accurate: 0.98, minor: 0.9 };
 
 /* ------------------------------------------------------------------ shared */
@@ -173,13 +173,15 @@ function gradeExplanation(item: EvalItem): string {
     case "minor":
       return `similarity ${sim?.toFixed(3)} is in the minor band (≥ ${SIM.minor})`;
     case "major":
-      return `similarity ${sim?.toFixed(3)} is in the major band (≥ ${SIM.major})`;
+      return `similarity ${sim?.toFixed(3)} is in the noticeably-different band (≥ ${SIM.major})`;
+    case "severe":
+      return `similarity ${sim?.toFixed(3)} still identifies the requested verse (≥ ${SIM.severe}), but much of the wording is not its own`;
     case "wrong_version":
-      return "closer to the same verse in a different translation than to the one asked for";
+      return "matches this verse in a different translation — every translation of the language was checked";
     case "wrong_verse":
       return "closer to a neighbouring verse than to the one asked for";
     case "fabricated":
-      return "verse-shaped text that matches no candidate verse";
+      return "matches neither the requested verse in any translation nor a neighbouring verse";
     case "no_attempt":
       return "no gradeable quote attempt (declined, or nothing verse-like)";
     default:
@@ -195,6 +197,7 @@ function scoreRule(item: EvalItem): string {
       return "near_perfect → 0.98";
     case "minor":
     case "major":
+    case "severe":
       return `1 − QER = 1 − ${item.qer?.toFixed(4)}`;
     case "wrong_version":
       return "wrong_version → 0.25";

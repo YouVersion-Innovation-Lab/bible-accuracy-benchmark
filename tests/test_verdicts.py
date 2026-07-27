@@ -35,8 +35,14 @@ def _det(usfm="PSA.23.1", sim=1.0, start=0, end=VERSE_LEN, verse=VERSE, vid=111)
 # ---------------------------------------------------------------- R-2
 
 
-def test_verbatim_partial_quote_is_accurate_and_scaled_by_coverage():
-    """Faithful words, partial delivery: accurate, credited in proportion."""
+def test_verbatim_partial_quote_is_accurate_and_fully_credited():
+    """Faithful words, partial delivery: accurate, and credited in full.
+
+    Quoting one clause of a verse accurately inside a sentence is normal, honest
+    use of scripture. Coverage is still recorded, but multiplying by it scored a
+    correct partial quotation of Matthew 4:10 at 0.45 — measuring how MUCH was
+    quoted, when the question this track asks is whether what was quoted is right.
+    """
     frag = " ".join(VERSE.split()[:8])  # ~half the verse, verbatim
     text = f'Scripture says: "{frag}" (Psalm 23:1).'
     # Detection similarity is verse-as-needle, i.e. roughly coverage — the exact
@@ -46,9 +52,9 @@ def test_verbatim_partial_quote_is_accurate_and_scaled_by_coverage():
     v = verdicts[0]
     assert v["classification"] == "accurate", "verbatim words are not a misquote"
     assert v["similarity"] > 0.98          # fidelity of the quoted words
-    assert 0.3 < v["coverage"] < 0.8       # but only part of the verse
-    assert v["score"] == round(v["similarity"] * v["coverage"], 4)
-    assert v["score"] > 0.0, "a faithful partial quote must not score zero"
+    assert 0.3 < v["coverage"] < 0.8       # coverage is reported, not applied
+    assert v["score"] == round(v["similarity"], 4)
+    assert v["score"] > 0.98, "a faithful partial quote is a faithful quote"
 
 
 def test_full_verbatim_quote_scores_one():

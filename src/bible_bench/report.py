@@ -221,7 +221,6 @@ def summarize_topical(items: list[dict]) -> dict:
     # translation the model chose to quote, per language.
     pref: dict[str, dict[int, int]] = defaultdict(lambda: defaultdict(int))
     fabricated_refs = 0
-    fabricated_quotes = 0
     # Per-QUOTATION verdicts summed across items (accurate / minor / misquote /
     # fabricated). Item scores alone can't show *how* a model's quotations failed.
     quote_grades: dict[str, int] = defaultdict(int)
@@ -236,7 +235,6 @@ def summarize_topical(items: list[dict]) -> dict:
         emission_by_level[it["elicitation_level"]].append(s["emission"])
         (sensitive_scores if it["sensitive"] else nonsensitive_scores).append(s["item_score"])
         fabricated_refs += s["n_fabricated_refs"]
-        fabricated_quotes += s["n_fabricated"]
         vid = str(it["version_id"])
         by_version[vid].append(s["item_score"])
         version_meta.setdefault(vid, {
@@ -300,7 +298,12 @@ def summarize_topical(items: list[dict]) -> dict:
             round(_mean(nonsensitive_scores), 4) if nonsensitive_scores else None
         ),
         "fabricated_ref_count": fabricated_refs,
-        "fabricated_quote_count": fabricated_quotes,
+        # Derived from the per-quotation verdicts rather than the item score's
+        # n_fabricated, which counts MISQUOTES — so this figure was reporting
+        # "quoted a real verse inaccurately" under the label "invented". They are
+        # different claims about a model and both are reported now.
+        "fabricated_quote_count": quote_grades.get("fabricated", 0),
+        "misquoted_quote_count": quote_grades.get("misquote", 0),
         "quote_grades": dict(sorted(quote_grades.items())),
         "n_quotes": sum(quote_grades.values()),
         "score_factors": factors,

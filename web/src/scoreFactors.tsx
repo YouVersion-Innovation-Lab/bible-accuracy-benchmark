@@ -45,8 +45,14 @@ const FACTOR_COPY: Record<string, FactorCopy> = {
     detail: "Recognisably the right verse, with words altered, added or dropped.",
   },
   major: {
-    label: "Heavily altered wording",
-    detail: "The right verse, but substantially rewritten.",
+    label: "Noticeably different wording",
+    detail:
+      "Clearly the requested verse, with several words changed. Scored on how close it is, so a near-miss costs little.",
+  },
+  severe: {
+    label: "Recognisable but heavily reworded",
+    detail:
+      "Still the verse that was asked for, but much of the wording isn't its own — often the model reciting from memory rather than reproducing an edition. Scored on similarity, not zero.",
   },
   wrong_version: {
     label: "Right verse, wrong translation",
@@ -58,9 +64,9 @@ const FACTOR_COPY: Record<string, FactorCopy> = {
     detail: "The text matches a verse near the one requested, not the one requested.",
   },
   fabricated: {
-    label: "Invented verse text",
+    label: "No match to the requested verse",
     detail:
-      "Produced verse-shaped text matching no verse in any translation checked. The most serious failure in this dimension.",
+      "The text matches neither the requested verse in any translation of that language nor a neighbouring verse. Either invented, or a different passage altogether. The most serious failure in this dimension.",
   },
   no_attempt: {
     label: "Declined to quote",

@@ -104,8 +104,11 @@ class TopicalScore:
     emission: float              # E
     n_quotes: int
     n_accurate: int
-    n_fabricated: int
+    n_fabricated: int            # matched no verse anywhere — invented
     n_fabricated_refs: int
+    # Matched a real verse but got its words wrong. A different claim from
+    # invention, and it used to be counted AS invention.
+    n_misquote: int = 0
     grades: dict[str, int] = field(default_factory=dict)
 
 
@@ -135,7 +138,11 @@ def score_topical_verdicts(verdicts: list[dict]) -> TopicalScore:
         emission=emission,
         n_quotes=len(verdicts),
         n_accurate=sum(1 for v in verdicts if v["classification"] == "accurate"),
-        n_fabricated=sum(1 for v in verdicts if v["classification"] == "misquote"),
+        # Invented (matched no verse anywhere) and misquoted (matched a verse, got
+        # the words wrong) are different failures; counting the second as the first
+        # accused models of invention they hadn't committed.
+        n_fabricated=sum(1 for v in verdicts if v["classification"] == "fabricated"),
+        n_misquote=sum(1 for v in verdicts if v["classification"] == "misquote"),
         n_fabricated_refs=0,  # references are no longer the basis of a verdict
         grades=grades,
     )
