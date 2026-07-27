@@ -50,9 +50,9 @@ type Row = {
 const SIMPLE_GRADES: Row[] = [
   { key: "perfect", label: "Exact", meaning: "character-for-character identical to the verse", worth: "1.00", good: true },
   { key: "near_perfect", label: "Near-exact", meaning: "a stray character at most", worth: "0.98", good: true },
-  { key: "minor", label: "Minor wording differences", meaning: "recognisably the verse, small edits", worth: "1 − error rate" },
-  { key: "major", label: "Noticeably different wording", meaning: "clearly the verse, several words changed", worth: "1 − error rate" },
-  { key: "severe", label: "Recognisable but heavily reworded", meaning: "still the requested verse, but much of the wording is not its own", worth: "1 − error rate" },
+  { key: "minor", label: "Minor wording differences", meaning: "recognisably the verse, small edits", worth: "similarity" },
+  { key: "major", label: "Noticeably different wording", meaning: "clearly the verse, several words changed", worth: "similarity" },
+  { key: "severe", label: "Recognisable but heavily reworded", meaning: "still the requested verse, but much of the wording is not its own", worth: "similarity" },
   { key: "wrong_version", label: "Right verse, wrong translation", meaning: "matched the verse in a translation other than the one asked for — checked against every translation of the language", worth: "0.25" },
   { key: "wrong_verse", label: "Wrong verse", meaning: "closer to a neighbouring verse than the one asked for", worth: "0", bad: true },
   { key: "fabricated", label: "No match to the requested verse", meaning: "matched neither the verse in any translation nor a neighbouring verse — invented, or something else entirely", worth: "0", bad: true },
@@ -75,7 +75,7 @@ const PHANTOM_OUTCOMES: Row[] = [
 const TOPICAL_GRADES: Row[] = [
   { key: "accurate", label: "Accurate", meaning: "the quoted words match the verse in a real translation — a faithful part of a verse counts as faithful", worth: "fidelity", good: true },
   { key: "minor", label: "Minor wording differences", meaning: "recognisably the verse, small edits", worth: "fidelity" },
-  { key: "misquote", label: "Misquoted", meaning: "presented as a quotation but the words don’t match the verse", worth: "0", bad: true },
+  { key: "misquote", label: "Misquoted a real verse", meaning: "we can name the verse it was reaching for — the quoted words are wrong", worth: "0", bad: true },
   { key: "fabricated", label: "Invented", meaning: "presented as scripture at some length, yet matches no verse in any translation of the language", worth: "0", bad: true },
 ];
 

@@ -331,8 +331,9 @@ async def score_topical_items(
         version_ids = client.load_language_versions(lang) or (
             first.accepted_version_ids or [first.version_id]
         )
-        detections = await quotefind.scan_responses(
-            client, version_ids, texts, unspaced=unspaced
+        spans, marked_by_item = _spans_for(texts)
+        detections, identified = await quotefind.scan_and_identify(
+            client, version_ids, texts, spans, unspaced=unspaced
         )
         # References are a claim signal ("these words are that verse") and are
         # resolved from the language's own localized book names.
@@ -342,7 +343,10 @@ async def score_topical_items(
             item = items_by_id[resp["item_id"]]
             text = texts[item.id]
             refs = resolver.find(text)
-            verdicts = _topical_verdicts(text, detections.get(item.id, {}), refs)
+            verdicts = _topical_verdicts(
+                text, detections.get(item.id, {}), refs,
+                _span_ids_for(item.id, marked_by_item[item.id], identified),
+            )
             tscore = score_topical_verdicts(verdicts)
             results.append({
                 "item_id": item.id,
@@ -418,7 +422,98 @@ _MIN_FABRICATION_WORDS = 6
 _WORDS = re.compile(r"\w+", re.UNICODE)
 
 
-def _topical_verdicts(text: str, detections: dict, refs=()) -> list[dict]:
+
+def _spans_for(texts: dict[str, str]) -> tuple[list, dict[str, list]]:
+    """Marked quotations across a batch, as quotefind Spans plus the per-item list.
+
+    Span keys are "{item_id}#{ordinal}", and the ordinal is the index into
+    ``marked_spans_of`` — the same order the verdict builder uses to look results
+    up, so the two can never drift apart.
+    """
+    spans: list = []
+    per_item: dict[str, list] = {}
+    for item_id, text in texts.items():
+        marked = marked_spans_of(text)
+        per_item[item_id] = marked
+        for i, m in enumerate(marked):
+            spans.append(quotefind.Span(
+                key=f"{item_id}#{i}", item_id=item_id, text=m[4], quoted=True,
+            ))
+    return spans, per_item
+
+
+def _span_ids_for(item_id: str, marked: list, identified: dict) -> dict[int, object]:
+    """Identifications for one item's marked spans, keyed by ordinal."""
+    out: dict[int, object] = {}
+    for i in range(len(marked)):
+        ident = identified.get(f"{item_id}#{i}")
+        if ident is not None:
+            out[i] = ident
+    return out
+
+
+
+def marked_spans_of(text: str) -> list[tuple[int, int, int, int, str]]:
+    """Quotations the model delimited itself, as
+    (loose_start, loose_end, raw_start, raw_end, loose_text).
+
+    One source of truth, because two callers must agree on the ORDER: the scorer
+    identifies each span by its ordinal here, and the verdict builder looks the
+    results up by the same ordinal. Raw offsets ride along so attribution can be
+    adjacency-gated against references extracted from the raw text.
+    """
+    loose = normalize(text, "loose")
+    out: list[tuple[int, int, int, int, str]] = []
+    for span in extract_quotes(text):
+        q = normalize(span.text, "loose")
+        at = loose.find(q[:60]) if q else -1
+        if at >= 0:
+            out.append((at, at + len(q), span.start, span.end, q))
+    return out
+
+
+def _classify(fidelity: float) -> str:
+    """What a quotation IS, given how well its words match the verse it was
+    identified as.
+
+    Note what is absent: "fabricated". Reaching this function means a real verse
+    was identified, so the only question left is how faithfully it was quoted.
+    Invention is a separate finding — text that matches no verse in any
+    translation — and conflating the two accused models of inventing scripture
+    they had merely reworded.
+    """
+    if fidelity >= ACCURATE_SIM:
+        return "accurate"
+    if fidelity >= MINOR_SIM:
+        return "minor"
+    return "misquote"
+
+
+def _verdict(
+    quote_loose: str, classification: str, fidelity: float, coverage: float,
+    usfm: str | None, version_id: int | None,
+    raw_start: int | None, raw_end: int | None, *, unquoted: bool = False,
+) -> dict:
+    """One per-quotation verdict record. A misquote scores 0 — presenting wrong
+    words as scripture is the failure, however close they came."""
+    score = 0.0 if classification in ("misquote", "fabricated") else round(fidelity, 4)
+    return {
+        "quote": quote_loose[:400],
+        "classification": classification,
+        "similarity": round(fidelity, 4),
+        "coverage": round(coverage, 4),
+        "matched_usfm": usfm,
+        "matched_version_id": version_id,
+        "score": score,
+        "unquoted": unquoted,
+        "raw_start": raw_start,
+        "raw_end": raw_end,
+    }
+
+
+def _topical_verdicts(
+    text: str, detections: dict, refs=(), span_ids: dict[int, object] | None = None
+) -> list[dict]:
     """Verdicts for text the model PRESENTED as scripture.
 
     Presentation is the trigger, not resemblance. Using biblical-sounding words is
@@ -442,15 +537,7 @@ def _topical_verdicts(text: str, detections: dict, refs=()) -> list[dict]:
     so ordinary prose about a passage is never scored as a misquote.
     """
     loose = normalize(text, "loose")
-    # (loose_start, loose_end, raw_start, raw_end, loose_span_text) per marked
-    # quotation. Raw offsets ride along so attribution can be adjacency-gated
-    # against references extracted from the raw text.
-    marked_spans: list[tuple[int, int, int, int, str]] = []
-    for span in extract_quotes(text):
-        q = normalize(span.text, "loose")
-        at = loose.find(q[:60]) if q else -1
-        if at >= 0:
-            marked_spans.append((at, at + len(q), span.start, span.end, q))
+    marked_spans = marked_spans_of(text)
 
     # Score every candidate first, then keep the best one per stretch of text.
     # One quotation is one verdict: several verses can match the same words (Luke
@@ -466,63 +553,55 @@ def _topical_verdicts(text: str, detections: dict, refs=()) -> list[dict]:
         for r in refs
     ]
 
+    # Marked quotations are judged on their OWN words, by span-driven
+    # identification (quotefind.scan_and_identify). Nothing here depends on
+    # guessing where in the answer a quotation sits, which is what made a short
+    # fragment of a long verse undetectable in a long answer.
+    out: list[dict] = []
+    for i, (_lo, _hi, raw_start, raw_end, span_loose) in enumerate(marked_spans):
+        ident = (span_ids or {}).get(i)
+        if ident is None:
+            # Matched no verse in any translation of the language. Only now is
+            # "invented" a fair word — and only for something long enough to be a
+            # claim about a verse rather than a phrase in quotation marks.
+            if len(_WORDS.findall(span_loose)) >= _MIN_FABRICATION_WORDS:
+                out.append(_verdict(
+                    span_loose, "fabricated", 0.0, 0.0, None, None, raw_start, raw_end,
+                ))
+            continue
+        fidelity, coverage = ident.fidelity_and_coverage(span_loose)
+        out.append(_verdict(
+            span_loose, _classify(fidelity), fidelity, coverage,
+            ident.usfm, ident.version_id, raw_start, raw_end,
+        ))
+
+    # Unmarked text is the other half, and needs the verse-driven pass: with no
+    # quotation marks there are no boundaries to identify a span from. Only text
+    # the model labelled with a reference is examined — that reference IS the claim
+    # — and anything overlapping a marked quotation is already judged above.
     scored: list[tuple[float, int, int, dict]] = []
     for usfm, det in sorted(detections.items(), key=lambda kv: kv[1].start):
-        hit = next(
-            (m for m in marked_spans if det.start < m[1] and m[0] < det.end), None
+        if any(det.start < m[1] and m[0] < det.end for m in marked_spans):
+            continue
+        if not any(det.start < e and s < det.end for s, e in claim_regions):
+            continue
+        # Boundaries are inferred, so demand a confident whole-string match.
+        # whole_ratio has no best-window allowance: a stock phrase that happens to
+        # sit inside a verse scores low here even though partial alignment would
+        # call it perfect.
+        if det.whole_ratio < _INFERRED_FLOOR:
+            continue
+        fidelity = det.whole_ratio
+        verdict = _verdict(
+            loose[det.start:det.end], _classify(fidelity), fidelity, 1.0,
+            usfm, det.version_id, None, None, unquoted=True,
         )
-        if hit is not None:
-            # The model marked this as a quotation, so judge the words it actually
-            # put in quotes. Fidelity — are those words right? — is the whole
-            # question here. Coverage (how much of the verse was delivered) is
-            # recorded but no longer multiplied in: quoting one clause of a verse
-            # accurately inside a sentence is normal, honest use of scripture, and
-            # scaling it down scored a correct partial quotation of Matthew 4:10 at
-            # 0.45. This track asks whether what a model presents as scripture is
-            # accurate, not whether it presented enough of it.
-            span_loose = hit[4]
-            fidelity, coverage = det.fidelity_and_coverage(span_loose)
-            quote_text, raw_start, raw_end = span_loose, hit[2], hit[3]
-        else:
-            # No quotation marks: only examine this at all if the model put a
-            # reference beside it, which is the claim "these words are that verse".
-            claimed = any(det.start < e and s < det.end for s, e in claim_regions)
-            if not claimed:
-                continue
-            # Boundaries are inferred, so demand a confident whole-string match.
-            # whole_ratio has no best-window allowance: a stock phrase that happens
-            # to sit inside a verse scores low here even though partial alignment
-            # would call it perfect.
-            if det.whole_ratio < _INFERRED_FLOOR:
-                continue
-            fidelity, coverage = det.whole_ratio, 1.0
-            quote_text, raw_start, raw_end = loose[det.start:det.end], None, None
+        scored.append((verdict["score"], det.start, det.end, verdict))
 
-        if fidelity >= ACCURATE_SIM:
-            classification = "accurate"
-        elif fidelity >= MINOR_SIM:
-            classification = "minor"
-        else:
-            classification = "misquote"
-        score = 0.0 if classification == "misquote" else round(fidelity, 4)
-
-        lo, hi = (hit[0], hit[1]) if hit is not None else (det.start, det.end)
-        scored.append((score, lo, hi, {
-            "quote": quote_text[:400],
-            "classification": classification,
-            "similarity": round(fidelity, 4),
-            "coverage": round(coverage, 4),
-            "matched_usfm": usfm,
-            "matched_version_id": det.version_id,
-            "score": score,
-            "unquoted": hit is None,
-            "raw_start": raw_start,
-            "raw_end": raw_end,
-        }))
-
-    # Best-first, keeping a verdict only if its text doesn't overlap one already
-    # kept — so each quotation is attributed to the verse it matches best.
-    out: list[dict] = []
+    # Best-first among the inferred ones, keeping a verdict only if its text
+    # doesn't overlap one already kept: several verses can match the same words
+    # (Luke 4:18 quotes Isaiah 61:1), and emitting a verdict for each would let the
+    # runners-up drag the mean down for a quotation the model got right.
     taken: list[tuple[int, int]] = []
     for _score, lo, hi, verdict in sorted(scored, key=lambda t: -t[0]):
         if any(lo < e and s < hi for s, e in taken):
@@ -530,36 +609,6 @@ def _topical_verdicts(text: str, detections: dict, refs=()) -> list[dict]:
         taken.append((lo, hi))
         out.append(verdict)
 
-    # Anything the model explicitly presented as a quotation but which matches no
-    # verse in any translation is invented scripture, and must be scored as such.
-    # Content-first detection only yields verdicts for text that MATCHES, so
-    # without this a fabricated quote would produce no verdict at all — reading as
-    # "quoted nothing", which is a pass on the hallucination track and free
-    # omission from the topical average.
-    # A quoted PHRASE is not a claim to be quoting a verse, though. Models put
-    # short expressions in quotation marks constantly — «the Bible speaks of the
-    # "fear of the LORD"» — and calling those invented scripture is a false
-    # accusation that fired three times in a single answer about fear. Genuine
-    # short verses are unaffected: they now match by content ("You shall not
-    # murder" resolves to Exodus 20:13), so they never reach this branch.
-    claimed = {(v["raw_start"], v["raw_end"]) for v in out if v["raw_start"] is not None}
-    for _lo, _hi, raw_start, raw_end, span_loose in marked_spans:
-        if (raw_start, raw_end) in claimed:
-            continue
-        if len(_WORDS.findall(span_loose)) < _MIN_FABRICATION_WORDS:
-            continue
-        out.append({
-            "quote": span_loose[:400],
-            "classification": "fabricated",
-            "similarity": 0.0,
-            "coverage": 0.0,
-            "matched_usfm": None,
-            "matched_version_id": None,
-            "score": 0.0,
-            "unquoted": False,
-            "raw_start": raw_start,
-            "raw_end": raw_end,
-        })
     out.sort(key=lambda v: (v["raw_start"] if v["raw_start"] is not None else 1 << 30))
     return out
 
@@ -640,8 +689,9 @@ async def score_phantom_items(
         version_ids = client.load_language_versions(lang) or (
             first.accepted_version_ids or [first.version_id]
         )
-        detections = await quotefind.scan_responses(
-            client, version_ids, texts, unspaced=quotefind.is_unspaced(sample)
+        spans, marked_by_item = _spans_for(texts)
+        detections, identified = await quotefind.scan_and_identify(
+            client, version_ids, texts, spans, unspaced=quotefind.is_unspaced(sample)
         )
         # absent_from_version items ask about a book the tested translation lacks,
         # so its metadata has no name for it. Merge in the edition that does, or
@@ -659,7 +709,10 @@ async def score_phantom_items(
         for resp in lang_responses:
             item = items_by_id[resp["item_id"]]
             text = texts[item.id]
-            verdicts = _topical_verdicts(text, detections.get(item.id, {}))
+            verdicts = _topical_verdicts(
+                text, detections.get(item.id, {}), (),
+                _span_ids_for(item.id, marked_by_item[item.id], identified),
+            )
             # Attribution is adjacency-gated (see _attribute), which is what
             # keeps the denied phantom reference from being read as the citation
             # for a substitute verse offered later in the answer.

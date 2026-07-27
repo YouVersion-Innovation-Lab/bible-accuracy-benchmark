@@ -83,7 +83,7 @@ const FACTOR_COPY: Record<string, FactorCopy> = {
   inaccurate_quotes: {
     label: "Quoted, but not accurately",
     detail:
-      "Volunteered scripture whose wording doesn't match the verse in any translation of that language.",
+      "Volunteered scripture that either misquotes a verse we can name, or matches no verse at all. The dimension breakdown below separates the two.",
   },
 
   // Hallucination Resistance outcomes

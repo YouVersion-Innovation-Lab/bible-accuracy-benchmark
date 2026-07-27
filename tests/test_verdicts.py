@@ -13,8 +13,8 @@ inverted the intended judgement rather than nudging a number:
 """
 
 from bible_bench.phantom import score_phantom_verdicts
-from bible_bench.quotefind import Detection
-from bible_bench.runner import _attribute, _topical_verdicts
+from bible_bench.quotefind import Detection, Identification
+from bible_bench.runner import _attribute, _topical_verdicts, marked_spans_of
 from bible_bench.topical import score_topical_verdicts
 
 VERSE = "the lord is my shepherd i shall not want he makes me lie down in green pastures"
@@ -32,6 +32,24 @@ def _det(usfm="PSA.23.1", sim=1.0, start=0, end=VERSE_LEN, verse=VERSE, vid=111)
     return {usfm: Detection(usfm, vid, sim, start, end, verse_loose=verse)}
 
 
+def _ids(text, usfm="PSA.23.1", verse=VERSE, vid=111, sim=1.0):
+    """Span-level identifications for every marked quotation in ``text``.
+
+    Marked quotations are now identified from their OWN words (see
+    quotefind.scan_and_identify), so a test that exercises the marked path must
+    supply that identification rather than a whole-response detection.
+    """
+    return {
+        i: Identification(usfm=usfm, version_id=vid, similarity=sim, verse_loose=verse)
+        for i in range(len(marked_spans_of(text)))
+    }
+
+
+def _none(text):
+    """No span matched any verse — the invented-scripture case."""
+    return {}
+
+
 # ---------------------------------------------------------------- R-2
 
 
@@ -47,7 +65,7 @@ def test_verbatim_partial_quote_is_accurate_and_fully_credited():
     text = f'Scripture says: "{frag}" (Psalm 23:1).'
     # Detection similarity is verse-as-needle, i.e. roughly coverage — the exact
     # value the old code mistook for fidelity and graded a misquote.
-    verdicts = _topical_verdicts(text, _det(sim=0.79))
+    verdicts = _topical_verdicts(text, _det(sim=0.79), (), _ids(text))
     assert len(verdicts) == 1
     v = verdicts[0]
     assert v["classification"] == "accurate", "verbatim words are not a misquote"
@@ -59,7 +77,7 @@ def test_verbatim_partial_quote_is_accurate_and_fully_credited():
 
 def test_full_verbatim_quote_scores_one():
     text = f'Scripture says: "{VERSE}" (Psalm 23:1).'
-    v = _topical_verdicts(text, _det(sim=1.0))[0]
+    v = _topical_verdicts(text, _det(sim=1.0), (), _ids(text))[0]
     assert v["classification"] == "accurate"
     assert v["coverage"] == 1.0
     assert v["score"] == 1.0
@@ -68,7 +86,7 @@ def test_full_verbatim_quote_scores_one():
 def test_coverage_never_exceeds_one_for_overlong_quote():
     """Quoting past the verse boundary isn't worth more than the whole verse."""
     text = f'"{VERSE} and he leads me beside still waters for his name sake" (Psalm 23:1).'
-    v = _topical_verdicts(text, _det(sim=1.0))[0]
+    v = _topical_verdicts(text, _det(sim=1.0), (), _ids(text))[0]
     assert v["coverage"] == 1.0
     assert v["score"] <= 1.0
 
@@ -77,14 +95,20 @@ def test_garbled_quote_is_still_a_misquote():
     """Coverage scaling must not rescue a quotation whose words are wrong."""
     wrong = " ".join("banana" if i % 2 else w for i, w in enumerate(VERSE.split()))
     text = f'Scripture says: "{wrong}" (Psalm 23:1).'
-    verdicts = _topical_verdicts(text, _det(sim=0.5))
+    verdicts = _topical_verdicts(text, _det(sim=0.5), (), _ids(text))
     assert verdicts, "a marked quotation always yields a verdict"
     assert all(v["score"] == 0.0 for v in verdicts)
 
 
 def test_one_quotation_yields_one_verdict():
     """Several verses can match the same words (Luke 4:18 quotes Isaiah 61:1);
-    only the best match may score, or the runners-up drag the mean down."""
+    only the best match may score, or the runners-up drag the mean down.
+
+    Under span-driven identification the competition is settled before this point
+    — quotefind keeps the best verse per span across all translations — so what
+    this pins is that whole-response detections can no longer add a second verdict
+    for a stretch of text the model quoted once.
+    """
     frag = " ".join(VERSE.split()[:8])
     text = f'Scripture says: "{frag}" (Psalm 23:1).'
     dets = {
@@ -92,7 +116,7 @@ def test_one_quotation_yields_one_verdict():
         "PSA.28.9": Detection("PSA.28.9", 111, 0.60, 0, len(frag),
                               verse_loose="the lord is my shepherd of a different psalm"),
     }
-    verdicts = _topical_verdicts(text, dets)
+    verdicts = _topical_verdicts(text, dets, (), _ids(text))
     assert len(verdicts) == 1
     assert verdicts[0]["matched_usfm"] == "PSA.23.1"
 
@@ -102,7 +126,7 @@ def test_invented_quotation_scores_zero_and_is_not_silently_dropped():
     span must be recorded as fabricated — otherwise it vanishes from the average
     and reads as 'quoted nothing' on the hallucination track."""
     text = 'It says: "And lo the auditor did balance the ledger of heaven saith the Lord."'
-    verdicts = _topical_verdicts(text, {})
+    verdicts = _topical_verdicts(text, {}, (), _none(text))
     assert len(verdicts) == 1
     assert verdicts[0]["classification"] == "fabricated"
     assert verdicts[0]["matched_usfm"] is None
@@ -112,7 +136,7 @@ def test_invented_quotation_scores_zero_and_is_not_silently_dropped():
 
 def test_paraphrase_without_quote_marks_yields_no_verdict():
     text = "The psalm describes God as a shepherd who provides for every need."
-    assert _topical_verdicts(text, _det(sim=0.55)) == []
+    assert _topical_verdicts(text, _det(sim=0.55), (), _ids(text)) == []
 
 
 # ---------------------------------------------------------------- R-1
@@ -121,14 +145,14 @@ def test_paraphrase_without_quote_marks_yields_no_verdict():
 def test_attribution_is_adjacency_gated():
     """A reference far from the quotation is not a claim about it."""
     text = 'Psalm 153:1 does not exist. You may be thinking of this: "' + VERSE + '"'
-    verdicts = _topical_verdicts(text, _det(sim=1.0))
+    verdicts = _topical_verdicts(text, _det(sim=1.0), (), _ids(text))
     _attribute(verdicts, [Ref("PSA.153.1", 0, 11)])
     assert verdicts[0]["cited_usfm"] is None, "the denied reference is not an attribution"
 
 
 def test_attribution_accepts_a_following_reference():
     text = f'Scripture says: "{VERSE}" (Psalm 23:1).'
-    verdicts = _topical_verdicts(text, _det(sim=1.0))
+    verdicts = _topical_verdicts(text, _det(sim=1.0), (), _ids(text))
     at = text.index("Psalm 23:1")
     _attribute(verdicts, [Ref("PSA.23.1", at, at + 10)])
     assert verdicts[0]["cited_usfm"] == "PSA.23.1"
@@ -136,7 +160,7 @@ def test_attribution_accepts_a_following_reference():
 
 def test_attribution_accepts_a_tight_preceding_reference():
     text = f'Psalm 23:1 says: "{VERSE}"'
-    verdicts = _topical_verdicts(text, _det(sim=1.0))
+    verdicts = _topical_verdicts(text, _det(sim=1.0), (), _ids(text))
     _attribute(verdicts, [Ref("PSA.23.1", 0, 10)])
     assert verdicts[0]["cited_usfm"] == "PSA.23.1"
 
@@ -152,7 +176,8 @@ def test_ideal_phantom_answer_scores_full_marks():
     answer, and the one the first v0.3 cut scored 0."""
     text = ('Psalm 153:1 does not exist — Psalms has only 150 chapters. '
             f'You may mean: "{VERSE}"')
-    s = _phantom(text, _topical_verdicts(text, _det(sim=1.0)), [Ref("PSA.153.1", 0, 11)])
+    verdicts = _topical_verdicts(text, _det(sim=1.0), (), _ids(text))
+    s = _phantom(text, verdicts, [Ref("PSA.153.1", 0, 11)])
     assert s.outcome == "declined_with_substitute"
     assert s.item_score == 1.0
     assert s.denial_signaled is True
@@ -161,14 +186,15 @@ def test_ideal_phantom_answer_scores_full_marks():
 def test_real_verse_pinned_to_the_phantom_reference_still_fails():
     """The exclusion must not go so far that genuine misattribution is missed."""
     text = f'Psalm 153:1 says: "{VERSE}"'
-    s = _phantom(text, _topical_verdicts(text, _det(sim=1.0)), [Ref("PSA.153.1", 0, 11)])
+    verdicts = _topical_verdicts(text, _det(sim=1.0), (), _ids(text))
+    s = _phantom(text, verdicts, [Ref("PSA.153.1", 0, 11)])
     assert s.outcome == "misattributed_real_verse"
     assert s.item_score == 0.0
 
 
 def test_invented_phantom_verse_fails():
     text = 'Psalm 153:1 says: "And lo the auditor did balance the ledger of heaven saith the Lord."'
-    s = _phantom(text, _topical_verdicts(text, {}), [Ref("PSA.153.1", 0, 11)])
+    s = _phantom(text, _topical_verdicts(text, {}, (), _none(text)), [Ref("PSA.153.1", 0, 11)])
     assert s.outcome == "fabricated_text"
     assert s.item_score == 0.0
 
@@ -211,3 +237,80 @@ def test_coincidental_phrase_near_a_reference_is_not_a_misquote():
         verse_loose="mes yeux pleurent sans arret il n y a pas de repos",
         whole_ratio=0.485)}
     assert _topical_verdicts(text, det, [Ref("MAT.31.1", 16, 29)]) == []
+
+
+# ------------------------------------------------- span-driven identification
+
+
+def test_fragment_of_a_long_verse_in_a_long_answer_is_found():
+    """The bug this replaced: verse-driven detection aligned the whole VERSE
+    against the whole RESPONSE and kept one window per verse, so a short fragment
+    inside a long answer lost that window to competing text and was recorded as
+    invented scripture. 'and wine to gladden the heart of man' is Psalm 104:15
+    verbatim in the ESV; it scored 0 as a fabrication.
+
+    Span-driven identification has no window to lose — the model gave the
+    boundaries by putting them in quotation marks.
+    """
+    verse = "and wine to gladden the heart of man oil to make his face shine and bread"
+    text = (
+        "Here are several verses, quoted from the ESV:\n\n"
+        '"Wine is a mocker, strong drink a brawler" (Proverbs 20:1).\n\n'
+        '"and wine to gladden the heart of man" (Psalm 104:15).\n\n'
+        "Both speak to the same theme at length, with much intervening prose."
+    )
+    # No whole-response detection at all for the fragment — the old failure mode.
+    ids = {
+        i: Identification(usfm="PSA.104.15", version_id=59, similarity=1.0,
+                          verse_loose=verse)
+        for i, m in enumerate(marked_spans_of(text)) if "gladden" in m[4]
+    }
+    verdicts = _topical_verdicts(text, {}, (), ids)
+    hit = [v for v in verdicts if v["matched_usfm"] == "PSA.104.15"]
+    assert len(hit) == 1
+    assert hit[0]["classification"] == "accurate"
+    assert hit[0]["score"] > 0.98
+
+
+def test_the_same_verse_quoted_twice_is_credited_twice():
+    """`scan_responses` returned {usfm: best Detection} — one detection per verse
+    per response — so a verse quoted twice could only be credited once and the
+    second citation fell to the invented-scripture branch."""
+    text = (
+        '"The Lord is my shepherd; I shall not want" (Psalm 23:1). '
+        'Later, again: "The Lord is my shepherd; I shall not want" (Psalm 23:1).'
+    )
+    verdicts = _topical_verdicts(text, {}, (), _ids(text))
+    assert len(verdicts) == 2
+    assert all(v["classification"] == "accurate" for v in verdicts)
+
+
+def test_a_reworded_real_verse_is_a_misquote_not_an_invention():
+    """"fabricated" was doing double duty: it covered both text that resembles no
+    verse at all and a model's own loose condensation of a real one. The second is
+    a misquote, and calling it invention overstates what the model did."""
+    verse = "and do not get drunk with wine for that is debauchery but be filled with the spirit"
+    text = '"Do not be drunk with wine, in which is debauchery" (Ephesians 5:18).'
+    ids = {
+        0: Identification(usfm="EPH.5.18", version_id=59, similarity=0.80,
+                          verse_loose=verse)
+    }
+    (v,) = _topical_verdicts(text, {}, (), ids)
+    assert v["classification"] == "misquote", "a real verse, reworded"
+    assert v["matched_usfm"] == "EPH.5.18", "and we can say WHICH verse"
+    assert v["score"] == 0.0
+
+
+def test_invention_is_reserved_for_text_matching_no_verse():
+    text = '"And lo, the auditor did balance the ledger of heaven," saith the Lord.'
+    (v,) = _topical_verdicts(text, {}, (), _none(text))
+    assert v["classification"] == "fabricated"
+    assert v["matched_usfm"] is None
+    assert v["score"] == 0.0
+
+
+def test_a_quoted_phrase_is_still_not_a_verse_claim():
+    """Unchanged by the rework: a short expression in quotation marks is not a
+    claim to be quoting scripture."""
+    text = 'The Bible speaks often of the "fear of the LORD" as the start of wisdom.'
+    assert _topical_verdicts(text, {}, (), _none(text)) == []

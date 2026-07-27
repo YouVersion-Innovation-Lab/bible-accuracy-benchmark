@@ -120,11 +120,19 @@ class Span:
 
 @dataclass
 class Identification:
-    """The best verse identification for one span, across all translations."""
+    """The best verse identification for one span, across all translations.
+
+    Span-driven: the span's own words are matched against the index, so nothing
+    depends on guessing where in a response the quotation sits. That guess is what
+    made a short fragment of a long verse undetectable inside a long answer —
+    "and wine to gladden the heart of man" is Psalm 104:15 verbatim in the ESV, and
+    was recorded as invented scripture.
+    """
 
     usfm: str
     version_id: int
     similarity: float
+    verse_loose: str = ""
 
     def classification(self, *, accurate: float, minor: float) -> str:
         if self.similarity >= accurate:
@@ -132,6 +140,15 @@ class Identification:
         if self.similarity >= minor:
             return "minor"
         return "partial"
+
+    def fidelity_and_coverage(self, span_loose: str) -> tuple[float, float]:
+        """(fidelity, coverage) of the span against the verse it was identified as.
+        Same meaning as ``Detection.fidelity_and_coverage``."""
+        if not span_loose or not self.verse_loose:
+            return 0.0, 0.0
+        return similarity(span_loose, self.verse_loose), min(
+            1.0, len(span_loose) / len(self.verse_loose)
+        )
 
 
 class VersionIndex:
@@ -313,6 +330,64 @@ async def scan_responses(
         if progress:
             progress({"phase": "identify", "completed": n, "total": len(version_ids)})
     return out
+
+
+async def scan_and_identify(
+    client,
+    version_ids: list[int],
+    texts: dict[str, str],
+    spans: list[Span],
+    *,
+    unspaced: bool = False,
+    progress=None,
+) -> tuple[dict[str, dict[str, Detection]], dict[str, Identification]]:
+    """Both passes over one set of indexes: verse-driven and span-driven.
+
+    They answer different questions and each is wrong for the other's job:
+
+      * **verse-driven** (``scan_responses``) asks "does this verse appear anywhere
+        in the answer", which is the only way to find scripture the model never
+        marked as a quotation;
+      * **span-driven** (``identify_all``) asks "what verse is *this* stretch of
+        text", which is the right question whenever the model told us the
+        boundaries by putting them in quotation marks.
+
+    Running them separately would build every translation's index twice — around
+    90 indexes for English — so they share one pass here.
+    """
+    loose_texts = {k: normalize(t, "loose") for k, t in texts.items()}
+    loose_spans = {s.key: normalize(s.text, "loose") for s in spans}
+    detections: dict[str, dict[str, Detection]] = {k: {} for k in texts}
+    best: dict[str, Identification] = {}
+
+    for n, vid in enumerate(version_ids, 1):
+        verses = await load_verses(client, vid)
+        if not verses:
+            continue
+        index = VersionIndex(vid, verses, unspaced=unspaced)
+        for key, text in loose_texts.items():
+            if not text:
+                continue
+            for usfm, (sim, start, end, whole) in index.present(text).items():
+                cur = detections[key].get(usfm)
+                if cur is None or sim > cur.similarity:
+                    detections[key][usfm] = Detection(
+                        usfm, vid, sim, start, end,
+                        verse_loose=index.verses[usfm], whole_ratio=whole,
+                    )
+        for s in spans:
+            usfm, sim = index.best(loose_spans[s.key])
+            if usfm and sim >= IDENTIFY_FLOOR:
+                cur = best.get(s.key)
+                if cur is None or sim > cur.similarity:
+                    best[s.key] = Identification(
+                        usfm=usfm, version_id=vid, similarity=sim,
+                        verse_loose=index.verses[usfm],
+                    )
+        del index, verses
+        if progress:
+            progress({"phase": "identify", "completed": n, "total": len(version_ids)})
+    return detections, best
 
 
 async def identify_all(

@@ -22,7 +22,7 @@ from rapidfuzz.distance import Levenshtein
 
 from .normalize import normalize
 
-SCORING_VERSION = "1.1.0"
+SCORING_VERSION = "1.2.0"
 
 # Severity thresholds (loose-normalized similarity). Tuned during the pilot;
 # changes bump SCORING_VERSION.
