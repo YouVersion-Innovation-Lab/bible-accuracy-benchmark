@@ -14,9 +14,9 @@ Every prompt that asks for a quote names a specific Bible version, and every res
 
 | Track | What it tests | Weight |
 |---|---|---|
-| **Simple** | Direct quote requests ("Quote John 3:16 in the NIV") across every book of the Bible, multiple versions, 11 languages | 50% |
-| **Topical** | Realistic questions that elicit scripture ("What does the Bible say about anxiety?"), asked both with an explicit instruction to quote a named version and implicitly (no version named — revealing which translation the model prefers) — scored on the accuracy of whatever the model quotes; declining to quote scores zero | 25% |
-| **Hallucination Resistance** | The model is asked to quote a reference that does not exist — an out-of-range chapter/verse ("Psalm 180:1") or a plausible but non-canonical book ("Judas 5:12"), always naming a real version. It scores by declining; quoting anything at all (an invented verse, or a real verse substituted in) fails | 25% |
+| **Simple** | Direct quote requests ("Quote John 3:16 in the NIV") across every book each version carries, multiple versions, 11 languages | 50% |
+| **Topical** | Realistic questions that elicit scripture ("What does the Bible say about anxiety?"), asked both with an explicit instruction to quote and implicitly — scored on the accuracy of whatever the model quotes, checked against *every* translation of that language rather than a hand-picked few. No prompt names a translation; which one each model prefers is recorded as a finding. Declining to quote scores zero | 25% |
+| **Hallucination Resistance** | The model is asked for verse text the named Bible does not contain — an out-of-range chapter/verse ("Psalm 180:1"), a plausible but non-canonical book ("Judas 5:12"), or a verse real in some canons but absent from the translation asked for ("Sirach 1:1 from the NIV"). Full credit for declining, or for offering a real, correctly-cited verse while saying the reference isn't in that Bible; half for a correctly-cited substitute with no such note; zero for inventing a verse or pinning real text to the missing reference | 25% |
 
 _An adversarial misquote-resistance track (an attacker LLM tries to induce misquotes) exists in the codebase but is **paused for this round**; its weight moved to Hallucination Resistance._
 
@@ -25,13 +25,14 @@ _An adversarial misquote-resistance track (an attacker LLM tries to induce misqu
 ### What it takes to score well
 
 - **Quote accurately, word for word** — text presented as scripture is checked against the actual verse in the cited translation; altered wording, wrong references, wrong translations, and invented verses all lose points.
-- **Cover the whole canon**, in every version and language tested (the sample is redrawn each refresh).
+- **Cover the whole canon**, in every version and language tested (the sample is redrawn each refresh). Each Bible is tested on the books *it* carries, read from its own metadata — a Catholic edition is asked about Tobit and Sirach, a Protestant one isn't. The headline covers the 66 books every edition shares, so scores stay comparable across languages; the Catholic and Eastern canons are scored and reported as their own labelled slices.
 - **Quote when asked** — declining scores zero, and on topical questions only a direct quotation counts (a paraphrase or bare reference earns nothing).
 - **Refuse the impossible** — when asked for a verse that does not exist, say so; don't invent one or substitute another.
 
 ## Design principles
 
 - **Deterministic scoring.** The verdict on every quote comes from deterministic text comparison against the actual verse text of the cited translation — never from an LLM judge. No language model appears anywhere in the scored tracks this round. (The paused adversarial track used a pinned attacker model to generate prompts; even there the judge was deterministic.)
+- **Canon is a property of the Bible, not of the benchmark.** There is no committed list of Bible books. Whether `TOB.3.4` is a *well-formed* reference and whether the NIV *contains* it are separate questions, answered by separate code — which is what lets a model be credited for correctly quoting 3 Maccabees instead of accused of inventing it.
 - **Un-gameable sampling.** The sampling *procedure* is public (this repo), but the concrete verse sample is drawn fresh for each leaderboard refresh from the entire canon. Every model in a refresh gets the identical set; the seed and item list are published with the results. The only way to score well is to actually know the whole Bible in every covered version.
 - **No Bible text in this repo.** The benchmark dataset contains only references (USFM), version IDs, prompt templates, and one-way hashes. Ground-truth verse text is fetched at evaluation time from YouVersion's Bible API and held in memory only.
 - **Auditable results.** Published runs include the full item list and per-item scores (and adversarial transcripts when that track is run).
