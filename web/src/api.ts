@@ -56,9 +56,19 @@ export interface RunDetail {
   summary: Summary;
 }
 
+// One named cause of lost points, for the "what dropped this score" panel.
+// Points are off a 100-point scale and sum to (100 - headline_score).
+export interface ScoreFactor {
+  track: string;
+  key: string;
+  points: number;
+  n: number;
+}
+
 export interface Summary {
   headline_score: number;
   headline_partial?: boolean;
+  score_factors?: ScoreFactor[];
   by_track: Record<string, number>;
   tracks: Record<string, TrackSummary>;
   usage?: Record<string, number>;
@@ -78,6 +88,8 @@ export interface TrackSummary {
   canon_counts?: Record<string, number>;
   canon_languages?: Record<string, string[]>;
   headline_canon?: string;
+  // Per-dimension loss attribution; summed and reweighted into Summary.score_factors.
+  score_factors?: { key: string; points: number; n: number }[];
   versions?: VersionScore[];
   version_preference?: Record<string, VersionPreference>;
   grades?: Record<string, number>;

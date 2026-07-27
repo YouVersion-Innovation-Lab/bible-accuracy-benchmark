@@ -196,6 +196,10 @@ async def _score_one(item: BenchmarkItem | None, resp: dict, client: BibleClient
         "usfm": item.usfm,
         "tier": item.tier,
         "canon": item.canon,
+        # Why generation stopped. Needed to tell a model declining from a provider
+        # blocking its own output (Google's RECITATION filter on verbatim
+        # scripture): both yield an empty reply scoring 0, for opposite reasons.
+        "finish_reason": resp.get("finish_reason"),
         "response_text": resp["response_text"],
         "expected_text": truth_span.text,
         "score": asdict(score),
@@ -311,6 +315,7 @@ async def score_topical_items(
                 "topic_name": item.topic_name,
                 "elicitation_level": item.elicitation_level,
                 "sensitive": item.sensitive,
+                "finish_reason": resp.get("finish_reason"),
                 "response_text": text,
                 "topical_score": asdict(tscore),
                 "quotes": verdicts,
@@ -614,6 +619,7 @@ async def score_phantom_items(
                 "kind": item.kind,
                 "absent_usfm": item.absent_usfm,
                 "absent_source_abbrev": item.absent_source_abbrev,
+                "finish_reason": resp.get("finish_reason"),
                 "response_text": text,
                 "phantom_score": asdict(pscore),
                 "quotes": verdicts,

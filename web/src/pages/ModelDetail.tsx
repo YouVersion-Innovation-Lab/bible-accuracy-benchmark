@@ -3,6 +3,7 @@ import { api, type TrackSummary } from "../api";
 import { HeatCell, Loading, ScoreBadge } from "../components";
 import { TRACK_WEIGHTS, TRACKS, langName, orderLanguages } from "../constants";
 import { DimensionBreakdown } from "../dimensionDetail";
+import { ScoreFactors } from "../scoreFactors";
 import { sliceLabel } from "../FilterBar";
 import { useFilters } from "../filterContext";
 import { useAsync } from "../hooks";
@@ -138,6 +139,8 @@ export function ModelDetail() {
           )}
         </div>
       </div>
+
+      <ScoreFactors summary={s} />
 
       <div>
         <h2 className="text-lg font-semibold mb-1">What we measured</h2>

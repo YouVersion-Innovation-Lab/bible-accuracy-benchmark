@@ -28,6 +28,52 @@ def _mean(xs: list[float]) -> float:
     return sum(xs) / len(xs) if xs else 0.0
 
 
+# A provider refusing to emit its own output (Google's RECITATION filter blocks
+# verbatim scripture) scores zero, because the user got no verse — but the cause
+# is the safety layer, not the model failing to know the text. Bucketing it under
+# "declined" reports a provider policy as a model choice, so it gets its own
+# factor key. Older runs have no finish_reason recorded and fall back to the grade.
+_BLOCKED = "blocked_by_provider"
+
+
+def _was_blocked(it: dict) -> bool:
+    reason = (it.get("finish_reason") or "").lower()
+    return "content_filter" in reason or "recitation" in reason
+
+
+def _macro_loss(
+    items: list[dict], lang_of, score_of, cause_of,
+) -> list[dict]:
+    """Attribute the gap between a perfect score and the track score to causes.
+
+    Track scores are per-language macro averages, and a mean is linear, so the
+    loss decomposes exactly: the returned points sum to ``1 - track_score``. That
+    matters more than it sounds — a "what dropped your score" list that doesn't
+    add up is worse than no list, because a reader can't tell which entry is wrong.
+    """
+    by_lang: dict[str, list[dict]] = defaultdict(list)
+    for it in items:
+        by_lang[lang_of(it)].append(it)
+    n_langs = len(by_lang)
+    if not n_langs:
+        return []
+    points: dict[str, float] = defaultdict(float)
+    counts: dict[str, int] = defaultdict(int)
+    for rows in by_lang.values():
+        per_item = 1.0 / (len(rows) * n_langs)
+        for it in rows:
+            lost = 1.0 - score_of(it)
+            if lost <= 0:
+                continue
+            cause = cause_of(it)
+            points[cause] += lost * per_item
+            counts[cause] += 1
+    return [
+        {"key": k, "points": round(points[k], 6), "n": counts[k]}
+        for k in sorted(points, key=lambda k: -points[k])
+    ]
+
+
 def summarize_simple(items: list[dict]) -> dict:
     """Per-language macro-average plus rate and canon breakdowns.
 
@@ -96,6 +142,22 @@ def summarize_simple(items: list[dict]) -> dict:
 
     lang_means = {lang: _mean(v) for lang, v in by_lang.items()}
     macro = _mean(list(lang_means.values()))
+    # Shared-canon items only, matching what track_score averages, so the factors
+    # reconcile to it. Extra-canon losses are visible in by_canon instead.
+    shared_items = [
+        it for it in items
+        if (it.get("canon") or ("catholic" if it.get("tier") == "deuterocanon" else "protestant"))
+        == "protestant"
+    ]
+    factors = _macro_loss(
+        shared_items,
+        lang_of=lambda it: it["language_tag"],
+        score_of=lambda it: it["score"]["item_score"],
+        cause_of=lambda it: (
+            _BLOCKED if it["score"]["grade"] == _REFUSAL and _was_blocked(it)
+            else it["score"]["grade"]
+        ),
+    )
     # Per-version detail (each version_id belongs to exactly one language) so the
     # website can filter the leaderboard by language and Bible version. `score` is
     # shared-canon only so a Catholic edition stays comparable to a Protestant one;
@@ -133,6 +195,7 @@ def summarize_simple(items: list[dict]) -> dict:
             c: sorted(canon_lang[c]) for c in CANONS if canon_lang.get(c)
         },
         "headline_canon": "protestant",
+        "score_factors": factors,
         "grades": dict(sorted(grades.items())),
         "verbatim_rate": round(verbatim / total, 4) if total else 0.0,
         "near_verbatim_rate": round(near / total, 4) if total else 0.0,
@@ -192,6 +255,18 @@ def summarize_topical(items: list[dict]) -> dict:
 
     lang_means = {lang: _mean(v) for lang, v in by_lang.items()}
     macro = _mean(list(lang_means.values()))
+    # Emission is binary (a verifiable quotation, or none), so item_score = A x E
+    # splits cleanly into two causes: never quoted, or quoted inaccurately.
+    factors = _macro_loss(
+        items,
+        lang_of=lambda it: it["language_tag"],
+        score_of=lambda it: it["topical_score"]["item_score"],
+        cause_of=lambda it: (
+            _BLOCKED if not (it.get("response_text") or "").strip() and _was_blocked(it)
+            else "no_quote" if not it["topical_score"]["emission"]
+            else "inaccurate_quotes"
+        ),
+    )
     versions = [
         {**version_meta[vid], "score": round(_mean(scores), 4), "n": len(scores)}
         for vid, scores in sorted(by_version.items())
@@ -228,6 +303,7 @@ def summarize_topical(items: list[dict]) -> dict:
         "fabricated_quote_count": fabricated_quotes,
         "quote_grades": dict(sorted(quote_grades.items())),
         "n_quotes": sum(quote_grades.values()),
+        "score_factors": factors,
     }
 
 
@@ -263,6 +339,15 @@ def summarize_phantom(items: list[dict]) -> dict:
 
     lang_means = {lang: _mean(v) for lang, v in by_lang.items()}
     macro = _mean(list(lang_means.values()))
+    factors = _macro_loss(
+        items,
+        lang_of=lambda it: it["language_tag"],
+        score_of=lambda it: it["phantom_score"]["item_score"],
+        cause_of=lambda it: (
+            _BLOCKED if it["phantom_score"]["outcome"] == "no_response" and _was_blocked(it)
+            else it["phantom_score"]["outcome"]
+        ),
+    )
     versions = [
         {**version_meta[vid], "score": round(_mean(scores), 4), "n": len(scores)}
         for vid, scores in sorted(by_version.items())
@@ -306,6 +391,7 @@ def summarize_phantom(items: list[dict]) -> dict:
         "unreferenced_rate": _rate(unreferenced),
         "no_response_rate": _rate(no_response),
         "outcomes": dict(sorted(outcomes.items())),
+        "score_factors": factors,
     }
 
 
@@ -319,9 +405,26 @@ def build_summary(track_summaries: dict[str, dict], usage: dict | None = None) -
         ) / weight_total
     else:
         headline = 0.0
+    # "What dropped this score" — every factor from every dimension, rescaled by
+    # that dimension's weight so the numbers are points off 100, ranked worst
+    # first. They sum to (100 - headline_score) by construction: each dimension's
+    # factors sum to its own shortfall, and the headline is a weighted mean of the
+    # dimensions. A reader can therefore add the list up and land on the score.
+    factors: list[dict] = []
+    for track in present:
+        weight = TRACK_WEIGHTS[track] / weight_total if weight_total else 0.0
+        for f in present[track].get("score_factors", []):
+            factors.append({
+                "track": track,
+                "key": f["key"],
+                "points": round(100 * weight * f["points"], 2),
+                "n": f["n"],
+            })
+    factors = [f for f in sorted(factors, key=lambda f: -f["points"]) if f["points"] > 0]
     return {
         "headline_score": round(100 * headline, 2),
         "headline_partial": set(present) != set(TRACK_WEIGHTS),
+        "score_factors": factors,
         "by_track": {t: present[t]["track_score"] for t in present},
         "tracks": track_summaries,
         "usage": usage or {},

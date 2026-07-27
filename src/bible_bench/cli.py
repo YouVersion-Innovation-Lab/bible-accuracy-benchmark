@@ -2,6 +2,7 @@
 
     bible-bench run       run the benchmark against a model, write + score results
     bible-bench score     re-score an existing run under the current SCORING_VERSION
+    bible-bench resummarize  rebuild summary.json from scored items (report-only changes)
     bible-bench publish   mark a run published (appears on the leaderboard)
     bible-bench unpublish
     bible-bench build-dataset   draw a fresh item set from the spec (audit/preview)
@@ -464,6 +465,86 @@ async def cmd_score(args) -> int:
     return 0
 
 
+def cmd_resummarize(args) -> int:
+    """Rebuild summary.json from the already-scored items. No model calls, no
+    Bible text, no re-scoring.
+
+    Aggregation (report.py) is a pure function of the scored item records, so a
+    change that only adds a reported metric shouldn't cost a full re-score — that
+    re-runs quote detection over every translation of every language and takes
+    tens of minutes per run. This makes report-only changes a seconds-long step,
+    which is the difference between adding a metric and not bothering.
+
+    Per-item scores are untouched, so this can never change a score. If the
+    SCORING_VERSION changed, use `score` instead.
+    """
+    store = _store_from_args(args)
+    run_key = _run_key(args.run_version, args.model)
+    run_dir = f"runs/{run_key}"
+    manifest = store.read_json(f"{run_dir}/manifest.json")
+    if not manifest:
+        console.print(f"[red]No run found for {run_key}.[/red]")
+        return 2
+    # Applying today's aggregation to an older generation's items silently
+    # rewrites history: reporting rules change between versions (v0.4 moved the
+    # deuterocanon out of the headline, which shifts every v0.3 simple score).
+    # Older results are meant to stay frozen at the version that produced them.
+    if args.run_version != BENCHMARK_VERSION and not args.allow_older:
+        console.print(
+            f"[red]{run_key} was scored at {args.run_version}, but this codebase is "
+            f"{BENCHMARK_VERSION}.[/red] Re-summarizing would apply {BENCHMARK_VERSION} "
+            f"reporting rules to {args.run_version} results and change its published "
+            f"numbers. Pass [bold]--allow-older[/bold] if that is genuinely what you want."
+        )
+        return 2
+
+    tracks: dict[str, dict] = {}
+    summarizers = {
+        "simple": ("items.jsonl", "responses.jsonl", summarize_simple),
+        "topical": ("items_topical.jsonl", "responses_topical.jsonl", summarize_topical),
+        "phantom": ("items_phantom.jsonl", "responses_phantom.jsonl", summarize_phantom),
+    }
+    for track, (items_file, resp_file, summarize) in summarizers.items():
+        rows = store.read_jsonl(f"{run_dir}/{items_file}")
+        if not rows:
+            continue
+        # Runs scored before finish_reason was recorded on items still have it on
+        # the generation record, so join it in — it's what separates a provider
+        # blocking its own output from the model declining.
+        reasons = {
+            r.get("item_id"): r.get("finish_reason")
+            for r in store.read_jsonl(f"{run_dir}/{resp_file}")
+        }
+        for r in rows:
+            r.setdefault("finish_reason", reasons.get(r.get("item_id")))
+        tracks[track] = summarize(rows)
+        console.print(f"  {track}: {len(rows)} items -> {tracks[track]['track_score']}")
+    if not tracks:
+        console.print(f"[red]{run_key} has no scored items to summarize.[/red]")
+        return 2
+
+    summary = build_summary(tracks, _usage_from_run(store, run_dir))
+    store.write_json(f"{run_dir}/summary.json", summary)
+    console.print(f"[green]Re-summarized[/green] {run_key}: "
+                  f"headline [bold]{summary['headline_score']}[/bold]")
+    if manifest.get("published"):
+        rebuild_leaderboard(store)
+        console.print("  Leaderboard rebuilt (this run is published).")
+    return 0
+
+
+def _usage_from_run(store, run_dir: str) -> dict:
+    """Token/call totals recomputed from the generation records, so a
+    re-summarize doesn't blank out usage that the original run reported."""
+    totals = {"input_tokens": 0, "output_tokens": 0, "calls": 0}
+    for f in ("responses.jsonl", "responses_topical.jsonl", "responses_phantom.jsonl"):
+        for r in store.read_jsonl(f"{run_dir}/{f}"):
+            totals["input_tokens"] += r.get("input_tokens") or 0
+            totals["output_tokens"] += r.get("output_tokens") or 0
+            totals["calls"] += 1
+    return totals
+
+
 def cmd_publish(args, published: bool) -> int:
     store = _store_from_args(args)
     run_key = _run_key(args.run_version, args.model)
@@ -726,6 +807,17 @@ def main(argv: list[str] | None = None) -> int:
     _add_cache_arg(s)
     _add_store_args(s)
 
+    rs = sub.add_parser("resummarize",
+                        help="Rebuild summary.json from already-scored items "
+                             "(report-only changes; no model calls, no re-scoring)")
+    rs.add_argument("--run-version", default=BENCHMARK_VERSION,
+                    help="Benchmark version of the run (default: current codebase)")
+    rs.add_argument("--model", required=True, help="Model id used for the run")
+    rs.add_argument("--allow-older", action="store_true",
+                    help="Permit re-summarizing a run from an older benchmark version, "
+                         "even though today's reporting rules will change its numbers")
+    _add_store_args(rs)
+
     for name in ("publish", "unpublish"):
         p = sub.add_parser(name)
         p.add_argument("--run-version", default=BENCHMARK_VERSION,
@@ -756,6 +848,8 @@ def main(argv: list[str] | None = None) -> int:
         return asyncio.run(cmd_run(args))
     if args.cmd == "score":
         return asyncio.run(cmd_score(args))
+    if args.cmd == "resummarize":
+        return cmd_resummarize(args)
     if args.cmd == "publish":
         return cmd_publish(args, True)
     if args.cmd == "unpublish":
