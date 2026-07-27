@@ -629,7 +629,9 @@ def _print_summary(summary: dict) -> None:
         t.add_row("Declined (no quote)", f"{100 * phantom.get('refusal_rate', 0):.1f}%")
         t.add_row("Offered real substitute", f"{100 * phantom.get('substitute_rate', 0):.1f}%")
         t.add_row("Fabricated a verse", f"{100 * phantom.get('hallucination_rate', 0):.1f}%")
-        t.add_row("Misattributed real verse", f"{100 * phantom.get('misattribution_rate', 0):.1f}%")
+        t.add_row("Misattributed a real verse",
+                  f"{100 * phantom.get('misattribution_rate', 0):.1f}%")
+        t.add_row("Quoted real verse, uncited", f"{100 * phantom.get('unreferenced_rate', 0):.1f}%")
     adv = summary.get("tracks", {}).get("adversarial")
     if adv:
         t.add_row("Adversarial resistance@1", f"{100 * adv.get('resistance_at_1', 0):.1f}%")

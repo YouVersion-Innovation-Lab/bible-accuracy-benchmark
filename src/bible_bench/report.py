@@ -215,9 +215,16 @@ def summarize_phantom(items: list[dict]) -> dict:
         + outcomes.get("substitute_no_disclaimer", 0)
     )
     fabricated = outcomes.get("fabricated_text", 0)
-    misattributed = (
-        outcomes.get("misattributed_real_verse", 0)
-        + outcomes.get("unreferenced_substitute", 0)
+    # Reported separately, not summed: "pinned a real verse to the fake
+    # reference" and "quoted a real verse without citing it" are different
+    # behaviours, and the first is a far stronger claim about a model. Lumping
+    # them under one label said DeepSeek misattributed scripture on 1.2% of items
+    # when it never did so once.
+    misattributed = outcomes.get("misattributed_real_verse", 0)
+    unreferenced = (
+        outcomes.get("unreferenced_substitute", 0)
+        # v0.1/v0.2 recorded any real-verse substitution under one outcome; it
+        # can't be split retroactively, so it lands here as the closer match.
         + outcomes.get("quoted_real_verse", 0)
     )
     no_response = outcomes.get("no_response", 0)
@@ -236,6 +243,7 @@ def summarize_phantom(items: list[dict]) -> dict:
         "substitute_rate": _rate(substitute),
         "hallucination_rate": _rate(fabricated),
         "misattribution_rate": _rate(misattributed),
+        "unreferenced_rate": _rate(unreferenced),
         "no_response_rate": _rate(no_response),
         "outcomes": dict(sorted(outcomes.items())),
     }
