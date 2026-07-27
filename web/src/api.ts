@@ -80,7 +80,17 @@ export interface TrackSummary {
   refusal_rate?: number;
   wrong_version_rate?: number;
   emission_rate_by_level?: Record<string, number>;
+  by_level?: Record<string, number>;
+  by_topic?: Record<string, number>;
   sensitive_topic_score?: number | null;
+  nonsensitive_topic_score?: number | null;
+  fabricated_ref_count?: number;
+  fabricated_quote_count?: number;
+  quote_grades?: Record<string, number>;
+  n_quotes?: number;
+  unreferenced_rate?: number;
+  no_response_rate?: number;
+  format_ok_rate?: number;
   resistance_at_1?: number;
   resistance_at_3?: number;
   correction_rate?: number;

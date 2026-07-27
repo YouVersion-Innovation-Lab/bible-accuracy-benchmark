@@ -105,6 +105,9 @@ def summarize_topical(items: list[dict]) -> dict:
     pref: dict[str, dict[int, int]] = defaultdict(lambda: defaultdict(int))
     fabricated_refs = 0
     fabricated_quotes = 0
+    # Per-QUOTATION verdicts summed across items (accurate / minor / misquote /
+    # fabricated). Item scores alone can't show *how* a model's quotations failed.
+    quote_grades: dict[str, int] = defaultdict(int)
     total = 0
 
     for it in items:
@@ -128,6 +131,7 @@ def summarize_topical(items: list[dict]) -> dict:
         # v0.3 neither prompt names a translation, so every accurate quotation is
         # a free choice and therefore evidence of preference.
         for q in it.get("quotes", []):
+            quote_grades[q.get("classification", "?")] += 1
             mv = q.get("matched_version_id")
             if mv is not None and q.get("classification") in ("accurate", "minor"):
                 pref[it["language_tag"]][mv] += 1
@@ -168,6 +172,8 @@ def summarize_topical(items: list[dict]) -> dict:
         ),
         "fabricated_ref_count": fabricated_refs,
         "fabricated_quote_count": fabricated_quotes,
+        "quote_grades": dict(sorted(quote_grades.items())),
+        "n_quotes": sum(quote_grades.values()),
     }
 
 

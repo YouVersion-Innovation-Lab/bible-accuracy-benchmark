@@ -2,6 +2,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, type TrackSummary } from "../api";
 import { HeatCell, Loading, ScoreBadge } from "../components";
 import { TRACK_WEIGHTS, TRACKS, langName, orderLanguages } from "../constants";
+import { DimensionBreakdown } from "../dimensionDetail";
 import { sliceLabel } from "../FilterBar";
 import { useFilters } from "../filterContext";
 import { useAsync } from "../hooks";
@@ -166,6 +167,34 @@ export function ModelDetail() {
             );
           })}
         </div>
+      </div>
+
+      <div className="space-y-6">
+        <div>
+          <h2 className="text-lg font-semibold mb-1">Where the score comes from</h2>
+          <p className="text-xs text-slate-500">
+            Every test case is recorded with the specific outcome it earned, not just
+            pass/fail — inventing a verse, quoting the right verse from the wrong
+            translation, and quoting a real verse without citing it are different
+            behaviours worth different amounts. Counts below are for the whole run, and
+            are not narrowed by the header filter.
+          </p>
+        </div>
+        {TRACKS.map((t) => {
+          const ts = tracks[t.key];
+          if (!ts) return null;
+          return (
+            <div key={t.key} className="rounded-xl border border-white/10 bg-white/[0.02] p-5">
+              <div className="flex items-baseline justify-between gap-3 mb-4">
+                <h3 className="font-semibold">{t.name}</h3>
+                <Link to={evalHref(t.key)} className="text-xs text-indigo-300 hover:underline">
+                  Browse every test case →
+                </Link>
+              </div>
+              <DimensionBreakdown trackKey={t.key} ts={ts} />
+            </div>
+          );
+        })}
       </div>
 
       {cols.length > 0 && (
