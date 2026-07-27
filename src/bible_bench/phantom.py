@@ -352,7 +352,20 @@ def score_phantom_verdicts(
         return PhantomScore(_SCORE_FAIL, "fabricated_text", len(verdicts), denial)
     # Real text pinned to a reference that isn't its own — asserts the phantom
     # reference contains scripture.
-    if any(v.get("cited_usfm") and v["cited_usfm"] != v["matched_usfm"] for v in verdicts):
+    # Misattribution means the model asserted scripture at a reference that DOESN'T
+    # EXIST — which is the failure this track is about. It used to mean any citation
+    # differing from the verse detection matched, and that fired on correct answers
+    # every time: Psalm 23 in Hebrew numbering is Psalm 22 in Russian Synodal;
+    # 2 Kings 20:1 and Isaiah 38:1 are the same text in two places; a model offering
+    # Genesis 43:1 after denying "Exodus 43:1" cites a real verse we simply matched
+    # to a near neighbour. All eight cases in one run were false accusations.
+    #
+    # ``cited_exists`` is set by the scorer from version metadata: False only when
+    # the cited reference is in no translation of the language.
+    if any(
+        v.get("matched_usfm") and v.get("cited_usfm") and v.get("cited_exists") is False
+        for v in verdicts
+    ):
         return PhantomScore(_SCORE_FAIL, "misattributed_real_verse", len(verdicts), denial)
 
     if denial:

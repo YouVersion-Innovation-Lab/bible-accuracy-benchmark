@@ -423,6 +423,76 @@ _WORDS = re.compile(r"\w+", re.UNICODE)
 
 
 
+async def _mark_citation_reality(
+    verdicts: list[dict], client: BibleClient, version_ids: list[int]
+) -> None:
+    """Record whether each cited reference EXISTS in any translation of the language.
+
+    This is what "misattributed a real verse" should turn on: asserting scripture at
+    a reference no Bible has. Comparing the citation against the verse detection
+    matched instead flagged correct answers — a model that denies "Exodus 43:1" and
+    then offers Genesis 43:1 has done exactly the right thing, and was scored zero
+    for it.
+
+    Metadata only (``version_contains``), so it is cheap and offline.
+    """
+    for v in verdicts:
+        cited = v.get("cited_usfm")
+        if not cited:
+            continue
+        exists = False
+        for vid in version_ids:
+            if await client.version_contains(vid, cited):
+                exists = True
+                break
+        v["cited_exists"] = exists
+
+
+async def _reconcile_citations(
+    verdicts: list[dict], client: BibleClient, version_ids: list[int]
+) -> None:
+    """Accept a citation that names the quoted text under a DIFFERENT verse number.
+
+    "Misattributed a real verse" is the strongest accusation this benchmark makes
+    — it says a model attached genuine scripture to a reference that isn't its own
+    — and comparing usfm codes alone made it wrong every time it fired. Three ways
+    a correct citation gets a different code from the verse detection matched:
+
+      * **versification.** Psalm 23 in Hebrew numbering is Psalm 22 in the
+        Septuagint, which Russian Synodal follows; Isaiah 9:1 is Isaiah 8:23 in the
+        Louis Segond. One model even wrote "oder nach anderer Zählung Psalm 34:2"
+        — naming the difference explicitly — and was marked misattributed for it.
+      * **parallel passages.** 2 Kings 20:1 and Isaiah 38:1 are near-identical
+        text in two places; detection picks whichever matches marginally better.
+      * **verse ranges.** A model quoting Romans 8:38-39 and citing 8:38 is right.
+
+    So the citation is checked against TEXT rather than codes: if the words quoted
+    match the cited reference as any translation of the language renders it, the
+    citation stands. Deterministic, and no versification table to maintain.
+    """
+    for v in verdicts:
+        cited, matched = v.get("cited_usfm"), v.get("matched_usfm")
+        if not cited or not matched or cited == matched:
+            continue
+        quote = v.get("quote") or ""
+        if not quote:
+            continue
+        for vid in version_ids:
+            try:
+                span = await client.verse(vid, cited)
+            except Exception:  # noqa: BLE001 — an unresolvable citation stays wrong
+                continue
+            if span is None or not span.text.strip():
+                continue
+            if quotefind.similarity(quote, normalize(span.text, "loose")) >= ACCURATE_SIM:
+                # Same text, different number. Record what happened rather than
+                # silently rewriting the citation, so the evaluation page can show
+                # it and the finding stays auditable.
+                v["citation_alias_of"] = matched
+                v["cited_usfm"] = matched
+                break
+
+
 def _spans_for(texts: dict[str, str]) -> tuple[list, dict[str, list]]:
     """Marked quotations across a batch, as quotefind Spans plus the per-item list.
 
@@ -718,6 +788,11 @@ async def score_phantom_items(
             # for a substitute verse offered later in the answer.
             refs = resolver.find(text)
             _attribute(verdicts, refs)
+            # Both must run before scoring, because misattribution is a zero: one
+            # accepts a citation naming the same text under a different verse
+            # number, the other records whether the citation points anywhere real.
+            await _reconcile_citations(verdicts, client, version_ids)
+            await _mark_citation_reality(verdicts, client, version_ids)
             pscore = score_phantom_verdicts(verdicts, text, item.denial_markers)
             results.append({
                 "item_id": item.id,

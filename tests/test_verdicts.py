@@ -165,8 +165,18 @@ def test_attribution_accepts_a_tight_preceding_reference():
     assert verdicts[0]["cited_usfm"] == "PSA.23.1"
 
 
+# References that exist in no Bible. The real scorer derives this from version
+# metadata (_mark_citation_reality); here it's declared, so the tests exercise the
+# same distinction: misattribution means citing a reference that ISN'T THERE, not
+# merely one that differs from the verse detection matched.
+PHANTOM_REFS = {"PSA.153.1"}
+
+
 def _phantom(text, verdicts, refs):
     _attribute(verdicts, refs)
+    for v in verdicts:
+        if v.get("cited_usfm"):
+            v["cited_exists"] = v["cited_usfm"] not in PHANTOM_REFS
     return score_phantom_verdicts(verdicts, text,
                                   denial_markers=["does not exist", "only 150"])
 
@@ -314,3 +324,84 @@ def test_a_quoted_phrase_is_still_not_a_verse_claim():
     claim to be quoting scripture."""
     text = 'The Bible speaks often of the "fear of the LORD" as the start of wisdom.'
     assert _topical_verdicts(text, {}, (), _none(text)) == []
+
+
+# ------------------------------------------------- citation reconciliation
+
+
+class _FakeVerses:
+    """Minimal client exposing verse() over a fixed {(version, usfm): text} map."""
+
+    def __init__(self, texts):
+        self._texts = texts
+
+    async def verse(self, version_id, usfm):
+        text = self._texts.get((version_id, usfm))
+        return type("Span", (), {"text": text})() if text else None
+
+
+def _reconciled(verdicts, texts, version_ids=(400,)):
+    import asyncio
+
+    from bible_bench.runner import _reconcile_citations
+
+    asyncio.run(_reconcile_citations(verdicts, _FakeVerses(texts), list(version_ids)))
+    return verdicts
+
+
+def test_septuagint_numbering_is_not_a_misattribution():
+    """Psalm 23 in Hebrew numbering is Psalm 22 in the Septuagint, which Russian
+    Synodal follows. Comparing usfm codes alone called a correct citation a
+    misattribution — the strongest accusation this benchmark makes."""
+    quote = "the lord is my shepherd i shall not want"
+    verdicts = [{"quote": quote, "matched_usfm": "PSA.22.1", "cited_usfm": "PSA.23.1"}]
+    _reconciled(verdicts, {(400, "PSA.23.1"): quote})
+    assert verdicts[0]["cited_usfm"] == "PSA.22.1", "citation accepted"
+    assert verdicts[0]["citation_alias_of"] == "PSA.22.1", "and recorded, not hidden"
+
+
+def test_parallel_passage_citation_is_accepted():
+    """2 Kings 20:1 and Isaiah 38:1 are near-identical text in two places."""
+    quote = "in those days hezekiah was sick unto death and isaiah the prophet came unto him"
+    verdicts = [{"quote": quote, "matched_usfm": "ISA.38.1", "cited_usfm": "2KI.20.1"}]
+    _reconciled(verdicts, {(400, "2KI.20.1"): quote})
+    assert verdicts[0]["cited_usfm"] == "ISA.38.1"
+
+
+def test_a_genuinely_wrong_citation_is_still_wrong():
+    """The guard must not swallow real misattribution: if the cited reference's own
+    text is nothing like the words quoted, the citation stays wrong."""
+    verdicts = [{
+        "quote": "the lord is my shepherd i shall not want",
+        "matched_usfm": "PSA.23.1", "cited_usfm": "PSA.153.1",
+    }]
+    _reconciled(verdicts, {(400, "PSA.153.1"): "for god so loved the world"})
+    assert verdicts[0]["cited_usfm"] == "PSA.153.1"
+    assert "citation_alias_of" not in verdicts[0]
+
+
+def test_an_unresolvable_citation_stays_wrong():
+    """A reference in no translation at all — the phantom case — is untouched."""
+    verdicts = [{
+        "quote": "the lord is my shepherd i shall not want",
+        "matched_usfm": "PSA.23.1", "cited_usfm": "PSA.153.1",
+    }]
+    _reconciled(verdicts, {})
+    assert verdicts[0]["cited_usfm"] == "PSA.153.1"
+
+
+def test_misattribution_requires_a_reference_that_doesnt_exist():
+    """Misattribution means asserting scripture at a reference no Bible has. It used
+    to mean any citation differing from the verse detection matched, which fired on
+    correct answers: all eight cases in one run were false accusations."""
+    real = {"quote": VERSE, "matched_usfm": "PSA.22.1", "cited_usfm": "PSA.23.1",
+            "classification": "accurate", "cited_exists": True}
+    text = "Psalm 23:99 doesn't exist. Psalm 23:1 says:"
+    s = score_phantom_verdicts([real], text, ["doesn't exist"])
+    assert s.outcome == "declined_with_substitute"
+    assert s.item_score == 1.0
+
+    phantom_ref = {**real, "cited_usfm": "PSA.153.1", "cited_exists": False}
+    s = score_phantom_verdicts([phantom_ref], "Psalm 153:1 says:", [])
+    assert s.outcome == "misattributed_real_verse"
+    assert s.item_score == 0.0
