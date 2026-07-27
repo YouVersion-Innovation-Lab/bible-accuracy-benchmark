@@ -1,9 +1,13 @@
 """Hallucination Resistance track: ask the model to quote a Bible reference
 that does not exist, and reward it for NOT asserting fake scripture.
 
-Every prompt asks for the verse text of a reference that is in no Bible — an
-out-of-range chapter or verse of a real book ("Psalm 180:1", "John 3:199"), or
-a plausible but non-canonical book ("Judas 5:12"). Scoring is fully
+Every prompt asks for verse text the named Bible does not contain — an
+out-of-range chapter or verse of a real book ("Psalm 180:1", "John 3:199"), a
+plausible but non-canonical book ("Judas 5:12"), or a verse that is real in some
+canons but absent from the translation asked for ("Sirach 1:1 from the NIV").
+That last kind isn't a fabricated reference at all: the ideal answer explains
+that the book sits outside this translation's canon, and quoting it while saying
+so is fully correct. Scoring is fully
 deterministic (no LLM), reusing the QuoteAuditor to classify every quoted span.
 The graded outcomes, best to worst:
 
@@ -39,6 +43,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from .auditor import AuditResult
+from .usfm import VerseRef, is_standard_chapter_usfm
 from .yv_client import BibleClient
 
 # (usfm, English name, real chapter count).
@@ -74,9 +79,16 @@ class PhantomItem:
     version_id: int
     version_abbrev: str
     reference_display: str
-    kind: str  # out_of_range_chapter | out_of_range_verse | fake_book
+    # out_of_range_chapter | out_of_range_verse | fake_book | absent_from_version
+    kind: str
     prompt: str
     accepted_version_ids: list[int] = field(default_factory=list)
+    # absent_from_version only: the reference is a REAL verse — just not in the
+    # translation we asked for. Recorded so the evaluation page can say plainly
+    # "the NIV does not include Tobit" instead of implying the verse is invented.
+    absent_usfm: str = ""
+    absent_source_version_id: int | None = None
+    absent_source_abbrev: str = ""
     # Phrases (this language) that deterministically signal the model told the
     # user the reference isn't in the Bible. Carried on the item so re-scoring a
     # published run needs no extra config. See phantom-v1.json denial_markers.
@@ -115,16 +127,104 @@ async def _localized_book_names(client: BibleClient, version_id: int) -> dict[st
     return names
 
 
+# How many "real verse, wrong canon" items to build per language, and how the
+# books are chosen: the largest extra books, which are the best known.
+_ABSENT_PER_LANGUAGE = 2
+
+
+async def _absent_from_version_refs(
+    client: BibleClient, lang: str, version_id: int
+) -> list[tuple[str, str, int, str]]:
+    """(usfm, display, source_version_id, source_abbrev) for real verses this
+    version does not carry.
+
+    Derived, not curated: find another translation of the same language whose
+    metadata lists books this one lacks, then reference the opening verse of its
+    largest such books. Nothing here knows what "deuterocanonical" means — it
+    only compares two editions' book lists.
+    """
+    # Duplicates included: the question is which editions exist, not which verse
+    # a span of text is, and the deduped-away Russian Synodal copy is precisely
+    # the one carrying the extra books.
+    candidates = client.load_language_versions(lang, include_duplicates=True)
+    if not candidates:
+        return []
+    try:
+        own_books = await client.version_books(version_id)
+    except Exception:  # noqa: BLE001 — no metadata, no item
+        return []
+
+    best: tuple[int, int, dict] | None = None  # (-n_extra, version_id, {book: chapters})
+    for vid in candidates:
+        if vid == version_id:
+            continue
+        try:
+            meta = await client.version(vid)
+        except Exception:  # noqa: BLE001
+            continue
+        chapters: dict[str, list[str]] = {}
+        for b in meta.get("books", []):
+            code = (b.get("usfm") or "").upper()
+            if not code or code in own_books:
+                continue
+            chs = [
+                c["usfm"]
+                for c in b.get("chapters", [])
+                # Subdivided anchors ('SIR.1_1') are real chapters but no verse
+                # reference can be built from them, so they can't be asked for.
+                if c.get("canonical", True) and is_standard_chapter_usfm(c.get("usfm", ""))
+            ]
+            if chs:
+                chapters[code] = chs
+        if not chapters:
+            continue
+        key = (-len(chapters), vid, chapters)
+        if best is None or key[:2] < best[:2]:
+            best = key
+    if best is None:
+        return []
+
+    _, src_vid, chapters = best
+    src_meta = await client.version(src_vid)
+    src_abbrev = (src_meta.get("abbreviation") or "").upper()
+    # Largest books first — a model is likelier to have an opinion about Sirach
+    # than about the Letter of Jeremiah, which makes the test about canon
+    # awareness rather than obscurity.
+    books = sorted(chapters, key=lambda b: (-len(chapters[b]), b))[:_ABSENT_PER_LANGUAGE]
+
+    out: list[tuple[str, str, int, str]] = []
+    for book in books:
+        first_chapter = chapters[book][0]
+        usfm = f"{first_chapter}.1"
+        try:
+            verses = await client.chapter_verses(src_vid, first_chapter)
+            if verses:
+                usfm = min(verses, key=lambda u: VerseRef.parse(u).verse)
+        except Exception:  # noqa: BLE001 — metadata-only fallback is fine here
+            pass
+        display = await client.human_reference(src_vid, usfm)
+        out.append((usfm, display, src_vid, src_abbrev))
+    return out
+
+
 async def build_phantom_items(
     client: BibleClient,
     cfg: PhantomConfig,
     *,
     languages: list[str] | None = None,
+    absent_template_by_language: dict[str, str] | None = None,
 ) -> list[PhantomItem]:
     """Generate impossible references per (language, version). Out-of-range
     references use each version's localized book names; fake-book references are
     config-supplied display strings (English-only by default, since a plausible
-    fake book in one language may be a real book in another)."""
+    fake book in one language may be a real book in another).
+
+    ``absent_from_version`` items are the one kind whose reference is real: they
+    ask the named translation for a book it doesn't carry (Tobit from the NIV).
+    They need a prompt that names the translation, which the ordinary phantom
+    template deliberately doesn't — pass the simple track's per-language
+    ``quote_exact`` wording as ``absent_template_by_language`` to get them.
+    """
     langs = languages or list(cfg.languages)
     items: list[PhantomItem] = []
     for lang in langs:
@@ -138,18 +238,43 @@ async def build_phantom_items(
         markers = block.get("denial_markers", [])
         names = await _localized_book_names(client, vid)
 
-        refs: list[tuple[str, str]] = []  # (kind, display)
+        # References that exist in no Bible at all — one shared prompt shape.
+        plain: list[tuple[str, str]] = []  # (kind, display)
         for i, (usfm, en_name, count) in enumerate(_OOR_CHAPTER_BOOKS):
             name = names.get(usfm, en_name)
             offset = _CHAPTER_OFFSETS[i % len(_CHAPTER_OFFSETS)]
-            refs.append(("out_of_range_chapter", f"{name} {count + offset}:1"))
+            plain.append(("out_of_range_chapter", f"{name} {count + offset}:1"))
         for usfm, en_name, ch, verse in _OOR_VERSE_REFS:
             name = names.get(usfm, en_name)
-            refs.append(("out_of_range_verse", f"{name} {ch}:{verse}"))
+            plain.append(("out_of_range_verse", f"{name} {ch}:{verse}"))
         for fake in block.get("fake_refs", []):
-            refs.append(("fake_book", fake))
+            plain.append(("fake_book", fake))
 
-        for kind, display in refs:
+        # (kind, display, absent_usfm, source_version_id, source_abbrev, prompt)
+        refs: list[tuple[str, str, str, int | None, str, str]] = [
+            (
+                kind, display, "", None, "",
+                template.replace("{reference}", display).replace("{version}", abbrev),
+            )
+            for kind, display in plain
+        ]
+
+        absent_template = (absent_template_by_language or {}).get(lang)
+        if absent_template:
+            meta = await client.version(vid)
+            title = meta.get("title") or meta.get("local_title") or abbrev
+            local_abbrev = (meta.get("local_abbreviation") or abbrev).upper()
+            for usfm, display, src_vid, src_abbrev in await _absent_from_version_refs(
+                client, lang, vid
+            ):
+                refs.append((
+                    "absent_from_version", display, usfm, src_vid, src_abbrev,
+                    absent_template.format(
+                        reference=display, version_title=title, version_abbrev=local_abbrev,
+                    ),
+                ))
+
+        for kind, display, absent_usfm, src_vid, src_abbrev, prompt in refs:
             items.append(
                 PhantomItem(
                     id=f"p-{lang}-{_slug(display)}",
@@ -159,9 +284,12 @@ async def build_phantom_items(
                     version_abbrev=abbrev,
                     reference_display=display,
                     kind=kind,
-                    prompt=template.replace("{reference}", display).replace("{version}", abbrev),
+                    prompt=prompt,
                     accepted_version_ids=list(accepted),
                     denial_markers=list(markers),
+                    absent_usfm=absent_usfm,
+                    absent_source_version_id=src_vid,
+                    absent_source_abbrev=src_abbrev,
                 )
             )
     return items

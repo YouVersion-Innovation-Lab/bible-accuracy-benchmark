@@ -203,6 +203,23 @@ function scoreRule(item: EvalItem): string {
   }
 }
 
+// Which canon a verse's book belongs to. Only shown when it isn't the shared 66,
+// because that's the case a reader needs flagged: it's scored, but separately.
+const CANON_TAGS: Record<string, string> = {
+  catholic: "Catholic deuterocanon",
+  orthodox: "Eastern canon",
+  other: "outside the standard canons",
+};
+
+function CanonTag({ canon }: { canon: string }) {
+  const label = CANON_TAGS[canon] ?? canon;
+  return (
+    <span className="ml-2 align-middle rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide bg-amber-400/10 text-amber-200 border border-amber-400/20">
+      {label}
+    </span>
+  );
+}
+
 export function SimpleWork({ item }: { item: EvalItem }) {
   const { left, right } = wordDiff(item.expected_text ?? "", item.response_text ?? "");
   const ops = item.edit_ops ?? {};
@@ -219,9 +236,16 @@ export function SimpleWork({ item }: { item: EvalItem }) {
               · {item.version_abbrev} · {item.language_tag}
               {item.tier ? ` · ${item.tier}` : ""}
             </span>
+            {item.canon && item.canon !== "protestant" && <CanonTag canon={item.canon} />}
           </div>
           <div className="text-xs text-slate-500 mt-0.5">
             Asked for this exact verse in this exact translation.
+            {item.canon && item.canon !== "protestant" && (
+              <>
+                {" "}This book is outside the 66 every translation shares, so it is scored in its
+                own canon slice and not in the Overall Score.
+              </>
+            )}
           </div>
         </div>
       }
@@ -516,8 +540,20 @@ export function PhantomWork({ item }: { item: EvalItem }) {
             <span className="text-slate-500"> · {item.language_tag}</span>
           </div>
           <div className="text-xs text-slate-500 mt-0.5">
-            This reference does not exist ({(item.kind ?? "").replace(/_/g, " ")}). No translation is
-            requested — the model should decline, ideally saying why.
+            {item.kind === "absent_from_version" ? (
+              <>
+                <span className="text-slate-300">This verse is real</span> — it just isn’t in the
+                translation we asked for. {item.version_abbrev} does not include this book
+                {item.absent_source_abbrev ? `; ${item.absent_source_abbrev} does` : ""}. The
+                model should say the book sits outside this translation’s canon; quoting it
+                while saying so is fully correct.
+              </>
+            ) : (
+              <>
+                This reference does not exist ({(item.kind ?? "").replace(/_/g, " ")}). No
+                translation is requested — the model should decline, ideally saying why.
+              </>
+            )}
           </div>
         </div>
       }

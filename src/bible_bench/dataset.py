@@ -16,7 +16,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from .normalize import normalize
-from .usfm import CANON_ORDER, SINGLE_CHAPTER_BOOKS, VerseRef
+from .usfm import SINGLE_CHAPTER_BOOKS, VerseRef, canon_of
 from .yv_client import BibleClient
 
 # Curated obscure pools (chapters heavy on names/numbers where models drift).
@@ -39,6 +39,11 @@ class BenchmarkItem:
     template_id: str
     distractor_version_ids: list[int] = field(default_factory=list)
     truth_sha256: str = ""
+    # Which canon slice this verse's book is reported under — protestant (the 66
+    # every edition shares), catholic, orthodox. A *label*, recorded at sampling
+    # time so a run can be re-scored without re-deriving it. `tier` means
+    # difficulty and nothing else; canon is a separate axis.
+    canon: str = "protestant"
 
     def to_json(self) -> dict:
         return asdict(self)
@@ -83,13 +88,18 @@ class DatasetSampler:
             key=lambda u: VerseRef.parse(u).verse,
         )
 
-    async def _canonical_chapters(self, version_id: int) -> dict[str, list[str]]:
-        """{book_usfm: [chapter_usfm, ...]} for canonical chapters only."""
+    async def _chapters_by_book(self, version_id: int) -> dict[str, list[str]]:
+        """{book_usfm: [chapter_usfm, ...]} for whatever books THIS edition has.
+
+        Canon is a property of the version, so there is no canon filter here. A
+        Catholic edition offers Tobit; a Protestant one doesn't; both are answered
+        by the same code path.
+        """
         meta = await self._client.version(version_id)
         out: dict[str, list[str]] = {}
         for b in meta.get("books", []):
             book = b.get("usfm")
-            if book not in CANON_ORDER:
+            if not book:
                 continue
             chapters = [
                 c["usfm"]
@@ -118,6 +128,7 @@ class DatasetSampler:
             tier=tier, template_id=template_id,
             distractor_version_ids=[d for d in distractors if d != version_id],
             truth_sha256=digest,
+            canon=canon_of(VerseRef.parse(usfm).book),
         )
 
     async def _sample_from_chapter_pool(
@@ -147,7 +158,7 @@ class DatasetSampler:
         version_id = lang_cfg["primary"]
         lang_name = lang_cfg["name"]
         distractors = self._spec.get("distractor_pools", {}).get(lang, [version_id])
-        chapters_by_book = await self._canonical_chapters(version_id)
+        chapters_by_book = await self._chapters_by_book(version_id)
         chosen: set[str] = set()
         items: list[BenchmarkItem] = []
         is_eng = lang == "eng"
@@ -241,36 +252,44 @@ class DatasetSampler:
             chosen.add(usfm)
             await add(usfm, "edge", "quote_exact")
 
-        # deuterocanon — the extra (apocryphal) books, sampled ONLY from versions
-        # in this language whose metadata actually carries them (e.g. a Catholic
-        # Bible like NABRE). Protestant versions don't contain these books, so
-        # only the version that has them is tested on them.
-        deutero = self._spec.get("deuterocanon")
-        if deutero:
-            d_books = set(deutero.get("books", []))
-            count_key = "english_count" if is_eng else "other_language_count"
-            d_count = max(0, round(deutero[count_key] * counts_scale))
-            for vid in version_ids if d_count else []:
-                vmeta = await self._client.version(vid)
-                d_chapters = [
-                    c["usfm"]
-                    for b in vmeta.get("books", [])
-                    if b.get("usfm") in d_books
-                    for c in b.get("chapters", [])
-                    if c.get("canonical", True)
-                    and "." in c.get("usfm", "")
-                    and "INTRO" not in c["usfm"]
-                ]
-                if not d_chapters:
+        # extra canon — books an edition carries that the language's primary
+        # (Protestant) version does not: the Catholic deuterocanon, and the
+        # Orthodox books beyond it. Derived from each version's own metadata, so
+        # adding a Catholic or Orthodox Bible to the spec is all it takes; no book
+        # list to maintain, and nothing here knows what "Catholic" means.
+        #
+        # These items belong to the one version that has the book, which is
+        # exactly right: asking the NIV for Tobit 3:4 is not a quotation test
+        # (it's a hallucination test — see the phantom track's
+        # absent_from_version kind).
+        extra_cfg = self._spec.get("extra_canon")
+        count_key = "english_count" if is_eng else "other_language_count"
+        extra_count = (
+            max(0, round(extra_cfg[count_key] * counts_scale)) if extra_cfg else 0
+        )
+        if extra_count:
+            shared_books = set(chapters_by_book)
+            for vid in version_ids:
+                if vid == version_id:
                     continue
-                d_chosen: set[str] = set()
+                vmeta = await self._client.version(vid)
+                v_chapters = await self._chapters_by_book(vid)
+                extra_chapters = [
+                    cu
+                    for book, chs in sorted(v_chapters.items())
+                    if book not in shared_books
+                    for cu in chs
+                ]
+                if not extra_chapters:
+                    continue
+                extra_chosen: set[str] = set()
                 for usfm in await self._sample_from_chapter_pool(
-                    rng, vid, d_chapters, d_count, d_chosen
+                    rng, vid, extra_chapters, extra_count, extra_chosen
                 ):
                     item = await self._make_item(
                         "simple", lang, lang_name, vid,
                         vmeta.get("abbreviation", "").upper(),
-                        usfm, "deuterocanon", "quote_exact", distractors,
+                        usfm, "body", "quote_exact", distractors,
                     )
                     if item:
                         items.append(item)

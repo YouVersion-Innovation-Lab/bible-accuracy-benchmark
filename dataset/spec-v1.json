@@ -5,7 +5,7 @@
   "tiers": {
     "famous": {
       "source": "famous_file",
-      "english_count": 63,
+      "english_count": 59,
       "other_language_count": 15
     },
     "body": {
@@ -16,82 +16,249 @@
     },
     "obscure": {
       "strategy": "obscure_pools",
-      "pools": ["genealogy", "census", "psalm119_interior", "number_heavy", "minor_prophet_interior", "longest_verses"],
+      "pools": [
+        "genealogy",
+        "census",
+        "psalm119_interior",
+        "number_heavy",
+        "minor_prophet_interior",
+        "longest_verses"
+      ],
       "english_count": 75,
       "other_language_count": 10
     },
     "edge": {
       "strategy": "edge_pools",
-      "pools": ["single_chapter_books", "chapter_final_verses", "book_final_verses"],
+      "pools": [
+        "single_chapter_books",
+        "chapter_final_verses",
+        "book_final_verses"
+      ],
       "english_count": 25,
       "other_language_count": 5
     }
   },
   "probe_set": {
     "description": "Textual-variant verses reported separately, never in the headline score.",
-    "usfms": ["MRK.16.9", "MRK.16.20", "JHN.7.53", "JHN.8.11", "ACT.8.37", "MAT.17.21", "MAT.18.11", "MAT.23.14", "MRK.7.16", "MRK.9.44", "MRK.11.26", "LUK.17.36", "LUK.23.17", "JHN.5.4", "ACT.15.34", "ACT.24.7", "ACT.28.29", "ROM.16.24", "1JN.5.7"]
+    "usfms": [
+      "MRK.16.9",
+      "MRK.16.20",
+      "JHN.7.53",
+      "JHN.8.11",
+      "ACT.8.37",
+      "MAT.17.21",
+      "MAT.18.11",
+      "MAT.23.14",
+      "MRK.7.16",
+      "MRK.9.44",
+      "MRK.11.26",
+      "LUK.17.36",
+      "LUK.23.17",
+      "JHN.5.4",
+      "ACT.15.34",
+      "ACT.24.7",
+      "ACT.28.29",
+      "ROM.16.24",
+      "1JN.5.7"
+    ]
   },
-  "deuterocanon": {
-    "description": "Deuterocanonical / apocryphal books, sampled only from versions in a language that actually contain them (e.g. the NABRE Catholic Bible). Protestant versions don't carry these books, so they're never tested on them.",
-    "books": ["TOB", "JDT", "WIS", "SIR", "BAR", "1MA", "2MA"],
+  "extra_canon": {
+    "description": "Books an edition carries that the language's primary (Protestant) version does not — the Catholic deuterocanon, and the Orthodox books beyond it. Derived from each version's own metadata, never from a hard-coded book list: whatever a version has, it can be asked for. Reported as its own canon slice, not folded into the headline.",
     "english_count": 30,
     "other_language_count": 10
   },
   "languages": {
-    "eng": {"name": "English", "versions": [111, 1, 116, 463], "primary": 111},
-    "spa": {"name": "Spanish", "versions": [149], "primary": 149},
-    "por": {"name": "Portuguese", "versions": [1608], "primary": 1608},
-    "fra": {"name": "French", "versions": [93], "primary": 93},
-    "deu": {"name": "German", "versions": [51], "primary": 51},
-    "rus": {"name": "Russian", "versions": [400], "primary": 400},
-    "arb": {"name": "Arabic", "versions": [13], "primary": 13},
-    "hin": {"name": "Hindi", "versions": [1683], "primary": 1683},
-    "ind": {"name": "Indonesian", "versions": [306], "primary": 306},
-    "kor": {"name": "Korean", "versions": [88], "primary": 88},
-    "zho": {"name": "Chinese", "versions": [48], "primary": 48}
+    "eng": {
+      "name": "English",
+      "versions": [
+        111,
+        1,
+        116,
+        463,
+        3523
+      ],
+      "primary": 111
+    },
+    "spa": {
+      "name": "Spanish",
+      "versions": [
+        149
+      ],
+      "primary": 149
+    },
+    "por": {
+      "name": "Portuguese",
+      "versions": [
+        1608,
+        4542
+      ],
+      "primary": 1608
+    },
+    "fra": {
+      "name": "French",
+      "versions": [
+        93
+      ],
+      "primary": 93
+    },
+    "deu": {
+      "name": "German",
+      "versions": [
+        51
+      ],
+      "primary": 51
+    },
+    "rus": {
+      "name": "Russian",
+      "versions": [
+        400,
+        167
+      ],
+      "primary": 400
+    },
+    "arb": {
+      "name": "Arabic",
+      "versions": [
+        13,
+        1981
+      ],
+      "primary": 13
+    },
+    "hin": {
+      "name": "Hindi",
+      "versions": [
+        1683
+      ],
+      "primary": 1683
+    },
+    "ind": {
+      "name": "Indonesian",
+      "versions": [
+        306
+      ],
+      "primary": 306
+    },
+    "kor": {
+      "name": "Korean",
+      "versions": [
+        88
+      ],
+      "primary": 88
+    },
+    "zho": {
+      "name": "Chinese",
+      "versions": [
+        48
+      ],
+      "primary": 48
+    }
   },
   "distractor_pools": {
-    "eng": [111, 1, 116, 59],
-    "spa": [149, 128],
-    "por": [1608, 129],
-    "fra": [93, 152],
-    "deu": [51, 157],
-    "rus": [400, 143],
-    "arb": [13, 101],
-    "hin": [1683, 819],
-    "ind": [306, 27],
-    "kor": [88, 86],
-    "zho": [48, 36]
+    "eng": [
+      111,
+      1,
+      116,
+      59
+    ],
+    "spa": [
+      149,
+      128
+    ],
+    "por": [
+      1608,
+      129
+    ],
+    "fra": [
+      93,
+      152
+    ],
+    "deu": [
+      51,
+      157
+    ],
+    "rus": [
+      400,
+      143
+    ],
+    "arb": [
+      13,
+      101
+    ],
+    "hin": [
+      1683,
+      819
+    ],
+    "ind": [
+      306,
+      27
+    ],
+    "kor": [
+      88,
+      86
+    ],
+    "zho": [
+      48,
+      36
+    ]
   },
   "version_names": {
-    "111": "NIV", "1": "KJV", "116": "NLT", "59": "ESV",
-    "149": "RVR1960 (es)", "128": "NVI (es)",
-    "1608": "Almeida RA (pt)", "129": "NVI-PT",
-    "93": "Louis Segond (fr)", "152": "S21 (fr)",
-    "51": "Lutherbibel (de)", "157": "Schlachter 2000 (de)",
-    "122": "Nuova Riveduta (it)", "141": "Riveduta 2024 (it)",
-    "1990": "Herziene Statenvertaling (nl)", "328": "NBG 1951 (nl)",
-    "191": "VDC / Cornilescu (ro)", "126": "NTR (ro)",
-    "138": "UBG (pl)", "3490": "BW1975 (pl)",
-    "400": "Synodal (ru)", "143": "NRP (ru)",
-    "186": "Ohienko (uk)", "188": "Kulish (uk)",
-    "173": "Today's Greek Version", "346": "TGVD (el)",
-    "13": "Van Dyck (ar)", "101": "Ketab El Hayat (ar)",
+    "111": "NIV",
+    "1": "KJV",
+    "116": "NLT",
+    "59": "ESV",
+    "149": "RVR1960 (es)",
+    "128": "NVI (es)",
+    "1608": "Almeida RA (pt)",
+    "129": "NVI-PT",
+    "93": "Louis Segond (fr)",
+    "152": "S21 (fr)",
+    "51": "Lutherbibel (de)",
+    "157": "Schlachter 2000 (de)",
+    "122": "Nuova Riveduta (it)",
+    "141": "Riveduta 2024 (it)",
+    "1990": "Herziene Statenvertaling (nl)",
+    "328": "NBG 1951 (nl)",
+    "191": "VDC / Cornilescu (ro)",
+    "126": "NTR (ro)",
+    "138": "UBG (pl)",
+    "3490": "BW1975 (pl)",
+    "400": "Synodal (ru)",
+    "143": "NRP (ru)",
+    "186": "Ohienko (uk)",
+    "188": "Kulish (uk)",
+    "173": "Today's Greek Version",
+    "346": "TGVD (el)",
+    "13": "Van Dyck (ar)",
+    "101": "Ketab El Hayat (ar)",
     "4204": "BBK (fa)",
-    "170": "TCL02 (tr)", "3763": "TTT (tr)",
-    "164": "Swahili Union Version", "1627": "NEN (sw)",
-    "3200": "Amharic 2000", "3198": "Amharic 2005",
-    "1683": "Hindi OV BSI", "819": "HHBD (hi)",
-    "1681": "Bengali BSI", "95": "MBCL (bn)",
-    "339": "Tamil OV BSI", "1899": "IRV Tamil",
-    "1787": "Telugu BSI", "1895": "IRV Telugu",
-    "306": "Terjemahan Baru (id)", "27": "BIMK (id)",
-    "144": "Magandang Balita (tl)", "1264": "ASD (tl)",
-    "151": "Vietnamese 2010", "193": "Vietnamese 1925",
-    "174": "Thai Standard Version 2011", "179": "TNCV (th)",
-    "88": "Korean Revised Version", "86": "KLB (ko)",
-    "83": "Japanese Contemporary", "81": "JA1955",
-    "48": "Chinese Union (CUNPSS)", "36": "CCB (zh)"
+    "170": "TCL02 (tr)",
+    "3763": "TTT (tr)",
+    "164": "Swahili Union Version",
+    "1627": "NEN (sw)",
+    "3200": "Amharic 2000",
+    "3198": "Amharic 2005",
+    "1683": "Hindi OV BSI",
+    "819": "HHBD (hi)",
+    "1681": "Bengali BSI",
+    "95": "MBCL (bn)",
+    "339": "Tamil OV BSI",
+    "1899": "IRV Tamil",
+    "1787": "Telugu BSI",
+    "1895": "IRV Telugu",
+    "306": "Terjemahan Baru (id)",
+    "27": "BIMK (id)",
+    "144": "Magandang Balita (tl)",
+    "1264": "ASD (tl)",
+    "151": "Vietnamese 2010",
+    "193": "Vietnamese 1925",
+    "174": "Thai Standard Version 2011",
+    "179": "TNCV (th)",
+    "88": "Korean Revised Version",
+    "86": "KLB (ko)",
+    "83": "Japanese Contemporary",
+    "81": "JA1955",
+    "48": "Chinese Union (CUNPSS)",
+    "36": "CCB (zh)"
   },
-  "notes": "11 languages, 6 scripts (Latin, Cyrillic, Arabic, Devanagari, Hangul, Han) — the same set covered by all three tracks. Version IDs chosen from versions.json by well-known abbreviation. English tests NIV/KJV/NLT plus the NABRE Catholic Bible (with deuterocanon); other languages test their primary version, with a distractor for wrong-version detection. version_names retains extra entries as a reference lookup and is not limited to the active set. Version picks pending YouVersion review (see docs)."
+  "notes": "11 languages, 6 scripts (Latin, Cyrillic, Arabic, Devanagari, Hangul, Han) — the same set covered by all three tracks. Version IDs chosen from versions.json by well-known abbreviation. Canon is version-derived: each edition is tested on the books it actually carries, and the headline covers the 66 every edition shares so cross-language comparison doesn't depend on which editions this API exposes. Catholic editions: eng NABRE (463), por Ave-Maria (4542), arb CAV (1981). Orthodox canons: eng NRSVUE (3523, 18 extra books), rus Synodal-with-deuterocanon (167). French, German, Spanish, Korean, Chinese, Indonesian and Hindi have no Catholic edition available via this API — see docs/versions/v0.4-PLAN.md. version_names retains extra entries as a reference lookup and is not limited to the active set. Version picks pending YouVersion review (see docs)."
 }

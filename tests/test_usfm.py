@@ -1,11 +1,13 @@
 import pytest
 
 from bible_bench.usfm import (
-    CANON_ORDER,
-    DEUTEROCANON,
+    CATHOLIC_DEUTERO,
+    ORTHODOX_EXTRA,
+    PROTESTANT_66,
     UsfmError,
     VerseRef,
     book_name_to_usfm,
+    canon_of,
 )
 
 
@@ -24,18 +26,22 @@ def test_english_reference():
 
 
 def test_invalid_refs_raise():
-    for bad in ["JHN.3", "NOPE.1.1", "JHN.3.16.2", "john 3:16"]:
+    for bad in ["JHN.3", "JHN.3.16.2", "john 3:16"]:
         with pytest.raises(UsfmError):
             VerseRef.parse(bad)
 
 
-def test_canon_has_66_protestant_books_plus_deuterocanon():
-    protestant = [b for b in CANON_ORDER if b not in set(DEUTEROCANON)]
-    assert len(protestant) == 66
-    assert protestant[0] == "GEN" and protestant[-1] == "REV"
-    assert len(DEUTEROCANON) == 7
-    # Deuterocanonical references must parse (they're in the recognized set).
-    assert VerseRef.parse("TOB.3.4").book == "TOB"
+def test_canon_labels_cover_the_three_slices():
+    assert len(PROTESTANT_66) == 66
+    # The three slices must not overlap — a book belongs to exactly one label.
+    assert not PROTESTANT_66 & CATHOLIC_DEUTERO
+    assert not PROTESTANT_66 & ORTHODOX_EXTRA
+    assert not CATHOLIC_DEUTERO & ORTHODOX_EXTRA
+    assert canon_of("GEN") == "protestant"
+    assert canon_of("TOB") == "catholic"
+    assert canon_of("3MA") == "orthodox"
+    # A label, not a gate: an unknown code is reported, not rejected.
+    assert canon_of("ZZZ") == "other"
 
 
 def test_book_name_lookup():
@@ -67,3 +73,9 @@ def test_parse_still_rejects_malformed_references():
 def test_english_reference_falls_back_to_the_code():
     """A book with no English name in the table must still render, not KeyError."""
     assert VerseRef.parse("XYZ.1.2").english_reference() == "XYZ 1:2"
+
+
+def test_orthodox_and_catholic_refs_parse():
+    # Canon membership is a version property, so any well-formed code parses.
+    for usfm in ("TOB.3.4", "3MA.2.1", "PS2.1.1", "S3Y.1.5", "1ES.4.2", "4MA.1.1"):
+        assert VerseRef.parse(usfm).usfm == usfm

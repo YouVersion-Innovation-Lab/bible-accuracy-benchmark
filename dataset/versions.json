@@ -1,6 +1,6 @@
 {
   "note": "Machine-readable index of benchmark generations. The current version is defined in code (bible_bench.version.BENCHMARK_VERSION); full prose descriptions live in docs/versions/<version>.md. Served to the website so each result set can be labeled and explained.",
-  "current": "v0.3",
+  "current": "v0.4",
   "versions": [
     {
       "version": "v0.1",
@@ -24,6 +24,14 @@
       "doc": "docs/versions/v0.3.md",
       "delta_from": "v0.2",
       "summary": "Fixes the largest source of error in Scripture in Answers: faithful quotations were scored as misquotes. Quotations are now identified by CONTENT against every translation the API offers for the language (229 across the 11 languages) instead of against seven hand-picked ones, and without reading the reference printed beside them — so quoting any real translation faithfully counts as faithful, and a mis-associated reference can no longer cause a false misquote. One real case moved from 0.23 to its true 0.98. No prompt names a translation any more; which translation each model prefers is now recorded as a finding. Same tracks, weights, languages, and Overall Score formula."
+    },
+    {
+      "version": "v0.4",
+      "title": "Canon is a property of the Bible",
+      "released": "2026-07",
+      "doc": "docs/versions/v0.4.md",
+      "delta_from": "v0.3",
+      "summary": "Removes the benchmark's own hard-coded list of Bible books and asks each version's metadata instead, so every edition is tested on the books it actually carries. Fixes a bug where correctly quoting an Orthodox book (3 Maccabees, Psalm 151) was scored as invented, because those books were never indexed for detection. Adds Catholic editions for Portuguese (Ave-Maria) and Arabic (CAV) alongside English NABRE, and editions carrying Eastern canons for English (NRSVUE, 18 extra books) and Russian (Synodal). Canon becomes its own reported axis — shared 66 / Catholic / Eastern — and the Overall Score still covers only the 66 books every edition shares, so cross-language comparison doesn't depend on which editions the Bible API exposes. New Hallucination Resistance kind: a real verse absent from the translation asked for (\"Sirach 1:1 from the NIV\"). Four Psalms whose numbering differs in Septuagint-ordered versions leave the famous-verse list. Same tracks, weights, languages and Overall Score formula."
     }
   ]
 }

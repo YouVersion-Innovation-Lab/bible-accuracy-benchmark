@@ -41,7 +41,6 @@ from dataclasses import dataclass
 import regex
 
 from .normalize import normalize
-from .usfm import CANON_ORDER
 
 # Tuned on real model output: full recall of known quotations while proposing
 # ~0.3% of a translation's verses. Word n-grams break on substituted words, so
@@ -187,12 +186,15 @@ class VersionIndex:
 
 
 async def load_verses(client, version_id: int) -> dict[str, str]:
-    """{usfm: text} for a translation's whole canonical text, from the cache."""
+    """{usfm: text} for a translation's whole text, from the cache.
+
+    Every book the edition carries. Restricting this to a fixed canon made
+    deuterocanonical and Orthodox books invisible to detection, so quoting them
+    accurately looked like invention.
+    """
     meta = await client.version(version_id)
     out: dict[str, str] = {}
     for b in meta.get("books", []):
-        if b.get("usfm") not in CANON_ORDER:
-            continue
         for c in b.get("chapters", []):
             cu = c.get("usfm", "")
             if not c.get("canonical", True) or "." not in cu or "INTRO" in cu:

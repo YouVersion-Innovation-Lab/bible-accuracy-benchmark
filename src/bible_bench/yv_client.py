@@ -32,7 +32,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 from .config import BibleApiConfig
-from .usfm import CANON_ORDER, SINGLE_CHAPTER_BOOKS, VerseRef, is_standard_verse_usfm
+from .usfm import SINGLE_CHAPTER_BOOKS, VerseRef, is_standard_verse_usfm
 
 _WS = re.compile(r"\s+")
 
@@ -156,6 +156,7 @@ class BibleClient:
         self._versions: dict[int, dict] = {}
         self._locks: dict[object, asyncio.Lock] = {}
         self._chapter_sets: dict[int, frozenset[str]] = {}
+        self._book_sets: dict[int, frozenset[str]] = {}
         self._cache_dir = Path(cache_dir) if cache_dir else None
         # Offline: serve only from the local cache; a miss raises instead of
         # hitting the API. Used by evaluations so a run never silently fetches.
@@ -192,9 +193,17 @@ class BibleClient:
         existing.update({k: sorted(v) for k, v in by_language.items()})
         p.write_text(json.dumps(existing, indent=2, sort_keys=True), encoding="utf-8")
 
-    def load_language_versions(self, language_tag: str) -> list[int]:
+    def load_language_versions(
+        self, language_tag: str, *, include_duplicates: bool = False
+    ) -> list[int]:
         """Translations to SEARCH when identifying a quotation, or [] if never
         prefetched.
+
+        ``include_duplicates=True`` returns every edition, duplicates and all.
+        Needed when the question isn't "which verse is this text" but "which
+        editions exist" — Russian Synodal is published twice, and the copy with
+        the deuterocanon is the one filtered out below, so the canon-aware checks
+        would otherwise conclude Russian has no such edition at all.
 
         Editions carrying identical text are excluded (detection-duplicates.json,
         written by prefetch): the API publishes the same translation under several
@@ -215,7 +224,7 @@ class BibleClient:
             return []
         ids = list(json.loads(p.read_text(encoding="utf-8")).get(language_tag, []))
         dupes_path = self._cache_dir / "detection-duplicates.json"
-        if dupes_path.exists():
+        if not include_duplicates and dupes_path.exists():
             dupes = set(json.loads(dupes_path.read_text(encoding="utf-8")))
             ids = [i for i in ids if i not in dupes]
         return ids
@@ -358,17 +367,48 @@ class BibleClient:
 
     async def chapter_usfms(self, version_id: int) -> list[str]:
         """Every canonical chapter USFM in a version (from version.json).
-        Used by prefetch to enumerate the whole Bible for a version."""
+
+        Whatever books this edition carries — including deuterocanonical and
+        Orthodox ones. Filtering against a hard-coded canon here left those books
+        out of the prefetch and therefore out of the detection index, so a model
+        that quoted 3 Maccabees correctly was scored as having invented it.
+        """
         meta = await self.version(version_id)
         out: list[str] = []
         for b in meta.get("books", []):
-            if b.get("usfm") not in CANON_ORDER:
-                continue
             for c in b.get("chapters", []):
                 cu = c.get("usfm", "")
                 if c.get("canonical", True) and "." in cu and "INTRO" not in cu.upper():
                     out.append(cu)
         return out
+
+    async def version_books(self, version_id: int) -> frozenset[str]:
+        """The USFM book codes this edition actually contains.
+
+        The semantic half of the split introduced with the canon rework:
+        ``VerseRef.parse`` answers "is this a well-formed reference", this answers
+        "does this Bible have it". Memoized alongside the chapter set.
+        """
+        if version_id not in self._book_sets:
+            meta = await self.version(version_id)
+            self._book_sets[version_id] = frozenset(
+                b["usfm"].upper() for b in meta.get("books", []) if b.get("usfm")
+            )
+        return self._book_sets[version_id]
+
+    async def version_contains(self, version_id: int, usfm: str) -> bool:
+        """True if this version carries the book *and* chapter of a reference.
+
+        Metadata-only, so it stays cheap and works offline. Verse-level presence
+        needs the chapter text — use ``verse()``, which returns None when absent.
+        """
+        try:
+            ref = VerseRef.parse(usfm)
+        except Exception:  # noqa: BLE001 — a malformed reference is in no version
+            return False
+        if ref.book not in await self.version_books(version_id):
+            return False
+        return ref.chapter_usfm.upper() in await self._known_chapters(version_id)
 
     async def verse(self, version_id: int, usfm: str) -> VerseSpan | None:
         """Text of a single verse, or None if absent in this version.

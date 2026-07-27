@@ -78,7 +78,21 @@
         "outside the canon",
         "non-canonical",
         "isn't a book",
-        "is not a book"
+        "is not a book",
+        "does not include",
+        "doesn't include",
+        "not included in",
+        "is not included",
+        "not part of",
+        "isn't part of",
+        "deuterocanonical",
+        "deuterocanon",
+        "apocrypha",
+        "apocryphal",
+        "protestant",
+        "catholic bible",
+        "orthodox bible",
+        "omits"
       ]
     },
     "spa": {
@@ -106,7 +120,16 @@
         "fuera del canon",
         "no canónico",
         "termina en",
-        "solo consta de"
+        "solo consta de",
+        "no incluye",
+        "no está incluido",
+        "no contiene",
+        "deuterocanónico",
+        "deuterocanónicos",
+        "apócrifo",
+        "apócrifos",
+        "protestante",
+        "biblia católica"
       ]
     },
     "por": {
@@ -134,7 +157,16 @@
         "fora do canon",
         "não canônico",
         "termina no",
-        "consta apenas de"
+        "consta apenas de",
+        "não inclui",
+        "não está incluído",
+        "não contém",
+        "deuterocanônico",
+        "deuterocanônicos",
+        "apócrifo",
+        "apócrifos",
+        "protestante",
+        "bíblia católica"
       ]
     },
     "fra": {
@@ -164,7 +196,16 @@
         "hors du canon",
         "non canonique",
         "n'existe pas dans la bible",
-        "se termine au"
+        "se termine au",
+        "n'inclut pas",
+        "ne comprend pas",
+        "n'est pas inclus",
+        "deutérocanonique",
+        "deutérocanoniques",
+        "apocryphe",
+        "apocryphes",
+        "protestante",
+        "bible catholique"
       ]
     },
     "deu": {
@@ -194,7 +235,17 @@
         "ausserhalb des kanons",
         "nicht kanonisch",
         "endet mit",
-        "kein solches"
+        "kein solches",
+        "enthält nicht",
+        "ist nicht enthalten",
+        "gehört nicht",
+        "nicht enthalten",
+        "deuterokanonisch",
+        "deuterokanonischen",
+        "apokryph",
+        "apokryphen",
+        "protestantisch",
+        "katholische bibel"
       ]
     },
     "kor": {
@@ -221,7 +272,15 @@
         "외경",
         "끝납니다",
         "그런 장은",
-        "그런 절은"
+        "그런 절은",
+        "포함되지 않",
+        "포함하지 않",
+        "들어 있지 않",
+        "속하지 않",
+        "제2경전",
+        "개신교",
+        "가톨릭",
+        "천주교"
       ]
     },
     "zho": {
@@ -248,7 +307,17 @@
         "不在正典",
         "非正典",
         "结束",
-        "并没有"
+        "并没有",
+        "不包含",
+        "不包括",
+        "没有收录",
+        "未收录",
+        "不属于",
+        "次经",
+        "外典",
+        "旁经",
+        "新教",
+        "天主教"
       ]
     },
     "rus": {
@@ -277,7 +346,15 @@
         "неканонический",
         "заканчивается",
         "такого стиха",
-        "такой главы"
+        "такой главы",
+        "не включает",
+        "не входит",
+        "не содержит",
+        "неканоническ",
+        "второканоническ",
+        "апокриф",
+        "протестантск",
+        "католическ"
       ]
     },
     "ind": {
@@ -301,7 +378,15 @@
         "hanya terdiri",
         "di luar kanon",
         "tidak kanonik",
-        "berakhir pada"
+        "berakhir pada",
+        "tidak memuat",
+        "tidak termasuk",
+        "tidak mencakup",
+        "bukan bagian",
+        "deuterokanonika",
+        "apokrifa",
+        "protestan",
+        "katolik"
       ]
     },
     "hin": {
@@ -325,7 +410,14 @@
         "कोई ऐसा",
         "सिद्धांत से बाहर",
         "समाप्त होती है",
-        "मौजूद नहीं है"
+        "मौजूद नहीं है",
+        "शामिल नहीं",
+        "सम्मिलित नहीं",
+        "हिस्सा नहीं",
+        "अपोक्रिफा",
+        "ड्यूटेरोकैनोनिकल",
+        "प्रोटेस्टेंट",
+        "कैथोलिक"
       ]
     },
     "arb": {
@@ -351,7 +443,16 @@
         "لا يوجد مثل",
         "خارج القانون",
         "غير قانوني",
-        "ينتهي عند"
+        "ينتهي عند",
+        "لا يتضمن",
+        "لا يشمل",
+        "غير مدرج",
+        "ليست جزءا",
+        "ليست جزءًا",
+        "الأسفار القانونية الثانية",
+        "أبوكريفا",
+        "البروتستانتي",
+        "الكاثوليكي"
       ]
     }
   }

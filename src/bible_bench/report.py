@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from collections import defaultdict
 
+from .usfm import CANONS
+
 TRACK_WEIGHTS = {"simple": 0.50, "topical": 0.25, "phantom": 0.25}
 
 # Grades that mean the model presented text as scripture but got it wrong,
@@ -27,11 +29,30 @@ def _mean(xs: list[float]) -> float:
 
 
 def summarize_simple(items: list[dict]) -> dict:
-    """Per-language macro-average plus rate breakdowns."""
+    """Per-language macro-average plus rate and canon breakdowns.
+
+    The score-bearing figures (``track_score``, ``by_language``, ``by_version``,
+    ``by_tier``) cover the **shared canon** — the 66 books every edition in the
+    benchmark carries. Which *other* books are testable depends on which editions
+    the Bible API exposes: English has NABRE and NRSVUE, German has no Catholic
+    edition at all. Folding those items into the headline would make a model's
+    German score look better than its English one purely because we couldn't test
+    the German Catholic canon, so the wider canons are reported as their own
+    labelled slices in ``by_canon`` and never averaged in.
+
+    Behaviour breakdowns (``grades``, the rates, ``n``) cover every item, because
+    they describe what the model did rather than what it scored.
+    """
     by_lang: dict[str, list[float]] = defaultdict(list)
     by_tier: dict[str, list[float]] = defaultdict(list)
     by_version: dict[str, list[float]] = defaultdict(list)
     version_meta: dict[str, dict] = {}  # version_id -> {language_tag, version_abbrev}
+    # canon -> language -> scores, so each canon is macro-averaged over only the
+    # languages that actually have an edition carrying it (a language with none
+    # must read "not tested", never zero).
+    canon_lang: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
+    canon_counts: dict[str, int] = defaultdict(int)
+    version_canon: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
     grades: dict[str, int] = defaultdict(int)
     verbatim = 0
     near = 0
@@ -44,10 +65,19 @@ def summarize_simple(items: list[dict]) -> dict:
     for it in items:
         s = it["score"]
         total += 1
-        by_lang[it["language_tag"]].append(s["item_score"])
-        by_tier[it["tier"]].append(s["item_score"])
         vid = str(it["version_id"])
-        by_version[vid].append(s["item_score"])
+        # Runs recorded before canon was tracked have no label; they only ever
+        # sampled the shared canon plus a deuterocanon tier, so default there.
+        canon = it.get("canon") or (
+            "catholic" if it.get("tier") == "deuterocanon" else "protestant"
+        )
+        canon_counts[canon] += 1
+        canon_lang[canon][it["language_tag"]].append(s["item_score"])
+        version_canon[vid][canon].append(s["item_score"])
+        if canon == "protestant":
+            by_lang[it["language_tag"]].append(s["item_score"])
+            by_tier[it["tier"]].append(s["item_score"])
+            by_version[vid].append(s["item_score"])
         version_meta.setdefault(
             vid,
             {
@@ -67,11 +97,23 @@ def summarize_simple(items: list[dict]) -> dict:
     lang_means = {lang: _mean(v) for lang, v in by_lang.items()}
     macro = _mean(list(lang_means.values()))
     # Per-version detail (each version_id belongs to exactly one language) so the
-    # website can filter the leaderboard by language and Bible version.
-    versions = [
-        {**version_meta[vid], "score": round(_mean(scores), 4), "n": len(scores)}
-        for vid, scores in sorted(by_version.items())
-    ]
+    # website can filter the leaderboard by language and Bible version. `score` is
+    # shared-canon only so a Catholic edition stays comparable to a Protestant one;
+    # `canon_profile` names the canons that edition was actually tested on.
+    versions = []
+    for vid, meta in sorted(version_meta.items()):
+        shared = by_version.get(vid, [])
+        versions.append({
+            **meta,
+            "score": round(_mean(shared), 4),
+            "n": len(shared),
+            "canon_profile": [c for c in CANONS if version_canon[vid].get(c)],
+            "by_canon": {
+                c: round(_mean(v), 4)
+                for c, v in sorted(version_canon[vid].items())
+            },
+            "canon_counts": {c: len(v) for c, v in sorted(version_canon[vid].items())},
+        })
     return {
         "track_score": round(macro, 4),
         "n": total,
@@ -79,6 +121,18 @@ def summarize_simple(items: list[dict]) -> dict:
         "by_tier": {k: round(_mean(v), 4) for k, v in sorted(by_tier.items())},
         "by_version": {k: round(_mean(v), 4) for k, v in sorted(by_version.items())},
         "versions": versions,
+        # Canon slices, each macro-averaged over the languages that have an
+        # edition carrying it. Reported beside the headline, never inside it.
+        "by_canon": {
+            c: round(_mean([_mean(v) for v in canon_lang[c].values()]), 4)
+            for c in CANONS
+            if canon_lang.get(c)
+        },
+        "canon_counts": {c: canon_counts[c] for c in CANONS if canon_counts.get(c)},
+        "canon_languages": {
+            c: sorted(canon_lang[c]) for c in CANONS if canon_lang.get(c)
+        },
+        "headline_canon": "protestant",
         "grades": dict(sorted(grades.items())),
         "verbatim_rate": round(verbatim / total, 4) if total else 0.0,
         "near_verbatim_rate": round(near / total, 4) if total else 0.0,

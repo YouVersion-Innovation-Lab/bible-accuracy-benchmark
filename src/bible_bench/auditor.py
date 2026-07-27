@@ -31,7 +31,7 @@ from typing import Protocol
 import regex
 
 from .normalize import normalize
-from .usfm import BOOK_NAME_TO_USFM, CANON_ORDER
+from .usfm import BOOK_NAME_TO_USFM
 
 ACCURATE_SIM = 0.98      # loose-normalized similarity to count a quote accurate
 MINOR_SIM = 0.90         # accurate-with-minor-errors band
@@ -194,21 +194,26 @@ class BookNameResolver:
         )
 
     @classmethod
-    async def build(cls, provider: VerseProvider, version_id: int) -> BookNameResolver:
+    async def build(cls, provider: VerseProvider, *version_ids: int) -> BookNameResolver:
+        """Names from every version listed, merged. More than one is needed when a
+        response may cite a book the primary version doesn't carry — asked for
+        Sirach from the NIV, a model's "Sirach 1:1" has to resolve for the
+        attribution check to mean anything."""
         names = dict(BOOK_NAME_TO_USFM)  # English always available
-        try:
-            meta = await provider.version(version_id)
-        except Exception:  # noqa: BLE001
-            meta = {}
-        for b in meta.get("books", []):
-            usfm = b.get("usfm")
-            if usfm not in CANON_ORDER:
+        for version_id in version_ids:
+            try:
+                meta = await provider.version(version_id)
+            except Exception:  # noqa: BLE001
                 continue
-            for key in ("human", "human_long", "abbreviation"):
-                name = (b.get(key) or "").strip()
-                if len(name) >= 2:
-                    names[name] = usfm
-                    names[name.title()] = usfm
+            for b in meta.get("books", []):
+                usfm = b.get("usfm")
+                if not usfm:
+                    continue
+                for key in ("human", "human_long", "abbreviation"):
+                    name = (b.get(key) or "").strip()
+                    if len(name) >= 2:
+                        names.setdefault(name, usfm)
+                        names.setdefault(name.title(), usfm)
         return cls(names)
 
     def find(self, text: str) -> list[RefSpan]:
@@ -240,8 +245,6 @@ class ReverseIndex:
         meta = await provider.version(version_id)
         chapter_usfms: list[str] = []
         for b in meta.get("books", []):
-            if b.get("usfm") not in CANON_ORDER:
-                continue
             for c in b.get("chapters", []):
                 cu = c.get("usfm", "")
                 if c.get("canonical", True) and "." in cu and "INTRO" not in cu:
@@ -304,15 +307,14 @@ def _sentence_refs(text: str, quote: QuoteSpan, refs: list[RefSpan]) -> list[Ref
 class QuoteAuditor:
     def __init__(self, provider: VerseProvider):
         self._provider = provider
-        self._resolvers: dict[int, BookNameResolver] = {}
+        self._resolvers: dict[tuple[int, ...], BookNameResolver] = {}
         self._indexes: dict[int, ReverseIndex] = {}
 
-    async def _resolver(self, version_id: int) -> BookNameResolver:
-        if version_id not in self._resolvers:
-            self._resolvers[version_id] = await BookNameResolver.build(
-                self._provider, version_id
-            )
-        return self._resolvers[version_id]
+    async def _resolver(self, *version_ids: int) -> BookNameResolver:
+        key = tuple(version_ids)
+        if key not in self._resolvers:
+            self._resolvers[key] = await BookNameResolver.build(self._provider, *version_ids)
+        return self._resolvers[key]
 
     async def _index(self, version_id: int) -> ReverseIndex:
         if version_id not in self._indexes:

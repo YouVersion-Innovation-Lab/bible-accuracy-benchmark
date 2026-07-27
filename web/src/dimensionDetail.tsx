@@ -11,6 +11,31 @@
  * the dimension score from the table rather than taking it on trust.
  */
 import type { TrackSummary } from "./api";
+import { langName } from "./constants";
+
+// Canon slices, widest-first. Each says what it is and whether it feeds the
+// headline, because "which books" is the single most misread axis on this site.
+const CANONS: { key: string; label: string; blurb: string }[] = [
+  {
+    key: "protestant",
+    label: "Shared canon (66 books)",
+    blurb: "carried by every translation tested — this is what the Overall Score covers",
+  },
+  {
+    key: "catholic",
+    label: "Catholic deuterocanon",
+    blurb: "Tobit, Judith, Wisdom, Sirach, Baruch, 1–2 Maccabees and the Greek Esther/Daniel",
+  },
+  {
+    key: "orthodox",
+    label: "Eastern canons",
+    blurb: "books beyond the Catholic set: 1–2 Esdras, 3–4 Maccabees, Psalm 151, Prayer of Manasseh",
+  },
+  { key: "other", label: "Other books", blurb: "carried by a translation but not in the tables above" },
+];
+
+// Below this many verses a canon score is too noisy to read as a finding.
+const LOW_SAMPLE = 25;
 
 type Row = {
   key: string;
@@ -157,6 +182,7 @@ export function DimensionBreakdown({ trackKey, ts }: { trackKey: string; ts: Tra
         {ts.by_tier && Object.keys(ts.by_tier).length > 0 && (
           <MiniScores title="Score by verse difficulty" data={ts.by_tier} />
         )}
+        <CanonBreakdown ts={ts} />
       </div>
     );
   }
@@ -177,7 +203,16 @@ export function DimensionBreakdown({ trackKey, ts }: { trackKey: string; ts: Tra
           caption={`What the model did across ${total.toLocaleString()} requests for a verse that doesn’t exist`}
         />
         {ts.by_kind && Object.keys(ts.by_kind).length > 0 && (
-          <MiniScores title="Score by kind of impossible reference" data={ts.by_kind} />
+          <MiniScores
+            title="Score by kind of unanswerable reference"
+            data={ts.by_kind}
+            labels={{
+              out_of_range_chapter: "chapter past the end of the book",
+              out_of_range_verse: "verse past the end of the chapter",
+              fake_book: "book that doesn’t exist",
+              absent_from_version: "real verse, absent from this translation",
+            }}
+          />
         )}
       </div>
     );
@@ -215,6 +250,83 @@ export function DimensionBreakdown({ trackKey, ts }: { trackKey: string; ts: Tra
   }
 
   return null;
+}
+
+/**
+ * Score by canon — the finding this section exists for.
+ *
+ * Two honesty requirements drive the design. First, the Overall Score covers only
+ * the shared 66 books, so this table has to say which row feeds it and which
+ * rows sit outside. Second, a language with no Catholic or Orthodox edition in the
+ * Bible API is *untested*, not failing — showing a blank or a zero there would
+ * read as a model weakness when it's a catalogue gap, so absent canons are named
+ * explicitly.
+ */
+function CanonBreakdown({ ts }: { ts: TrackSummary }) {
+  const byCanon = ts.by_canon ?? {};
+  const counts = ts.canon_counts ?? {};
+  const langs = ts.canon_languages ?? {};
+  if (Object.keys(byCanon).length === 0) return null;
+  const headline = ts.headline_canon ?? "protestant";
+  const tested = CANONS.filter((c) => (counts[c.key] ?? 0) > 0);
+  const untested = CANONS.filter((c) => c.key !== "other" && !(counts[c.key] ?? 0));
+
+  return (
+    <div>
+      <div className="text-xs text-slate-500 mb-2">
+        Score by canon — which books were asked for
+      </div>
+      <table className="w-full text-sm">
+        <tbody>
+          {tested.map((c) => {
+            const score = byCanon[c.key];
+            const isHeadline = c.key === headline;
+            return (
+              <tr key={c.key} className="align-top border-t border-white/5 first:border-0">
+                <td className="py-1.5 pr-3 w-[52%]">
+                  <div className={isHeadline ? "text-slate-100" : "text-amber-200"}>
+                    {c.label}
+                    {isHeadline && (
+                      <span className="ml-2 text-[10px] uppercase tracking-wide text-slate-500">
+                        in Overall Score
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-xs text-slate-500 leading-snug">{c.blurb}</div>
+                  {langs[c.key] && (
+                    <div className="text-[11px] text-slate-600 mt-0.5">
+                      tested in {langs[c.key].map(langName).join(", ")}
+                    </div>
+                  )}
+                </td>
+                <td className="py-1.5 pr-3 tabular-nums text-right w-[14%] whitespace-nowrap">
+                  {score == null ? "—" : (score * 100).toFixed(1)}
+                </td>
+                <td className="py-1.5 pr-3 tabular-nums text-right text-slate-500 w-[14%] whitespace-nowrap text-xs">
+                  {(counts[c.key] ?? 0).toLocaleString()} verses
+                  {/* Only a handful of translations carry the Eastern books, so
+                      that slice can be thin. Say so rather than letting a noisy
+                      average read as a solid finding. */}
+                  {(counts[c.key] ?? 0) < LOW_SAMPLE && (
+                    <div className="text-amber-500/70">small sample</div>
+                  )}
+                </td>
+                <td className="py-1.5 w-[20%]">
+                  <Bar frac={score ?? 0} good={isHeadline} />
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      {untested.length > 0 && (
+        <p className="text-xs text-slate-500 mt-2 leading-snug">
+          {untested.map((c) => c.label).join(" and ")} not tested — no translation carrying
+          those books was available for the languages in this run. Not a model failure.
+        </p>
+      )}
+    </div>
+  );
 }
 
 function MiniScores({

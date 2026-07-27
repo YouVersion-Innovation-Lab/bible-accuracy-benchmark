@@ -39,7 +39,7 @@ from .config import (
 from .dataset import BenchmarkItem, DatasetSampler, load_spec
 from .llm import LlmClient
 from .phantom import PhantomItem, build_phantom_items, load_phantom_config
-from .prompts import BENCHMARK_SYSTEM_PROMPT
+from .prompts import BENCHMARK_SYSTEM_PROMPT, simple_quote_templates
 from .report import build_summary, summarize_phantom, summarize_simple, summarize_topical
 from .results_store import (
     GcsResultsStore,
@@ -223,7 +223,13 @@ async def cmd_run(args) -> int:
                 [x.strip() for x in args.phantom_languages.split(",") if x.strip()]
                 if args.phantom_languages else None
             )
-            phantom_items = await build_phantom_items(client, pcfg, languages=phantom_langs)
+            # absent_from_version items must name the translation they're asking
+            # about, so they borrow the simple track's per-language wording rather
+            # than introducing a second set of prompts to translate and review.
+            phantom_items = await build_phantom_items(
+                client, pcfg, languages=phantom_langs,
+                absent_template_by_language=simple_quote_templates(),
+            )
             if args.scale < 1.0:
                 keep = max(1, int(len(phantom_items) * args.scale))
                 phantom_items = phantom_items[:keep]

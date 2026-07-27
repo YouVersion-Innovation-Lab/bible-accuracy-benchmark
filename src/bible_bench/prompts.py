@@ -28,6 +28,14 @@ def _simple_templates() -> dict:
     return json.loads((_TEMPLATE_DIR / "simple.json").read_text())
 
 
+def simple_quote_templates() -> dict[str, str]:
+    """The per-language ``quote_exact`` wording, for callers that need to ask for
+    a specific verse in a specific translation outside the simple track (the
+    phantom track's ``absent_from_version`` items). Reusing these keeps one set of
+    native-language prompts to review rather than two."""
+    return dict(_simple_templates()["templates"]["quote_exact"])
+
+
 async def render_simple_prompt(
     client: BibleClient, version_id: int, usfm: str, template_id: str, language_tag: str
 ) -> str:

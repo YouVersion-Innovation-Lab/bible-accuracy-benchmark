@@ -237,6 +237,7 @@ def _eval_row(track: str, r: dict, sent: dict, passed: bool) -> dict:
         row.update({
             "reference": r.get("usfm"), "usfm": r.get("usfm"),
             "tier": r.get("tier"),
+            "canon": r.get("canon"),
             "grade": s.get("grade"), "score": s.get("item_score"), "qer": s.get("qer"),
             "expected_text": r.get("expected_text"),
             # Everything the severity decision tree looked at.
@@ -276,6 +277,9 @@ def _eval_row(track: str, r: dict, sent: dict, passed: bool) -> dict:
         ps = r.get("phantom_score", {})
         row.update({
             "reference": r.get("reference_display"), "kind": r.get("kind"),
+            # absent_from_version only: a REAL verse, just not in this edition.
+            "absent_usfm": r.get("absent_usfm"),
+            "absent_source_abbrev": r.get("absent_source_abbrev"),
             "outcome": ps.get("outcome"), "score": ps.get("item_score"),
             "n_quotes": ps.get("n_quotes"),
             "denial_signaled": ps.get("denial_signaled"),

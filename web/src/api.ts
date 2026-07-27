@@ -4,8 +4,14 @@ export interface VersionScore {
   version_id: number;
   language_tag: string;
   version_abbrev: string;
-  score: number; // 0..1
+  score: number; // 0..1 — SHARED-canon items only, so editions stay comparable
   n: number;
+  // Which canons this edition was actually tested on, and how it did on each.
+  // A Catholic or Orthodox edition carries books a Protestant one doesn't; the
+  // score above deliberately excludes them so the two can be compared at all.
+  canon_profile?: string[];
+  by_canon?: Record<string, number>;
+  canon_counts?: Record<string, number>;
 }
 
 export interface VersionPreference {
@@ -65,6 +71,13 @@ export interface TrackSummary {
   by_language?: Record<string, number>;
   by_tier?: Record<string, number>;
   by_version?: Record<string, number>;
+  // Canon slices, reported beside the headline and never folded into it: which
+  // books are testable depends on which editions this Bible API exposes, so a
+  // headline including them wouldn't be comparable across languages.
+  by_canon?: Record<string, number>;
+  canon_counts?: Record<string, number>;
+  canon_languages?: Record<string, string[]>;
+  headline_canon?: string;
   versions?: VersionScore[];
   version_preference?: Record<string, VersionPreference>;
   grades?: Record<string, number>;
@@ -169,6 +182,7 @@ export interface EvalItem {
   reference?: string;
   usfm?: string;
   tier?: string;
+  canon?: string;
   grade?: string;
   qer?: number;
   wer?: number | null;
@@ -204,6 +218,10 @@ export interface EvalItem {
   kind?: string;
   outcome?: string;
   denial_signaled?: boolean;
+  // kind === "absent_from_version" only: the reference is a real verse, carried
+  // by absent_source_abbrev but not by the translation we asked.
+  absent_usfm?: string;
+  absent_source_abbrev?: string;
 }
 
 export interface FailuresPage {

@@ -44,7 +44,12 @@ Status legend: ☐ open · ☑ done
     `ne compte que` but not `ne comporte que`, so a perfect decline scored 0.
     Reviewers should add every natural way their language says "there is no such
     chapter/verse", "the book only has N chapters", and "that isn't in the Bible
-    / isn't canonical".
+    / isn't canonical". **v0.4 added a second family of phrasings to review**:
+    "this translation doesn't include that book" — the correct answer to an
+    `absent_from_version` item (asked for Sirach from the NIV). Terms like
+    "deuterocanonical", "apocrypha" and "Protestant canon" are counted as denial
+    signals in every language, because a model naming the canon situation has
+    answered correctly. Those were drafted, not reviewed.
   (Until reviewed, run English + reviewed languages only.)
 - ☐ **Localize the benchmark system prompt, then A/B it.** The global system
   prompt (`bible_bench.prompts.BENCHMARK_SYSTEM_PROMPT` — "quote one verse per

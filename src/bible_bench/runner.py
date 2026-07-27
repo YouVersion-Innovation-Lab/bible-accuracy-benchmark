@@ -195,6 +195,7 @@ async def _score_one(item: BenchmarkItem | None, resp: dict, client: BibleClient
         "version_abbrev": item.version_abbrev,
         "usfm": item.usfm,
         "tier": item.tier,
+        "canon": item.canon,
         "response_text": resp["response_text"],
         "expected_text": truth_span.text,
         "score": asdict(score),
@@ -580,7 +581,18 @@ async def score_phantom_items(
         detections = await quotefind.scan_responses(
             client, version_ids, texts, unspaced=quotefind.is_unspaced(sample)
         )
-        resolver = await auditor._resolver(first.version_id)  # noqa: SLF001
+        # absent_from_version items ask about a book the tested translation lacks,
+        # so its metadata has no name for it. Merge in the edition that does, or
+        # "Sirach 1:1" wouldn't resolve and a correct self-citation would read as
+        # an uncited quotation.
+        absent_sources = sorted({
+            items_by_id[r["item_id"]].absent_source_version_id
+            for r in lang_responses
+            if items_by_id[r["item_id"]].absent_source_version_id
+        })
+        resolver = await auditor._resolver(  # noqa: SLF001
+            first.version_id, *(v for v in absent_sources if v != first.version_id)
+        )
 
         for resp in lang_responses:
             item = items_by_id[resp["item_id"]]
@@ -600,6 +612,8 @@ async def score_phantom_items(
                 "version_abbrev": item.version_abbrev,
                 "reference_display": item.reference_display,
                 "kind": item.kind,
+                "absent_usfm": item.absent_usfm,
+                "absent_source_abbrev": item.absent_source_abbrev,
                 "response_text": text,
                 "phantom_score": asdict(pscore),
                 "quotes": verdicts,

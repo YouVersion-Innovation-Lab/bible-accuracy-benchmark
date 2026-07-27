@@ -1,10 +1,17 @@
-"""USFM reference types and canonical book tables (Protestant 66-book canon
-plus the deuterocanonical books carried by Catholic and some other canons).
+"""USFM reference types and book *name* tables.
 
 USFM verse references look like ``JHN.3.16`` (book.chapter.verse). Chapter
 references are ``JHN.3``. Some printed editions merge verses; the Bible API
 reports those spans with ``+``-joined identifiers like ``PSA.136.4+PSA.136.5``
 — such verses are excluded from the benchmark at sampling time.
+
+Nothing here decides whether a book *exists*. Which books a Bible contains is a
+property of that Bible: the NIV has no Tobit, the NABRE does, Russian Synodal
+carries 3 Maccabees. Ask ``BibleClient.version_books`` /
+``version_contains``. The canon tables below are a **reporting label** — they
+group a book into the shared 66, the Catholic deuterocanon, or the wider Eastern
+canons so results can be sliced by canon. No sampling, detection or scoring
+logic gates on them.
 """
 
 from __future__ import annotations
@@ -47,14 +54,18 @@ BOOK_NAME_TO_USFM: dict[str, str] = {
     "Greek Esther": "ESG", "Greek Daniel": "DAG",
 }
 
-# The extra books beyond the Protestant 66 that appear in Catholic (and some
-# other) canons. Sampled only from versions whose metadata actually lists them.
-DEUTEROCANON: list[str] = ["TOB", "JDT", "WIS", "SIR", "BAR", "1MA", "2MA"]
+# ── Canon labels (reporting only) ────────────────────────────────────────────
+# These group books for the by-canon breakdown. Membership here NEVER decides
+# whether a book can be sampled, detected or scored — the version's own metadata
+# does that. Keeping the two apart is what lets a model be credited for correctly
+# quoting 3 Maccabees instead of accused of inventing it.
 
-# Book codes the benchmark recognizes. Order is not significant (used only for
-# membership); it includes the deuterocanonical books so their references parse
-# and resolve for the versions that contain them.
-CANON_ORDER: list[str] = [
+# The 66 books every version in the benchmark shares. Cross-language comparison
+# (the headline score) is computed over these, because which *other* books are
+# testable depends on which editions the Bible API happens to expose — German has
+# no Catholic edition available, English has several — and a headline that varied
+# with catalogue coverage wouldn't be comparable at all.
+PROTESTANT_66: frozenset[str] = frozenset({
     "GEN", "EXO", "LEV", "NUM", "DEU", "JOS", "JDG", "RUT", "1SA", "2SA",
     "1KI", "2KI", "1CH", "2CH", "EZR", "NEH", "EST", "JOB", "PSA", "PRO",
     "ECC", "SNG", "ISA", "JER", "LAM", "EZK", "DAN", "HOS", "JOL", "AMO",
@@ -62,10 +73,44 @@ CANON_ORDER: list[str] = [
     "MRK", "LUK", "JHN", "ACT", "ROM", "1CO", "2CO", "GAL", "EPH", "PHP",
     "COL", "1TH", "2TH", "1TI", "2TI", "TIT", "PHM", "HEB", "JAS", "1PE",
     "2PE", "1JN", "2JN", "3JN", "JUD", "REV",
-    *DEUTEROCANON,
-]
+})
 
-_CANON_SET = frozenset(CANON_ORDER)
+# Books of the Catholic canon beyond the 66. Includes the longer Greek forms of
+# Esther and Daniel (ESG/DAG), which Catholic Bibles print in place of the
+# shorter Hebrew ones, and the Daniel/Jeremiah additions that some editions
+# publish as separate books rather than as chapters (LJE = Baruch 6; S3Y, SUS,
+# BEL sit inside Catholic Daniel).
+CATHOLIC_DEUTERO: frozenset[str] = frozenset({
+    "TOB", "JDT", "WIS", "SIR", "BAR", "1MA", "2MA",
+    "ESG", "DAG", "LJE", "S3Y", "SUS", "BEL",
+})
+
+# Books in Eastern canons (or their liturgical appendices) beyond the Catholic
+# set. Grouped as one slice: the Greek, Slavonic and Georgian canons differ from
+# each other, and the benchmark isn't fine-grained enough to speak for each.
+ORTHODOX_EXTRA: frozenset[str] = frozenset({
+    "1ES", "2ES", "3MA", "4MA", "MAN", "PS2", "ODA", "PSS",
+})
+
+# Canon slice names, widest-first, as used in reports and on the website.
+CANONS: tuple[str, ...] = ("protestant", "catholic", "orthodox", "other")
+
+
+def canon_of(book: str) -> str:
+    """Which canon slice a USFM book code is reported under.
+
+    A label, not a gate: an unrecognized code is reported as ``other`` rather
+    than rejected, so a translation carrying a book we've never seen still shows
+    up in the results instead of vanishing.
+    """
+    code = book.strip().upper()
+    if code in PROTESTANT_66:
+        return "protestant"
+    if code in CATHOLIC_DEUTERO:
+        return "catholic"
+    if code in ORTHODOX_EXTRA:
+        return "orthodox"
+    return "other"
 
 # First (canonical) English name per USFM code; Psalm/Psalms etc. resolve to
 # the first (plural/long) form.
@@ -79,6 +124,7 @@ SINGLE_CHAPTER_BOOKS = frozenset({"OBA", "PHM", "2JN", "3JN", "JUD"})
 # USFM book codes are exactly three characters and may carry a digit in any
 # position: GEN, 1SA, PS2 (Psalm 151), 4MA, S3Y (Prayer of Azariah).
 _VERSE_USFM_RE = re.compile(r"^([0-9A-Z]{3})\.(\d{1,3})\.(\d{1,3})$")
+_CHAPTER_USFM_RE = re.compile(r"^([0-9A-Z]{3})\.(\d{1,3})$")
 
 
 class UsfmError(ValueError):
@@ -89,6 +135,17 @@ def is_standard_verse_usfm(usfm: str) -> bool:
     """True for clean BOOK.CH.V references. Some editions emit split-chapter or
     subdivided anchors (e.g. 'PSA.106_1.1') the benchmark doesn't sample."""
     return bool(_VERSE_USFM_RE.match(usfm.strip().upper()))
+
+
+def is_standard_chapter_usfm(usfm: str) -> bool:
+    """True for clean BOOK.CH references.
+
+    The chapter counterpart of ``is_standard_verse_usfm``, needed for the same
+    reason: several editions subdivide a chapter and anchor the parts as
+    'SIR.1_1', which is a real chapter identifier but not one a verse reference
+    can be built from.
+    """
+    return bool(_CHAPTER_USFM_RE.match(usfm.strip().upper()))
 
 
 @dataclass(frozen=True, order=True)

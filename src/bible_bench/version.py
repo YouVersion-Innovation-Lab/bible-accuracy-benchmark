@@ -9,4 +9,4 @@ given version is tested on the identical set (a fresh draw per version)."""
 
 from __future__ import annotations
 
-BENCHMARK_VERSION = "v0.3"
+BENCHMARK_VERSION = "v0.4"

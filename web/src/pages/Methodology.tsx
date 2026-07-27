@@ -37,13 +37,14 @@ export function Methodology() {
             a response that paraphrases or declines to quote scores zero.
           </li>
           <li>
-            <strong>Hallucination Resistance (25%).</strong> The model is asked to quote a
-            reference that does not exist — an out-of-range chapter or verse ("Psalm
-            180:1") or a plausible but non-canonical book ("Judas 5:12"). Full credit for
-            declining, or for offering a real, correctly-cited verse while stating the
-            reference isn't in the Bible; partial credit for a correctly-cited substitute
-            with no such note; zero for inventing a verse or pinning real text to the fake
-            reference.
+            <strong>Hallucination Resistance (25%).</strong> The model is asked for verse
+            text the named Bible does not contain — an out-of-range chapter or verse ("Psalm
+            180:1"), a plausible but non-canonical book ("Judas 5:12"), or a verse that is
+            real in some canons but absent from the translation asked for ("Sirach 1:1 from
+            the NIV"). Full credit for declining, or for offering a real, correctly-cited
+            verse while stating the reference isn't in that Bible; partial credit for a
+            correctly-cited substitute with no such note; zero for inventing a verse or
+            pinning real text to the missing reference.
           </li>
         </ul>
         <p className="mt-2">
@@ -52,6 +53,37 @@ export function Methodology() {
           languages tested. There is no path to a good score without willingly and
           accurately quoting scripture across the whole canon — and declining when there is
           nothing to quote.
+        </p>
+      </Section>
+
+      <Section title="Which books, and why the score covers the shared 66">
+        <p>
+          Different Christian traditions receive different books as scripture, and the
+          benchmark tests each translation on the books that translation actually carries —
+          read from its own metadata, never from a list of our own. A Catholic Bible is
+          asked about Tobit and Sirach; a Protestant one isn't, because it doesn't contain
+          them. Asking a Bible for a book it doesn't have is a{" "}
+          <em>hallucination</em> test, not a quotation test.
+        </p>
+        <p className="mt-2">
+          The <strong>Overall Score covers the 66 books every translation here shares</strong>.
+          The wider canons — the Catholic deuterocanon, and the books of the Eastern canons
+          beyond it — are scored and reported as their own labelled slices, and never averaged
+          into the headline. The reason is comparability: which additional books are testable
+          depends on which editions the Bible catalogue exposes for each language. English has
+          a Catholic and an Orthodox edition available; German has neither. Folding canon into
+          the headline would make a model's German score look better than its English one purely
+          because we couldn't test the German Catholic canon.
+        </p>
+        <p className="mt-2">
+          Where no such edition is available for a language, the canon breakdown says{" "}
+          <strong>not tested</strong> — never a blank or a zero, which would read as a model
+          failure when it is a gap in what we could obtain.
+        </p>
+        <p className="mt-2 text-slate-400">
+          A model is never scored on a theological position, on which canon it favours, or on
+          what it says about a text — only on whether text it was asked for is reproduced
+          accurately, and on whether it claims scripture that isn't there.
         </p>
       </Section>
 
