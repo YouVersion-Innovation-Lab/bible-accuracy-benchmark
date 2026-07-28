@@ -334,6 +334,19 @@ def _mount_spa(app: FastAPI) -> None:
     def spa(full_path: str):
         if full_path.startswith("api/"):
             raise HTTPException(404, "Not found")
+        # Vite copies web/public into the dist ROOT, not into /assets — favicon.svg,
+        # icons.svg, and anything added there later. Without this they fall through
+        # to the SPA fallback and the browser receives index.html where it asked for
+        # an image, which is why the site showed no favicon despite shipping one.
+        # Resolved and confined to the dist directory so a crafted path can't escape.
+        if full_path:
+            candidate = (_WEB_DIST / full_path).resolve()
+            try:
+                inside = candidate.is_relative_to(_WEB_DIST.resolve())
+            except (OSError, ValueError):
+                inside = False
+            if inside and candidate.is_file():
+                return FileResponse(candidate)
         if index.exists():
             return FileResponse(index)
         return JSONResponse(

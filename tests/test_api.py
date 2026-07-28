@@ -115,3 +115,43 @@ def test_cache_control_header(tmp_path):
 def test_spa_fallback_for_unknown_route(tmp_path):
     # No web build in tests → JSON placeholder, but never a 500.
     assert _client(tmp_path).get("/models/run-a").status_code == 200
+
+
+def test_root_level_static_files_are_served_not_swallowed_by_the_spa(tmp_path):
+    """Vite copies web/public into the dist ROOT, so favicon.svg isn't under
+    /assets. The SPA catch-all was answering it with index.html — the browser asked
+    for an image and got HTML, which is why the site had no favicon despite
+    shipping one."""
+    import importlib
+    import os
+
+    from fastapi.testclient import TestClient
+
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text("<!doctype html><title>app</title>")
+    (dist / "favicon.svg").write_text('<svg xmlns="http://www.w3.org/2000/svg"/>')
+    (dist / "assets" / "index.js").write_text("console.log(1)")
+
+    old = os.environ.get("WEB_DIST")
+    os.environ["WEB_DIST"] = str(dist)
+    try:
+        from bible_bench.api import app as app_mod
+        importlib.reload(app_mod)
+        client = TestClient(app_mod.create_app())
+
+        r = client.get("/favicon.svg")
+        assert r.status_code == 200
+        assert "svg" in r.headers["content-type"], "must be an image, not index.html"
+        assert r.text.startswith("<svg")
+
+        # SPA routes still fall through to the app shell.
+        assert client.get("/models/some-run").text.startswith("<!doctype html")
+        # And a crafted path can't escape the dist directory.
+        assert not client.get("/../../etc/passwd").text.startswith("root:")
+    finally:
+        if old is None:
+            os.environ.pop("WEB_DIST", None)
+        else:
+            os.environ["WEB_DIST"] = old
+        importlib.reload(app_mod)
