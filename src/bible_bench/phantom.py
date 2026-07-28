@@ -372,6 +372,13 @@ def score_phantom_verdicts(
         return PhantomScore(_SCORE_PASS, "declined_with_substitute", len(verdicts), True)
     if all(v.get("cited_usfm") == v["matched_usfm"] for v in verdicts):
         return PhantomScore(_SCORE_SUBSTITUTE, "substitute_no_disclaimer", len(verdicts), False)
+    # The model quoted the very verse it was asked for, from a book this translation
+    # doesn't carry (see runner._mark_absent_book_quotes). Nothing was substituted, so
+    # the unreferenced-substitute rule doesn't apply — that rule exists to catch a
+    # DIFFERENT verse offered silently. What's missing is only the note that the book
+    # sits outside this Bible's canon, which is exactly half credit.
+    if any(v.get("quoted_absent_book") for v in verdicts):
+        return PhantomScore(_SCORE_SUBSTITUTE, "substitute_no_disclaimer", len(verdicts), False)
     return PhantomScore(_SCORE_FAIL, "unreferenced_substitute", len(verdicts), False)
 
 

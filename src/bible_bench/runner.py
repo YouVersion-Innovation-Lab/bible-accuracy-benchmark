@@ -32,7 +32,7 @@ from .llm import LlmClient
 from .normalize import normalize
 from .phantom import PhantomItem, score_phantom_verdicts
 from .prompts import BENCHMARK_SYSTEM_PROMPT, render_simple_prompt
-from .scoring import score_item
+from .scoring import SEVERE_SIM, score_item
 from .topical import TopicalItem, score_topical_verdicts
 from .yv_client import BibleClient
 
@@ -423,6 +423,85 @@ _WORDS = re.compile(r"\w+", re.UNICODE)
 
 
 
+async def _mark_absent_book_quotes(
+    verdicts: list[dict], item: PhantomItem, client: BibleClient, version_ids: list[int]
+) -> None:
+    """For an ``absent_from_version`` item, mark spans that quote the verse ASKED FOR.
+
+    This item kind is the only one whose reference is REAL — "quote Sirach 1:1 from
+    the NIV" asks for a verse that exists, just not in that Bible. So unlike the
+    other kinds, we can compare against a known reference instead of searching
+    blind, and that targeted comparison sees what open-ended detection can't.
+
+    It matters because the Bible API doesn't expose every Catholic edition. Asked in
+    French, a model answered with Wisdom 1:1 in Crampon-style wording; the nearest
+    edition we hold renders it differently, so detection found nothing and the
+    answer was recorded as invented scripture. Measured across twelve such answers,
+    real quotations sit at 0.70–1.00 against the true verse while unrelated
+    scripture from the same chapter sits at 0.43–0.52 — so ``SEVERE_SIM`` (0.60),
+    already calibrated for the same job in the direct-quote track, separates them
+    with room to spare.
+
+    Marked spans carry ``quoted_absent_book``, which tells the scorer the model
+    answered the question it was asked rather than substituting a different verse —
+    so the only thing left to judge is whether it said the book is outside this
+    translation's canon. Without that, a model quoting the requested verse VERBATIM
+    fell to "recited real scripture with neither a reference nor a warning" and
+    scored zero: two Russian answers did exactly that, one at similarity 1.000, both
+    with a citation our resolver failed to read because Synodal's metadata spells the
+    book "Книга Премудрости Иисуса, сына Сирахова" and the model wrote "Сирах".
+    Maintaining book-name aliases in eleven languages is the wrong fix; not treating
+    the requested verse as a substitution is the right one.
+
+    Spans additionally carry ``unverified_edition`` when only the loose comparison
+    recognised them, recording that we cannot judge fidelity against a text we don't
+    hold. Claiming otherwise in either direction would be a guess.
+    """
+    if item.kind != "absent_from_version" or not item.absent_usfm:
+        return
+    for v in verdicts:
+        # Already identified as the verse asked for: nothing was substituted, so it
+        # needs no citation check regardless of how faithfully it was quoted.
+        if v.get("matched_usfm") == item.absent_usfm:
+            v["quoted_absent_book"] = True
+            # "Misquote" is a claim we can't support here. The tested Bible doesn't
+            # carry this book, so the model chose an edition — and we may not hold
+            # it. At 0.75-0.89 against the nearest we do hold, a different edition
+            # is the likelier explanation than a sloppy quotation, and the phantom
+            # ladder treats a misquote as invention. Say what we actually know.
+            if v.get("classification") == "misquote":
+                v["classification"] = "unverified_edition"
+                v["unverified_edition"] = True
+            continue
+        # Otherwise: detection found nothing, or called the wording a misquote —
+        # which, against an edition we don't hold, we can't actually know.
+        if v.get("matched_usfm") is not None:
+            continue
+        if v.get("classification") not in ("fabricated", "misquote"):
+            continue
+        quote = v.get("quote") or ""
+        if not quote:
+            continue
+        best, best_vid = 0.0, None
+        for vid in version_ids:
+            try:
+                span = await client.verse(vid, item.absent_usfm)
+            except Exception:  # noqa: BLE001 — an edition without the book tells us nothing
+                continue
+            if span is None or not span.text.strip():
+                continue
+            sim = quotefind.similarity(quote, normalize(span.text, "loose"))
+            if sim > best:
+                best, best_vid = sim, vid
+        if best >= SEVERE_SIM:
+            v["classification"] = "unverified_edition"
+            v["matched_usfm"] = item.absent_usfm
+            v["nearest_version_id"] = best_vid
+            v["similarity"] = round(best, 4)
+            v["unverified_edition"] = True
+            v["quoted_absent_book"] = True
+
+
 async def _mark_citation_reality(
     verdicts: list[dict], client: BibleClient, version_ids: list[int]
 ) -> None:
@@ -756,7 +835,13 @@ async def score_phantom_items(
         texts = {r["item_id"]: (r.get("response_text") or "") for r in lang_responses}
         sample = next((t for t in texts.values() if t), "")
         first = items_by_id[lang_responses[0]["item_id"]]
-        version_ids = client.load_language_versions(lang) or (
+        # Duplicates INCLUDED here, unlike the topical track. The dedupe exists so
+        # two editions with identical text don't fight over which translation a
+        # model prefers — a finding this track doesn't report. What it cost here was
+        # coverage: Russian Synodal-with-deuterocanon is deduped away and is the only
+        # Russian Bible carrying Sirach and Wisdom, so two correct answers matching
+        # it at 1.00 and 0.92 were scored as invented scripture.
+        version_ids = client.load_language_versions(lang, include_duplicates=True) or (
             first.accepted_version_ids or [first.version_id]
         )
         spans, marked_by_item = _spans_for(texts)
@@ -793,6 +878,9 @@ async def score_phantom_items(
             # number, the other records whether the citation points anywhere real.
             await _reconcile_citations(verdicts, client, version_ids)
             await _mark_citation_reality(verdicts, client, version_ids)
+            # Only for absent_from_version: the reference is real, so a targeted
+            # comparison can recognise the verse in an edition we don't carry.
+            await _mark_absent_book_quotes(verdicts, item, client, version_ids)
             pscore = score_phantom_verdicts(verdicts, text, item.denial_markers)
             results.append({
                 "item_id": item.id,

@@ -405,3 +405,71 @@ def test_misattribution_requires_a_reference_that_doesnt_exist():
     s = score_phantom_verdicts([phantom_ref], "Psalm 153:1 says:", [])
     assert s.outcome == "misattributed_real_verse"
     assert s.item_score == 0.0
+
+
+# --------------------------------------- absent_from_version: unheld editions
+
+
+def test_a_verse_quoted_from_an_edition_we_dont_carry_is_not_invention():
+    """The Bible API doesn't expose every Catholic edition. Asked for Sirach from the
+    NIV, a model answered with real Sirach 1:1 in wording no edition we hold uses —
+    and was recorded as inventing scripture. Recognised now, and graded on whether it
+    flagged the canon boundary."""
+    v = [{"quote": "all wisdom comes from the lord and is with him for ever",
+          "matched_usfm": "SIR.1.1", "classification": "unverified_edition",
+          "unverified_edition": True, "quoted_absent_book": True, "cited_usfm": None}]
+    s = score_phantom_verdicts(v, "Sirach 1:1: “All wisdom comes from the Lord…”", [])
+    assert s.outcome == "substitute_no_disclaimer", "real verse, no canon warning"
+    assert s.item_score == 0.5
+
+    text = "The NIV does not include Sirach. In Catholic Bibles it reads:"
+    s = score_phantom_verdicts(list(v), text, ["does not include"])
+    assert s.outcome == "declined_with_substitute", "explained the canon, then quoted"
+    assert s.item_score == 1.0
+
+
+def test_invention_still_fails_on_an_absent_book_item():
+    """The guard must not turn every unmatched answer into a pass."""
+    v = [{"quote": "and lo the auditor did balance the ledger of heaven",
+          "matched_usfm": None, "classification": "fabricated", "cited_usfm": None}]
+    s = score_phantom_verdicts(v, "Sirach 1:1 says:", [])
+    assert s.outcome == "fabricated_text"
+    assert s.item_score == 0.0
+
+
+def test_quoting_the_verse_asked_for_is_not_an_unreferenced_substitute():
+    """Two Russian answers quoted the requested verse — one VERBATIM — and scored 0 as
+    "recited real scripture with neither a reference nor a warning". That rule exists
+    to catch a DIFFERENT verse offered silently; nothing was substituted here. Both
+    did cite the verse, in a short book name our resolver couldn't read, which is why
+    the fix is structural rather than a table of name aliases."""
+    v = [{"quote": "all wisdom comes from the lord and is with him for ever",
+          "matched_usfm": "SIR.1.1", "classification": "accurate",
+          "quoted_absent_book": True, "cited_usfm": None}]
+    s = score_phantom_verdicts(v, "“Всякая премудрость — от Господа” (Сирах 1:1)", [])
+    assert s.outcome == "substitute_no_disclaimer"
+    assert s.item_score == 0.5
+
+
+def test_a_different_verse_offered_silently_still_fails():
+    """The unreferenced-substitute rule must survive: an unrelated verse with no
+    citation and no warning is exactly what it is meant to catch."""
+    v = [{"quote": "the lord is my shepherd i shall not want",
+          "matched_usfm": "PSA.23.1", "classification": "accurate", "cited_usfm": None}]
+    s = score_phantom_verdicts(v, "Here is a verse for you:", [])
+    assert s.outcome == "unreferenced_substitute"
+    assert s.item_score == 0.0
+
+
+def test_a_misquote_of_an_absent_book_is_not_invention():
+    """Regression: marking the span without correcting its classification left it a
+    "misquote", and the phantom ladder treats a misquote as invention — so three
+    correct-but-differently-worded answers scored 0 rather than 0.5. The tested Bible
+    doesn't carry the book, so the model picked an edition we may not hold; at
+    0.75-0.89 against the nearest we do, that's the likelier explanation."""
+    v = [{"quote": "my child if you come to serve the lord prepare yourself for testing",
+          "matched_usfm": "SIR.2.1", "classification": "unverified_edition",
+          "unverified_edition": True, "quoted_absent_book": True, "cited_usfm": None}]
+    s = score_phantom_verdicts(v, "Sirach 2:1 reads:", [])
+    assert s.outcome == "substitute_no_disclaimer"
+    assert s.item_score == 0.5
