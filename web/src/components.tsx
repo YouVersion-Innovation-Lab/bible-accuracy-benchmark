@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Link } from "react-router-dom";
 import { heatColor } from "./constants";
 
 export function ScoreBadge({ score }: { score: number | null | undefined }) {
@@ -15,27 +16,38 @@ export function ScoreBadge({ score }: { score: number | null | undefined }) {
 }
 
 // Heat-map matrix cell for a 0..1 score (leaderboard + model-detail tables).
-// Given onClick, the whole cell is a click target (e.g. drill into evaluations).
+// Given `href`, the whole cell links to the test cases behind the number.
+// `divider` marks the first cell of a column group.
 export function HeatCell({
   value,
   title,
-  onClick,
+  href,
+  divider,
 }: {
   value: number | undefined;
   title?: string;
-  onClick?: () => void;
+  href?: string;
+  divider?: boolean;
 }) {
   const { bg, fg } = heatColor(value);
+  const linked = href != null && value != null;
   return (
     <td
-      className={`px-3 py-3 text-center tabular-nums ${
-        onClick ? "cursor-pointer hover:brightness-125" : ""
-      }`}
+      className={`text-center tabular-nums ${divider ? "border-l border-white/10" : ""}`}
       style={{ background: bg, color: fg }}
       title={title}
-      onClick={onClick}
     >
-      {value == null ? "—" : (value * 100).toFixed(0)}
+      {linked ? (
+        <Link
+          to={href}
+          className="block px-3 py-3 no-underline hover:brightness-125"
+          style={{ color: fg }}
+        >
+          {(value * 100).toFixed(0)}
+        </Link>
+      ) : (
+        <span className="block px-3 py-3">{value == null ? "—" : (value * 100).toFixed(0)}</span>
+      )}
     </td>
   );
 }

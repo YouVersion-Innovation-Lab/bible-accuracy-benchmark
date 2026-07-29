@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type LeaderboardEntry } from "../api";
 import { ErrorMsg, HeatCell, Loading, ScoreBadge } from "../components";
-import { TRACK_WEIGHTS, langName, orderLanguages } from "../constants";
-import { useFilters } from "../filterContext";
+import { TRACKS, TRACK_WEIGHTS } from "../constants";
 import { useAsync } from "../hooks";
+import { languageSlices, sliceScore, versionSlices, type Slice } from "../slices";
 
 // A data column in the matrix: a value in [0,1] per model, or undefined if the
 // model wasn't scored on it.
@@ -12,6 +12,7 @@ interface Col {
   key: string;
   label: string;
   title?: string;
+  first?: boolean; // starts a column group — gets a divider
   get: (e: LeaderboardEntry) => number | undefined;
 }
 
@@ -19,8 +20,6 @@ const HEADLINE = "headline";
 
 export function Leaderboard() {
   const { data, error, loading } = useAsync(() => api.leaderboard(), []);
-  // Language + version come from the global (header) filter.
-  const { lang: filterLang, version: filterVersion, versionsByLang } = useFilters();
   const [sortKey, setSortKey] = useState<string>(HEADLINE);
   const [benchVer, setBenchVer] = useState<string | null>(null);
 
@@ -38,56 +37,41 @@ export function Leaderboard() {
     [data, activeVer],
   );
 
-  const languages = useMemo(() => {
-    const tags = new Set<string>();
-    entries.forEach((e) => Object.keys(e.by_language || {}).forEach((t) => tags.add(t)));
-    return orderLanguages([...tags]);
+  // Every language and every Bible version in this generation, always all shown:
+  // no filter to set, nothing hidden behind one.
+  const cols: Col[] = useMemo(() => {
+    const langs = languageSlices(
+      entries.flatMap((e) => TRACKS.map((t) => e.tracks_detail?.[t.key])),
+    );
+    const versions = versionSlices(
+      entries.map((e) => e.tracks_detail?.simple ?? { versions: e.versions }),
+    );
+    return [
+      ...langs.map((s, i) => ({
+        key: s.key,
+        label: s.label,
+        title: `Overall score for ${s.label} — all three dimensions`,
+        first: i === 0,
+        get: (e: LeaderboardEntry) => overallForLang(e, s.lang),
+      })),
+      ...versions.map((s, i) => ({
+        key: s.key,
+        label: s.label,
+        title: `Direct Quotation accuracy · ${s.label}`,
+        first: i === 0,
+        get: (e: LeaderboardEntry) => quoteScore(e, s),
+      })),
+    ];
   }, [entries]);
 
-  // The Overall Score column itself reflects the active slice, so default to
-  // sorting by it whenever the filter changes.
-  useEffect(() => {
-    setSortKey(HEADLINE);
-  }, [filterLang, filterVersion]);
-
-  // Data columns beside the (filter-aware) Overall Score column.
-  const cols: Col[] = useMemo(() => {
-    // A specific version: the Overall Score column already shows that version's
-    // slice, so there's nothing to add.
-    if (filterVersion != null) return [];
-    // A language: one single-verse (direct-quote) column per version of that
-    // language. The blended overall for the language is the Overall Score
-    // column, so we don't repeat it as its own column.
-    if (filterLang) {
-      return (versionsByLang.get(filterLang) || []).map((v) =>
-        verCol(filterLang, v.version_id, v.version_abbrev),
-      );
-    }
-    // No filter: one Overall Score column per language.
-    return languages.map((lang) => ({
-      key: `lang:${lang}`,
-      label: langName(lang),
-      title: `Overall score for ${langName(lang)}`,
-      get: (e: LeaderboardEntry) => overallForLang(e, lang),
-    }));
-  }, [filterLang, filterVersion, languages, versionsByLang]);
-
-  // The model's Overall Score for the current slice (0..100): the headline when
-  // unfiltered, else the blended overall restricted to the language/version.
-  const overallScore = (e: LeaderboardEntry): number | null => {
-    if (!filterLang) return e.headline_score;
-    const v = overallForSlice(e, filterLang, filterVersion);
-    return v == null ? null : v * 100;
-  };
+  const nLang = useMemo(() => cols.filter((c) => c.key.startsWith("lang:")).length, [cols]);
 
   const rows = useMemo(() => {
     const col = cols.find((c) => c.key === sortKey);
-    const val = (e: LeaderboardEntry) => {
-      if (sortKey !== HEADLINE && col) return (col.get(e) ?? -1) * 100;
-      return overallScore(e) ?? -1;
-    };
+    const val = (e: LeaderboardEntry) =>
+      sortKey !== HEADLINE && col ? (col.get(e) ?? -1) * 100 : (e.headline_score ?? -1);
     return [...entries].sort((a, b) => val(b) - val(a));
-  }, [entries, cols, sortKey, filterLang, filterVersion]);
+  }, [entries, cols, sortKey]);
 
   return (
     <div>
@@ -155,26 +139,44 @@ export function Leaderboard() {
             </Link>
           </div>
 
-          <div className="mt-6 overflow-x-auto rounded-xl border border-white/10">
+          <p className="text-xs text-slate-500 mb-2">
+            Every language and every translation tested, all shown at once — scroll sideways for the
+            rest. Click a column heading to sort by it, or a model to see its own breakdown.
+            <span className="block mt-1">
+              <span className="text-slate-400">By language</span> blends all three dimensions
+              (50% Direct Quotation · 25% Scripture in Answers · 25% Hallucination Resistance).{" "}
+              <span className="text-slate-400">By translation</span> shows Direct Quotation only —
+              it is the one dimension whose prompts name a translation.
+            </span>
+          </p>
+
+          <div className="mt-3 overflow-x-auto rounded-xl border border-white/10">
             <table className="text-sm border-collapse">
               <thead className="bg-white/[0.04] text-slate-300">
                 <tr>
-                  <th className="sticky left-0 z-20 bg-[#11162a] text-left font-medium px-3 py-3 w-8">
+                  <th
+                    rowSpan={2}
+                    className="sticky left-0 z-20 bg-[#11162a] text-left font-medium px-3 py-3 w-8"
+                  >
                     #
                   </th>
-                  <th className="sticky left-8 z-20 bg-[#11162a] text-left font-medium px-3 py-3 min-w-56">
+                  <th
+                    rowSpan={2}
+                    className="sticky left-8 z-20 bg-[#11162a] text-left font-medium px-3 py-3 min-w-56"
+                  >
                     Model
                   </th>
                   <SortableTh
                     label="Overall Score"
-                    title={
-                      filterLang
-                        ? "Overall score for the current filter"
-                        : "Overall score across all languages"
-                    }
+                    title="Overall score across every language"
                     active={sortKey === HEADLINE}
                     onClick={() => setSortKey(HEADLINE)}
+                    rowSpan={2}
                   />
+                  <GroupTh span={nLang} label="Overall by language" />
+                  <GroupTh span={cols.length - nLang} label="Direct Quotation by translation" />
+                </tr>
+                <tr>
                   {cols.map((c) => (
                     <SortableTh
                       key={c.key}
@@ -182,6 +184,7 @@ export function Leaderboard() {
                       title={c.title}
                       active={sortKey === c.key}
                       onClick={() => setSortKey(c.key)}
+                      divider={c.first}
                     />
                   ))}
                 </tr>
@@ -205,10 +208,15 @@ export function Leaderboard() {
                       </div>
                     </td>
                     <td className="px-3 py-3 text-center">
-                      <ScoreBadge score={overallScore(e)} />
+                      <ScoreBadge score={e.headline_score} />
                     </td>
                     {cols.map((c) => (
-                      <HeatCell key={c.key} value={c.get(e)} />
+                      <HeatCell
+                        key={c.key}
+                        value={c.get(e)}
+                        title={`${e.model_label} · ${c.title ?? c.label}`}
+                        divider={c.first}
+                      />
                     ))}
                   </tr>
                 ))}
@@ -227,14 +235,9 @@ function verNum(v: string): number {
   return maj * 1000 + min;
 }
 
-// A single Bible version's single-verse (direct-quote) accuracy column.
-function verCol(lang: string, versionId: number, abbrev?: string): Col {
-  return {
-    key: `ver:${versionId}`,
-    label: abbrev || `#${versionId}`,
-    title: `Single-verse quote accuracy · ${langName(lang)} · ${abbrev || versionId}`,
-    get: (e) => e.versions?.find((v) => v.version_id === versionId)?.score,
-  };
+// Direct-quote accuracy (0..1) for one translation.
+function quoteScore(e: LeaderboardEntry, s: Slice): number | undefined {
+  return sliceScore(e.tracks_detail?.simple ?? { versions: e.versions }, s);
 }
 
 // A model's blended Overall Score (0..1) for one language: the same weighted
@@ -256,29 +259,20 @@ function overallForLang(e: LeaderboardEntry, lang: string): number | undefined {
   return den > 0 ? num / den : e.by_language?.[lang];
 }
 
-// Overall Score (0..1) for the active slice. A language slice blends by-language
-// track scores; a specific version blends the per-version track scores (only the
-// tracks that were run in that version contribute), matching the model-detail
-// page. Falls back to the single-verse score when per-track detail is absent.
-function overallForSlice(
-  e: LeaderboardEntry,
-  lang: string,
-  version: number | null,
-): number | undefined {
-  if (version == null) return overallForLang(e, lang);
-  const single = e.versions?.find((v) => v.version_id === version)?.score;
-  const td = e.tracks_detail;
-  if (!td) return single;
-  let num = 0;
-  let den = 0;
-  for (const [track, w] of Object.entries(TRACK_WEIGHTS)) {
-    const v = td[track]?.versions?.find((x) => x.version_id === version)?.score;
-    if (v != null) {
-      num += w * v;
-      den += w;
-    }
-  }
-  return den > 0 ? num / den : single;
+// Heading over a block of columns. The label is sticky *inside* its own span, so
+// it stays readable while you scroll through a block 18 columns wide instead of
+// sitting centred somewhere off-screen.
+function GroupTh({ span, label }: { span: number; label: string }) {
+  return (
+    <th
+      colSpan={span}
+      className="px-3 pt-2 pb-1 text-left font-medium border-l border-white/10"
+    >
+      <span className="sticky left-[17rem] inline-block text-[11px] uppercase tracking-wide text-slate-500">
+        {label}
+      </span>
+    </th>
+  );
 }
 
 function SortableTh({
@@ -286,18 +280,23 @@ function SortableTh({
   active,
   onClick,
   title,
+  rowSpan,
+  divider,
 }: {
   label: string;
   active: boolean;
   onClick: () => void;
   title?: string;
+  rowSpan?: number;
+  divider?: boolean;
 }) {
   return (
     <th
       onClick={onClick}
+      rowSpan={rowSpan}
       className={`px-3 py-3 text-center font-medium cursor-pointer whitespace-nowrap hover:text-white ${
         active ? "text-white" : ""
-      }`}
+      } ${divider ? "border-l border-white/10" : ""}`}
       title={title ? `${title} — sort` : `Sort by ${label}`}
     >
       {label} {active ? "▼" : ""}

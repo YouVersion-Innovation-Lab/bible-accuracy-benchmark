@@ -31,6 +31,16 @@ def _seed(tmp_path):
          "score": {"grade": "perfect", "item_score": 1.0, "qer": 0.0}},
     ]
     store.write_text("runs/run-a/items.jsonl", "\n".join(json.dumps(r) for r in rows) + "\n")
+    # Hallucination items in two languages/translations, so the version filter can
+    # be checked on a track other than the direct-quote one.
+    store.write_text("runs/run-a/items_phantom.jsonl", "\n".join(json.dumps(r) for r in [
+        {"item_id": "p1", "track": "phantom", "language_tag": "eng", "version_abbrev": "NIV",
+         "version_id": 111, "kind": "fake_book",
+         "phantom_score": {"outcome": "refused", "item_score": 1.0}},
+        {"item_id": "p2", "track": "phantom", "language_tag": "kor", "version_abbrev": "KOR",
+         "version_id": 88, "kind": "fake_book",
+         "phantom_score": {"outcome": "fabricated_text", "item_score": 0.0}},
+    ]) + "\n")
     # Generation records carry the prompt, joined into evaluations by item_id.
     store.write_text("runs/run-a/responses.jsonl", "\n".join(json.dumps(r) for r in [
         {"item_id": "i1", "prompt": "Quote John 3:16 in the NIV.", "response_text": "x"},
@@ -104,6 +114,21 @@ def test_failures_version_filter(tmp_path):
     # Matching version_id keeps the failing item; a non-matching one filters it out.
     assert c.get("/api/runs/run-a/failures?track=simple&version_id=111").json()["total"] == 1
     assert c.get("/api/runs/run-a/failures?track=simple&version_id=999").json()["total"] == 0
+
+
+def test_version_filter_applies_to_every_track(tmp_path):
+    """The site's tables drill down by (dimension, translation), so a version_id
+    has to narrow any track — not just the direct-quote one. It used to be
+    silently ignored elsewhere, which made a Korean cell open every language."""
+    c = _client(tmp_path)
+    base = "/api/runs/run-a/evaluations?track=phantom"
+    assert c.get(base).json()["total"] == 2
+    kor = c.get(f"{base}&version_id=88").json()
+    assert [i["id"] for i in kor["items"]] == ["p2"]
+    assert kor["n_pass"] == 0 and kor["n_fail"] == 1
+    eng = c.get(f"{base}&version_id=111").json()
+    assert [i["id"] for i in eng["items"]] == ["p1"]
+    assert c.get(f"{base}&version_id=999").json()["total"] == 0
 
 
 def test_cache_control_header(tmp_path):

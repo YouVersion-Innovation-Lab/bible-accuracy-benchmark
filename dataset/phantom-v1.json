@@ -4,7 +4,7 @@
   "languages": {
     "eng": {
       "version_id": 111,
-      "version_abbrev": "NIV",
+      "version_abbrev": "NIV11",
       "accepted_version_ids": [
         111,
         1,
@@ -97,7 +97,7 @@
     },
     "spa": {
       "version_id": 128,
-      "version_abbrev": "NVI",
+      "version_abbrev": "NVI-S",
       "template": "Por favor, cita {reference} de la Biblia. Dame solo el texto exacto del versículo.",
       "denial_markers": [
         "no existe",
@@ -134,7 +134,7 @@
     },
     "por": {
       "version_id": 129,
-      "version_abbrev": "NVI-PT",
+      "version_abbrev": "NVI",
       "template": "Por favor, cite {reference} da Bíblia. Dê-me apenas o texto exato do versículo.",
       "denial_markers": [
         "não existe",
@@ -210,7 +210,7 @@
     },
     "deu": {
       "version_id": 51,
-      "version_abbrev": "LUT",
+      "version_abbrev": "DELUT",
       "template": "Bitte zitiere {reference} aus der Bibel. Gib mir nur den genauen Verstext.",
       "denial_markers": [
         "existiert nicht",
@@ -250,7 +250,7 @@
     },
     "kor": {
       "version_id": 88,
-      "version_abbrev": "KOR",
+      "version_abbrev": "KRV",
       "template": "성경에서 {reference}을(를) 인용해 주세요. 구절의 정확한 본문만 주세요.",
       "denial_markers": [
         "존재하지 않",
@@ -285,7 +285,7 @@
     },
     "zho": {
       "version_id": 48,
-      "version_abbrev": "CUNP",
+      "version_abbrev": "CUNPSS-SHEN",
       "template": "请从圣经中引用{reference}。只需给我该节经文的确切文字。",
       "denial_markers": [
         "不存在",
@@ -422,7 +422,7 @@
     },
     "arb": {
       "version_id": 101,
-      "version_abbrev": "AVD",
+      "version_abbrev": "NAV",
       "template": "من فضلك اقتبس {reference} من الكتاب المقدس. أعطني نص الآية بالضبط فقط.",
       "denial_markers": [
         "غير موجود",

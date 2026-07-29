@@ -94,7 +94,7 @@ def create_app(cache: CachedStore | None = None, http_max_age: int | None = None
     ) -> JSONResponse:
         """Every scored item for a track (not just failures), each with the
         prompt sent and the deterministic scoring detail. Filter by outcome
-        (all/pass/fail), language, and — for the direct-quote track — version."""
+        (all/pass/fail), language, and Bible version."""
         if not store.is_published(run_id):
             raise HTTPException(404, "Run not found or not published")
         # Join the generation record so each row can show the prompt actually
@@ -125,9 +125,10 @@ def _select_failures(
     for r in records:
         if language and r.get("language_tag") != language:
             continue
-        # version_id only applies to the simple track (topical/adversarial items
-        # aren't tied to a single version); ignore it elsewhere.
-        if version_id is not None and track == "simple" and r.get("version_id") != version_id:
+        # Every scored item names the translation it was checked against, so a
+        # version filter narrows any track. (Adversarial goals don't, and drop
+        # out entirely when one is asked for — which is the honest answer.)
+        if version_id is not None and r.get("version_id") != version_id:
             continue
         if track == "adversarial":
             if r.get("reached"):
@@ -301,7 +302,7 @@ def _select_evaluations(
     for r in records:
         if language and r.get("language_tag") != language:
             continue
-        if version_id is not None and track == "simple" and r.get("version_id") != version_id:
+        if version_id is not None and r.get("version_id") != version_id:
             continue
         passed = _eval_passed(track, r)
         n_pass += int(passed)

@@ -9,9 +9,8 @@ import { useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { ErrorMsg, Loading } from "../components";
-import { TRACK_BY_KEY } from "../constants";
+import { TRACK_BY_KEY, langName } from "../constants";
 import { PhantomWork, SimpleWork, TopicalWork } from "../evalWork";
-import { useFilters } from "../filterContext";
 import { useAsync } from "../hooks";
 
 const OUTCOMES = [
@@ -38,14 +37,18 @@ const INTRO: Record<string, string> = {
 
 export function TrackEvaluations() {
   const { runId = "", track = "simple" } = useParams();
-  const { lang, version } = useFilters();
   const [params, setParams] = useSearchParams();
   const outcome = params.get("outcome") ?? "all";
+  // The subset being read lives in the URL — arrived at by clicking a cell on
+  // the model page — so a drilled-down view is shareable and reversible.
+  const lang = params.get("language");
+  const versionParam = params.get("version_id");
+  const version = versionParam ? Number(versionParam) : null;
   const [offset, setOffset] = useState(0);
 
   const meta = TRACK_BY_KEY[track];
 
-  // Any filter change re-queries from the top; keeping a deep offset across a
+  // A different subset re-queries from the top; keeping a deep offset across a
   // narrower result set would land on an empty page.
   useEffect(() => setOffset(0), [track, outcome, lang, version]);
 
@@ -56,15 +59,14 @@ export function TrackEvaluations() {
   );
 
   const label = run.data?.model.label ?? runId;
-  // Only the direct-quote track varies by translation; the others define one
-  // per language, so a version filter would silently do nothing there.
-  const versionApplies = track === "simple";
-  const scope = [
-    lang ? lang.toUpperCase() : "all languages",
-    version != null && versionApplies ? "one translation" : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  const abbrev =
+    version == null
+      ? null
+      : (run.data?.summary.tracks[track]?.versions?.find((v) => v.version_id === version)
+          ?.version_abbrev ?? `#${version}`);
+  const scope = [lang ? langName(lang) : "all languages", abbrev].filter(Boolean).join(" · ");
+  // Keep the outcome tab when widening the subset back out to the whole run.
+  const wholeRun = outcome === "all" ? "" : `?outcome=${outcome}`;
 
   if (!meta) {
     return (
@@ -91,13 +93,17 @@ export function TrackEvaluations() {
         </h1>
         <p className="text-slate-400 text-sm mt-1 leading-normal">{INTRO[track]}</p>
         <p className="text-slate-500 text-xs mt-2">
-          Showing {scope}. Every case below lists its own score and the steps that produced it;
-          nothing is recomputed in the browser.
-          {version != null && !versionApplies && (
+          Showing <span className="text-slate-300">{scope}</span>. Every case below lists its own
+          score and the steps that produced it; nothing is recomputed in the browser.
+          {(lang || version != null) && (
             <>
               {" "}
-              The header’s translation filter doesn’t apply to this dimension — it defines one
-              translation per language.
+              <Link
+                to={`/models/${encodeURIComponent(runId)}/evaluations/${track}${wholeRun}`}
+                className="text-indigo-300 hover:underline"
+              >
+                Show every language →
+              </Link>
             </>
           )}
         </p>
@@ -139,7 +145,7 @@ export function TrackEvaluations() {
       {data && (
         <>
           <p className="text-sm text-slate-500">
-            {data.total} test case{data.total === 1 ? "" : "s"} match this filter
+            {data.total} test case{data.total === 1 ? "" : "s"} in this view
             {data.total > data.limit && (
               <>
                 {" "}
@@ -149,7 +155,7 @@ export function TrackEvaluations() {
             {outcome === "all" && ` · ${data.n_pass} passed / ${data.n_fail} failed`}
           </p>
           {data.items.length === 0 ? (
-            <p className="text-slate-400 text-sm">No test cases match this filter.</p>
+            <p className="text-slate-400 text-sm">No test cases in this view.</p>
           ) : (
             <div className="space-y-4">
               {data.items.map((it) =>

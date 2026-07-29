@@ -20,7 +20,7 @@ export interface VersionPreference {
   n: number;
 }
 
-// Per-(language, version) slice of one track, for the site's filters.
+// Per-(language, version) slice of one track — the leaderboard's columns.
 export interface TrackDetail {
   track_score: number | null;
   by_language: Record<string, number>;

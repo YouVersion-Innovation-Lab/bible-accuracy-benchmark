@@ -8,7 +8,7 @@
   "languages": {
     "eng": {
       "version_id": 111,
-      "version_abbrev": "NIV",
+      "version_abbrev": "NIV11",
       "accepted_version_ids": [
         111,
         1,
@@ -25,7 +25,7 @@
     },
     "spa": {
       "version_id": 128,
-      "version_abbrev": "NVI",
+      "version_abbrev": "NVI-S",
       "levels": {
         "L1": "¿Qué dice la Biblia sobre {topic}? Por favor, cita los versículos relevantes.",
         "L2": "¿Qué dice la Biblia sobre {topic}?"
@@ -33,7 +33,7 @@
     },
     "por": {
       "version_id": 129,
-      "version_abbrev": "NVI-PT",
+      "version_abbrev": "NVI",
       "levels": {
         "L1": "O que a Bíblia diz sobre {topic}? Por favor, cite os versículos relevantes.",
         "L2": "O que a Bíblia diz sobre {topic}?"
@@ -49,7 +49,7 @@
     },
     "deu": {
       "version_id": 51,
-      "version_abbrev": "LUT",
+      "version_abbrev": "DELUT",
       "levels": {
         "L1": "Was sagt die Bibel über {topic}? Bitte zitiere die entsprechenden Verse.",
         "L2": "Was sagt die Bibel über {topic}?"
@@ -57,7 +57,7 @@
     },
     "kor": {
       "version_id": 88,
-      "version_abbrev": "KOR",
+      "version_abbrev": "KRV",
       "levels": {
         "L1": "성경은 {topic}에 대해 무엇이라고 말합니까? 관련 구절을 인용해 주세요.",
         "L2": "성경은 {topic}에 대해 무엇이라고 말합니까?"
@@ -65,7 +65,7 @@
     },
     "zho": {
       "version_id": 48,
-      "version_abbrev": "CUNP",
+      "version_abbrev": "CUNPSS-SHEN",
       "levels": {
         "L1": "圣经关于{topic}说了什么？请引用相关的经文。",
         "L2": "圣经关于{topic}说了什么？"
@@ -97,7 +97,7 @@
     },
     "arb": {
       "version_id": 101,
-      "version_abbrev": "AVD",
+      "version_abbrev": "NAV",
       "levels": {
         "L1": "ماذا يقول الكتاب المقدس عن {topic}؟ من فضلك اقتبس الآيات ذات الصلة.",
         "L2": "ماذا يقول الكتاب المقدس عن {topic}؟"

@@ -64,3 +64,27 @@ async def test_localized_human_reference(client):
     # the version metadata, title-cased for prompt text).
     ref = await client.human_reference(149, "JHN.3.16")
     assert ref == "San Juan 3:16"
+
+
+_DATASET_DIR = Path(__file__).parent.parent / "dataset"
+
+
+@pytest.mark.parametrize("dataset", ["topics-v1.json", "phantom-v1.json"])
+async def test_dataset_abbreviations_match_the_api(client, dataset):
+    """The topical and hallucination datasets hand-write each language's
+    version_abbrev, and it must name the edition the version_id actually points
+    at. It drifted once in a way that mattered: Arabic listed version 101 as
+    "AVD", which is Van Dyck's abbreviation — 101 is the New Arabic Version. The
+    site therefore reported Arabic results under the wrong translation's name.
+    Compared against abbreviation.upper(), which is what dataset.py records for
+    the direct-quote track, so one edition carries one label everywhere.
+    """
+    blocks = json.loads((_DATASET_DIR / dataset).read_text())["languages"]
+    wrong = []
+    for lang, block in blocks.items():
+        meta = await client.version(block["version_id"])
+        expected = (meta.get("abbreviation") or "").upper()
+        if block.get("version_abbrev") != expected:
+            wrong.append(f"{lang} (v{block['version_id']}): "
+                         f"{block.get('version_abbrev')!r} != {expected!r}")
+    assert not wrong, "dataset abbreviations disagree with the API: " + "; ".join(wrong)
