@@ -1,6 +1,6 @@
 {
   "note": "Machine-readable index of benchmark generations. The current version is defined in code (bible_bench.version.BENCHMARK_VERSION); full prose descriptions live in docs/versions/<version>.md. Served to the website so each result set can be labeled and explained.",
-  "current": "v0.4",
+  "current": "v0.5",
   "versions": [
     {
       "version": "v0.1",
@@ -31,7 +31,15 @@
       "released": "2026-07",
       "doc": "docs/versions/v0.4.md",
       "delta_from": "v0.3",
-      "summary": "Removes the benchmark's own hard-coded list of Bible books and asks each version's metadata instead, so every edition is tested on the books it actually carries. Fixes a bug where correctly quoting an Orthodox book (3 Maccabees, Psalm 151) was scored as invented, because those books were never indexed for detection. Adds Catholic editions for Portuguese (Ave-Maria) and Arabic (CAV) alongside English NABRE, and editions carrying Eastern canons for English (NRSVUE, 18 extra books) and Russian (Synodal). Canon becomes its own reported axis — shared 66 / Catholic / Eastern — and the Overall Score still covers only the 66 books every edition shares, so cross-language comparison doesn't depend on which editions the Bible API exposes. New Hallucination Resistance kind: a real verse absent from the translation asked for (\"Sirach 1:1 from the NIV\"). Four Psalms whose numbering differs in Septuagint-ordered versions leave the famous-verse list. Same tracks, weights, languages and Overall Score formula."
+      "summary": "Removes the benchmark's own hard-coded list of Bible books and asks each version's metadata instead, so every edition is tested on the books it actually carries. Fixes a bug where correctly quoting an Orthodox book (3 Maccabees, Psalm 151) was scored as invented, because those books were never indexed for detection. Adds Catholic editions for Portuguese (Ave-Maria) and Arabic (CAV) alongside English NABRE, and editions carrying Eastern canons for English (NRSVUE, 18 extra books) and Russian (Synodal). Canon becomes its own reported axis — shared 66 / Catholic / Eastern — and the Overall Score still covers only the 66 books every edition shares, so cross-language comparison doesn't depend on which editions the Bible API exposes. New Hallucination Resistance kind: a real verse absent from the translation asked for (\"Sirach 1:1 from the NIV\"). Four Psalms whose numbering differs in Septuagint-ordered versions leave the famous-verse list. Same tracks, weights, languages and Overall Score formula.",
+      "superseded_by": "v0.5"
+    },
+    {
+      "version": "v0.5",
+      "title": "One question set, asked of every translation",
+      "released": "2026-07",
+      "doc": "docs/versions/v0.5.md",
+      "summary": "Every translation faces the identical 149 references (famous 63, obscure 20, body one-per-book 66) instead of each language drawing its own. References are picked in the eng versification scheme and translated into each edition's own scheme before being asked, because the Psalter is renumbered wholesale in lxx and rso. No per-language counts and no language branches remain. The edge tier is retired: measured across 7 runs it scored above body every time and fabricated less, so it probed no distinct weakness; its budget moved to obscure, the hardest tier."
     }
   ]
 }

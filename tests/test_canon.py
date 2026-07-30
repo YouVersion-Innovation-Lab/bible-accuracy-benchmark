@@ -150,7 +150,7 @@ def test_spec_has_no_hard_coded_canon_book_list():
     spec = json.loads(open("dataset/spec-v1.json").read())
     assert "deuterocanon" not in spec
     assert "books" not in spec["extra_canon"]
-    assert spec["extra_canon"]["english_count"] > 0
+    assert spec["extra_canon"]["count"] > 0
 
 
 @pytest.mark.parametrize(

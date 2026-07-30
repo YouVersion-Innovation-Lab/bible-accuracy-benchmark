@@ -51,8 +51,8 @@ class StubBible:
 def _simple_item(i: int) -> BenchmarkItem:
     return BenchmarkItem(
         id=f"s-{i}", track="simple", language_tag="eng", language_name="English",
-        version_id=1, version_abbrev="FAKE", usfm="GEN.1.1", tier="famous",
-        template_id="quote_exact",
+        version_id=1, version_abbrev="FAKE", usfm="GEN.1.1", source_usfm="GEN.1.1",
+        tier="famous", template_id="quote_exact",
     )
 
 

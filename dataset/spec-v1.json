@@ -1,41 +1,20 @@
 {
-  "spec_version": "v1",
-  "description": "Bible Accuracy Benchmark sampling specification. Public and fixed; concrete body/obscure/edge items are drawn fresh per leaderboard refresh from a published seed. See docs/METHODOLOGY.md.",
+  "spec_version": "v2",
+  "description": "ONE reference list, asked of EVERY translation. Drawn in the `eng` versification scheme and translated into each edition's own scheme before being asked (see src/bible_bench/versification.py and dataset/versification/README.md), because the same reference is not the same verse across schemes. Where an edition does not carry the resolved reference the item is dropped — that absence is Hallucination Resistance's subject. There are no per-language counts and no language branches: every translation faces identical questions.",
   "famous_file": "dataset/famous-v1.jsonl",
   "tiers": {
     "famous": {
       "source": "famous_file",
-      "english_count": 59,
-      "other_language_count": 15
-    },
-    "body": {
-      "strategy": "stratified_random",
-      "min_verses_per_book": 2,
-      "english_count": 200,
-      "other_language_count": 25
+      "note": "Curated, widely-memorised verses. Present in every edition tested."
     },
     "obscure": {
-      "strategy": "obscure_pools",
-      "pools": [
-        "genealogy",
-        "census",
-        "psalm119_interior",
-        "number_heavy",
-        "minor_prophet_interior",
-        "longest_verses"
-      ],
-      "english_count": 75,
-      "other_language_count": 10
+      "source": "obscure_file",
+      "note": "Curated genealogies, census and town lists, offering tallies and the interior of Psalm 119 — the material models fabricate most (24.4% fabrication rate against body's 20.0%). Each reference verified present in all 18 translations."
     },
-    "edge": {
-      "strategy": "edge_pools",
-      "pools": [
-        "single_chapter_books",
-        "chapter_final_verses",
-        "book_final_verses"
-      ],
-      "english_count": 25,
-      "other_language_count": 5
+    "body": {
+      "strategy": "one_random_verse_per_book",
+      "books": "PROTESTANT_66",
+      "note": "Exactly one verse per book of the shared 66, seeded by benchmark version. Every book weighs the same regardless of length, and every edition is asked the same verse of each book. Chapter and verse bounds come from the vendored eng versification table, so the draw needs no API call."
     }
   },
   "probe_set": {
@@ -63,9 +42,8 @@
     ]
   },
   "extra_canon": {
-    "description": "Books an edition carries that the language's primary (Protestant) version does not — the Catholic deuterocanon, and the Orthodox books beyond it. Derived from each version's own metadata, never from a hard-coded book list: whatever a version has, it can be asked for. Reported as its own canon slice, not folded into the headline.",
-    "english_count": 30,
-    "other_language_count": 10
+    "count": 30,
+    "description": "Books an edition carries that the language's primary (Protestant) version does not — the Catholic deuterocanon, and the Orthodox books beyond it. Derived from each version's own metadata, never from a hard-coded book list: whatever a version has, it can be asked for. Reported as its own canon slice, not folded into the headline."
   },
   "languages": {
     "eng": {
@@ -260,5 +238,7 @@
     "48": "Chinese Union (CUNPSS)",
     "36": "CCB (zh)"
   },
-  "notes": "11 languages, 6 scripts (Latin, Cyrillic, Arabic, Devanagari, Hangul, Han) — the same set covered by all three tracks. Version IDs chosen from versions.json by well-known abbreviation. Canon is version-derived: each edition is tested on the books it actually carries, and the headline covers the 66 every edition shares so cross-language comparison doesn't depend on which editions this API exposes. Catholic editions: eng NABRE (463), por Ave-Maria (4542), arb CAV (1981). Orthodox canons: eng NRSVUE (3523, 18 extra books), rus Synodal-with-deuterocanon (167). French, German, Spanish, Korean, Chinese, Indonesian and Hindi have no Catholic edition available via this API — see docs/versions/v0.4-PLAN.md. version_names retains extra entries as a reference lookup and is not limited to the active set. Version picks pending YouVersion review (see docs)."
+  "notes": "11 languages, 6 scripts (Latin, Cyrillic, Arabic, Devanagari, Hangul, Han) — the same set covered by all three tracks. Version IDs chosen from versions.json by well-known abbreviation. Canon is version-derived: each edition is tested on the books it actually carries, and the headline covers the 66 every edition shares so cross-language comparison doesn't depend on which editions this API exposes. Catholic editions: eng NABRE (463), por Ave-Maria (4542), arb CAV (1981). Orthodox canons: eng NRSVUE (3523, 18 extra books), rus Synodal-with-deuterocanon (167). French, German, Spanish, Korean, Chinese, Indonesian and Hindi have no Catholic edition available via this API — see docs/versions/v0.4-PLAN.md. version_names retains extra entries as a reference lookup and is not limited to the active set. Version picks pending YouVersion review (see docs).",
+  "reference_scheme": "eng",
+  "obscure_file": "dataset/obscure-v1.jsonl"
 }
