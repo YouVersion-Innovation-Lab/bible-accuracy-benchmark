@@ -438,7 +438,87 @@ def _composite(tracks: dict[str, dict], weights: dict[str, float]) -> tuple[floa
     return score, factors
 
 
-def build_summary(track_summaries: dict[str, dict], usage: dict | None = None) -> dict:
+_SUMMARIZERS = {
+    "simple": summarize_simple,
+    "topical": summarize_topical,
+    "phantom": summarize_phantom,
+}
+
+# The only dimension whose prompts name a translation, and therefore the only one
+# that varies by translation. The others ask open or impossible questions that
+# name none, so a "per-translation" figure for them is their language's figure
+# under a different heading.
+_TRANSLATION_SCOPED = ("simple",)
+
+
+def summarize_slices(items_by_track: dict[str, list[dict]]) -> list[dict]:
+    """One mini-summary per Bible translation, produced by the same aggregation.
+
+    Filtering the site to a translation has to move every panel with it — the
+    score, the loss decomposition, the outcome counts. Those are aggregates over
+    the item set, not per-item values, so a filtered table in the browser cannot
+    recompute them; it would have to reimplement macro-averaging and the loss
+    decomposition in JavaScript and then drift from this file. Instead each slice
+    runs the identical summarizers over a subset, and the site just chooses which
+    result to read.
+
+    A translation belongs to exactly one language, so a slice means "this
+    translation, in its language": Direct Quotation narrows to the translation,
+    and the dimensions that name no translation narrow to its language. Eleven of
+    the eighteen translations have no Hallucination items of their own — without
+    this, those eleven would show an Overall Score built from one dimension while
+    the other seven showed two, both labelled "Overall Score".
+    """
+    simple = items_by_track.get("simple") or []
+    meta: dict[int, dict] = {}
+    for it in simple:
+        vid = it.get("version_id")
+        if vid is not None and vid not in meta:
+            meta[vid] = {
+                "version_id": vid,
+                "language_tag": it.get("language_tag"),
+                "version_abbrev": it.get("version_abbrev", ""),
+            }
+
+    slices: list[dict] = []
+    for vid, m in sorted(meta.items()):
+        tracks: dict[str, dict] = {}
+        for track, items in items_by_track.items():
+            if track not in _SUMMARIZERS or not items:
+                continue
+            subset = [
+                it for it in items
+                if (it.get("version_id") == vid if track in _TRANSLATION_SCOPED
+                    else it.get("language_tag") == m["language_tag"])
+            ]
+            if subset:
+                tracks[track] = _SUMMARIZERS[track](subset)
+        if not tracks:
+            continue
+        s = build_summary(tracks)
+        slices.append({
+            **m,
+            # Named so the site can say which dimensions this slice actually
+            # narrowed by translation, rather than implying the Hallucination
+            # figure is translation-specific when it is a language figure.
+            "translation_scoped": [t for t in tracks if t in _TRANSLATION_SCOPED],
+            "language_scoped": [t for t in tracks if t not in _TRANSLATION_SCOPED],
+            **{
+                k: s[k] for k in (
+                    "headline_score", "headline_tracks", "score_factors",
+                    "extended_score", "extended_tracks", "extended_score_factors",
+                    "by_track", "tracks",
+                )
+            },
+        })
+    return slices
+
+
+def build_summary(
+    track_summaries: dict[str, dict],
+    usage: dict | None = None,
+    slices: list[dict] | None = None,
+) -> dict:
     """Combine per-track summaries into the run summary with composite score."""
     present = {t: track_summaries[t] for t in HEADLINE_WEIGHTS if t in track_summaries}
     headline, factors = _composite(present, HEADLINE_WEIGHTS)
@@ -460,6 +540,9 @@ def build_summary(track_summaries: dict[str, dict], usage: dict | None = None) -
         # Every track a run produced, headline or not.
         "by_track": {t: ts["track_score"] for t, ts in track_summaries.items()},
         "tracks": track_summaries,
+        # The same summary again, once per Bible translation, so the site can be
+        # filtered to one without recomputing anything (see summarize_slices).
+        "slices": slices or [],
         "usage": usage or {},
         "scoring_scope_note": (
             "Scores the Biblical accuracy of scripture quotations only; does not "

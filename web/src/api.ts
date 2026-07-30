@@ -68,19 +68,37 @@ export interface ScoreFactor {
   n: number;
 }
 
-export interface Summary {
+/**
+ * Everything a score display needs. The run summary is one of these, and so is
+ * each per-translation slice — identical shape on purpose, so filtering the
+ * model page to a translation is a matter of reading a different object rather
+ * than recomputing anything in the browser.
+ */
+export interface SummaryView {
   headline_score: number;
   headline_partial?: boolean;
   score_factors?: ScoreFactor[];
-  // Which dimensions the headline covers, and which are published beside it in
-  // the Extended Benchmark. Sent by the scorer so the site never has to keep
-  // its own copy of that decision.
   headline_tracks?: string[];
   extended_tracks?: string[];
   extended_score?: number | null;
   extended_score_factors?: ScoreFactor[];
   by_track: Record<string, number>;
   tracks: Record<string, TrackSummary>;
+}
+
+/** One Bible translation's slice of a run, scored by the same aggregation. */
+export interface SummarySlice extends SummaryView {
+  version_id: number;
+  language_tag: string;
+  version_abbrev: string;
+  /** Dimensions this slice narrowed to the translation itself. */
+  translation_scoped: string[];
+  /** Dimensions that name no translation, so they narrowed to its language. */
+  language_scoped: string[];
+}
+
+export interface Summary extends SummaryView {
+  slices?: SummarySlice[];
   usage?: Record<string, number>;
   scoring_scope_note?: string;
 }

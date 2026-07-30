@@ -41,7 +41,13 @@ from .dataset import BenchmarkItem, DatasetSampler, load_spec
 from .llm import LlmClient
 from .phantom import PhantomItem, build_phantom_items, load_phantom_config
 from .prompts import BENCHMARK_SYSTEM_PROMPT, simple_quote_templates
-from .report import build_summary, summarize_phantom, summarize_simple, summarize_topical
+from .report import (
+    build_summary,
+    summarize_phantom,
+    summarize_simple,
+    summarize_slices,
+    summarize_topical,
+)
 from .results_store import (
     GcsResultsStore,
     LocalResultsStore,
@@ -359,6 +365,9 @@ async def _score_and_summarize(
     store, run_dir, items, topical_items, phantom_items, client, model
 ) -> None:
     track_summaries: dict[str, dict] = {}
+    # Kept alongside the summaries so the per-translation slices can be built
+    # from the same scored records, in the same pass.
+    scored_by_track: dict[str, list[dict]] = {}
 
     if items:
         responses = store.read_jsonl(f"{run_dir}/responses.jsonl")
@@ -376,6 +385,7 @@ async def _score_and_summarize(
         )
         if scored:
             track_summaries["simple"] = summarize_simple(scored)
+            scored_by_track["simple"] = scored
 
     if topical_items:
         responses = store.read_jsonl(f"{run_dir}/responses_topical.jsonl")
@@ -394,6 +404,7 @@ async def _score_and_summarize(
         )
         if scored_t:
             track_summaries["topical"] = summarize_topical(scored_t)
+            scored_by_track["topical"] = scored_t
 
     if phantom_items:
         responses = store.read_jsonl(f"{run_dir}/responses_phantom.jsonl")
@@ -412,6 +423,7 @@ async def _score_and_summarize(
         )
         if scored_p:
             track_summaries["phantom"] = summarize_phantom(scored_p)
+            scored_by_track["phantom"] = scored_p
 
     adv_records = store.read_jsonl(f"{run_dir}/adversarial.jsonl")
     if adv_records:
@@ -436,6 +448,7 @@ async def _score_and_summarize(
             "output_tokens": model.usage.output_tokens,
             "calls": model.usage.calls,
         },
+        slices=summarize_slices(scored_by_track),
     )
     store.write_json(f"{run_dir}/summary.json", summary)
     _print_summary(summary)
@@ -504,10 +517,12 @@ def cmd_resummarize(args) -> int:
         "topical": ("items_topical.jsonl", "responses_topical.jsonl", summarize_topical),
         "phantom": ("items_phantom.jsonl", "responses_phantom.jsonl", summarize_phantom),
     }
+    rows_by_track: dict[str, list[dict]] = {}
     for track, (items_file, resp_file, summarize) in summarizers.items():
         rows = store.read_jsonl(f"{run_dir}/{items_file}")
         if not rows:
             continue
+        rows_by_track[track] = rows
         # Runs scored before finish_reason was recorded on items still have it on
         # the generation record, so join it in — it's what separates a provider
         # blocking its own output from the model declining.
@@ -523,7 +538,9 @@ def cmd_resummarize(args) -> int:
         console.print(f"[red]{run_key} has no scored items to summarize.[/red]")
         return 2
 
-    summary = build_summary(tracks, _usage_from_run(store, run_dir))
+    summary = build_summary(
+        tracks, _usage_from_run(store, run_dir), slices=summarize_slices(rows_by_track)
+    )
     store.write_json(f"{run_dir}/summary.json", summary)
     console.print(f"[green]Re-summarized[/green] {run_key}: "
                   f"headline [bold]{summary['headline_score']}[/bold]")
@@ -694,8 +711,19 @@ def _print_summary(summary: dict) -> None:
     t.add_column("Value", justify="right")
     t.add_row("Headline score", f"{summary['headline_score']}"
               + (" (partial)" if summary.get("headline_partial") else ""))
-    for track, score in summary.get("by_track", {}).items():
-        t.add_row(f"  {track} track", f"{100 * score:.1f}")
+    # Indent only what the headline is actually made of. Listing every track
+    # beneath it reads as a breakdown, which would claim the extended dimensions
+    # are inside a number they're deliberately outside of.
+    by_track = summary.get("by_track", {})
+    ranked = summary.get("headline_tracks") or list(by_track)
+    for track in ranked:
+        if track in by_track:
+            t.add_row(f"  {track} track", f"{100 * by_track[track]:.1f}")
+    if summary.get("extended_score") is not None:
+        t.add_row("Extended score (not ranked)", f"{summary['extended_score']}")
+        for track in summary.get("extended_tracks", []):
+            if track in by_track:
+                t.add_row(f"  {track} track", f"{100 * by_track[track]:.1f}")
     simple = summary.get("tracks", {}).get("simple")
     if simple:
         t.add_row("Verbatim rate", f"{100 * simple['verbatim_rate']:.1f}%")

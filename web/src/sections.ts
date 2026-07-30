@@ -8,7 +8,7 @@
  * know about "which benchmark am I" lives in one object, so adding or promoting
  * a dimension is an edit here rather than a second copy of the UI.
  */
-import type { LeaderboardEntry, ScoreFactor, Summary, TrackSummary } from "./api";
+import type { LeaderboardEntry, ScoreFactor, SummaryView, TrackSummary } from "./api";
 import { EXTENDED_TRACKS, HEADLINE_TRACKS, TRACK_WEIGHTS, type TrackMeta } from "./constants";
 
 export interface Section {
@@ -26,8 +26,8 @@ export interface Section {
   versionTrack: string;
   /** A model's score for this board, 0..100. */
   scoreOf: (e: LeaderboardEntry) => number | null;
-  summaryScoreOf: (s: Summary) => number | null;
-  factorsOf: (s: Summary) => ScoreFactor[];
+  summaryScoreOf: (s: SummaryView) => number | null;
+  factorsOf: (s: SummaryView) => ScoreFactor[];
   /** Heading over the blended-per-language column group. */
   langGroup: string;
   /** Heading over the per-translation column group. */
