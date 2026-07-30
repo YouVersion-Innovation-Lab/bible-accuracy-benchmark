@@ -124,6 +124,24 @@ export function Board({ section }: { section: Section }) {
             </Link>
           </div>
 
+          {isFast(activeVer) && (
+            <div className="mb-4 rounded-lg border border-sky-400/25 bg-sky-400/[0.06] px-4 py-3 text-sm">
+              <span className="rounded bg-sky-400/15 text-sky-300 text-[10px] uppercase tracking-wide px-1.5 py-0.5 align-middle">
+                fast pass
+              </span>{" "}
+              <span className="text-sky-100/90">
+                About a tenth of the questions.
+              </span>{" "}
+              <span className="text-slate-400">
+                Every language and every translation is still covered — the items are thinned
+                within each language, not truncated — and the questions are a subset of the full
+                run's, so these scores differ from a full run by coverage rather than by sample.
+                Read them as a first look, not a final ranking: per-translation columns rest on
+                only a handful of verses each.
+              </span>
+            </div>
+          )}
+
           <p className="text-xs text-slate-500 mb-2">
             Every language and every translation tested, all shown at once — scroll sideways for the
             rest. Click a column heading to sort by it, or a model to see its own breakdown.
@@ -311,10 +329,25 @@ function CrossLink({ section }: { section: Section }) {
   );
 }
 
-// Numeric ordering for benchmark version strings like "v0.2" / "v1.10".
+// Numeric ordering for benchmark version strings: "v0.2", "v1.10", "v0.5-fast".
+//
+// A suffixed generation sorts just BELOW its full version, because it asks a
+// subset of the same questions — when both exist the full run is the better
+// default. Parsing only the leading digits also matters: Number("5-fast") is NaN,
+// and a NaN comparator silently leaves the list unsorted, which would have
+// defaulted the board to an older generation and hidden the newest one behind
+// the selector.
 function verNum(v: string): number {
-  const [maj = 0, min = 0] = v.replace(/^v/i, "").split(".").map(Number);
-  return maj * 1000 + min;
+  const bare = v.replace(/^v/i, "");
+  const m = bare.match(/^(\d+)(?:\.(\d+))?/);
+  if (!m) return -1;
+  const num = Number(m[1]) * 1000 + Number(m[2] ?? 0);
+  return m[0] === bare ? num : num - 0.5;
+}
+
+/** Is this generation a fast pass rather than a full run? */
+function isFast(v: string | null): boolean {
+  return !!v && /-fast$/.test(v);
 }
 
 // Heading over a block of columns. The label is sticky *inside* its own span, so
