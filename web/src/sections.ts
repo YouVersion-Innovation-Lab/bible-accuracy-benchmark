@@ -49,7 +49,7 @@ export const MAIN: Section = {
   summaryScoreOf: (s) => s.headline_score ?? null,
   factorsOf: (s) => s.score_factors ?? [],
   langGroup: "Overall by language",
-  verGroup: "Direct Quotation by translation",
+  verGroup: "Overall by translation",
   composition: "67% Direct Quotation · 33% Hallucination Resistance",
 };
 

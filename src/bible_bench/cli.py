@@ -182,7 +182,12 @@ async def cmd_run(args) -> int:
     client = BibleClient(bible_cfg, cache_dir=_cache_dir(args), offline=True)
     model = LlmClient(model_cfg, dummy=args.dummy)
 
-    tracks = set(ALL_TRACKS)
+    only = {x.strip() for x in args.only_tracks.split(",") if x.strip()}
+    if only - set(ALL_TRACKS):
+        console.print(f"[red]Unknown track(s):[/red] {sorted(only - set(ALL_TRACKS))}. "
+                      f"Choose from {list(ALL_TRACKS)}.")
+        return 2
+    tracks = only or set(ALL_TRACKS)
     run_version = BENCHMARK_VERSION  # the benchmark version comes from the codebase
     run_key = _run_key(run_version, model_cfg.model)  # identity = version + model id
     run_dir = f"runs/{run_key}"
@@ -195,7 +200,22 @@ async def cmd_run(args) -> int:
         # Overwrite: a given (model, run-version) always writes the same place.
         # Wipe any prior results there and build the item set fresh. The sample
         # is seeded by run-version, so every model at a version gets the same set.
-        store.clear(run_dir)
+        #
+        # --only-tracks patches one dimension into an existing run instead. A
+        # dimension's design can change without invalidating the others:
+        # reworking Hallucination Resistance to name a translation made its items
+        # obsolete and left Direct Quotation's 2,585 and Scripture in Answers'
+        # 1,188 untouched. Re-running all 3,956 to replace 325 would spend tokens
+        # reproducing answers already on disk.
+        if only:
+            if not store.read_json(f"{run_dir}/manifest.json"):
+                console.print(f"[red]No existing run at {run_key} to patch.[/red] "
+                              "Drop --only-tracks to run the whole benchmark.")
+                return 2
+            console.print(f"[yellow]Patching[/yellow] {sorted(only)} into the existing run; "
+                          "other dimensions keep their stored records.")
+        else:
+            store.clear(run_dir)
         items = []
         topical_items = []
         if "simple" in tracks:
@@ -230,12 +250,18 @@ async def cmd_run(args) -> int:
                 [x.strip() for x in args.phantom_languages.split(",") if x.strip()]
                 if args.phantom_languages else None
             )
-            # absent_from_version items must name the translation they're asking
-            # about, so they borrow the simple track's per-language wording rather
-            # than introducing a second set of prompts to translate and review.
+            # Same translations as Direct Quotation, from the same spec, and the
+            # same per-language wording — so the two dimensions differ only in
+            # whether the reference exists.
+            spec_langs = load_spec(args.spec).get("languages", {})
+            phantom_versions = {
+                lang: cfg_l.get("versions") or [cfg_l["primary"]]
+                for lang, cfg_l in spec_langs.items()
+            }
             phantom_items = await build_phantom_items(
                 client, pcfg, languages=phantom_langs,
-                absent_template_by_language=simple_quote_templates(),
+                versions_by_language=phantom_versions,
+                template_by_language=simple_quote_templates(),
             )
             if args.scale < 1.0:
                 keep = max(1, int(len(phantom_items) * args.scale))
@@ -272,6 +298,21 @@ async def cmd_run(args) -> int:
             "topical_items": [i.to_json() for i in topical_items],
             "phantom_items": [i.to_json() for i in phantom_items],
         }
+        if only:
+            # Patching: carry forward everything about the run this invocation
+            # isn't touching — the untouched dimensions' item lists, and the
+            # original start time, which is what dates the run.
+            prior = store.read_json(f"{run_dir}/manifest.json") or {}
+            for key, track in (("items", "simple"), ("topical_items", "topical"),
+                               ("phantom_items", "phantom")):
+                if track not in only:
+                    manifest[key] = prior.get(key, [])
+            manifest["tracks"] = sorted(set(prior.get("tracks", [])) | only)
+            manifest["started_at"] = prior.get("started_at") or manifest["started_at"]
+            manifest["published"] = prior.get("published", False)
+            manifest["patched_tracks"] = sorted(
+                set(prior.get("patched_tracks", [])) | only
+            )
         store.write_json(f"{run_dir}/manifest.json", manifest)
 
         # 2. Generation passes (fresh — the run dir was cleared above).
@@ -424,6 +465,23 @@ async def _score_and_summarize(
         if scored_p:
             track_summaries["phantom"] = summarize_phantom(scored_p)
             scored_by_track["phantom"] = scored_p
+
+    # Patching one dimension must not shrink the run's summary to that dimension.
+    # The others' scored records are already on disk; read them back and
+    # aggregate them unchanged, so the headline still covers everything.
+    for track, fname, summarize in (
+        ("simple", "items.jsonl", summarize_simple),
+        ("topical", "items_topical.jsonl", summarize_topical),
+        ("phantom", "items_phantom.jsonl", summarize_phantom),
+    ):
+        if track in track_summaries:
+            continue
+        rows = store.read_jsonl(f"{run_dir}/{fname}")
+        if rows:
+            track_summaries[track] = summarize(rows)
+            scored_by_track[track] = rows
+            console.print(f"  kept stored {track}: {len(rows)} items "
+                          f"-> {track_summaries[track]['track_score']}")
 
     adv_records = store.read_jsonl(f"{run_dir}/adversarial.jsonl")
     if adv_records:
@@ -817,6 +875,13 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--phantom-languages", default="",
                    help="Comma-separated language tags to limit the hallucination track "
                         "to (e.g. 'eng'); default all languages in the phantom file")
+    r.add_argument("--only-tracks", default="",
+                   help="Comma-separated dimensions to (re)generate, patched into an "
+                        "EXISTING run — the others keep their stored responses and "
+                        "scores, and the summary still covers the whole run. Use when "
+                        "one dimension's design changes: 'phantom' re-asks 325 items "
+                        "instead of re-running all 3,956. Default: the whole benchmark, "
+                        "replacing the run.")
     r.add_argument("--scale", type=float, default=1.0,
                    help="Scale factor on per-tier counts (use <1 for quick pilots)")
     r.add_argument("--concurrency", type=int, default=12,

@@ -105,20 +105,31 @@ def test_has_denial_matches_deterministically():
     assert not has_denial("anything at all", [])  # no markers → no signal
 
 
+_PHANTOM_CFG = PhantomConfig(languages={
+    "eng": {
+        "fake_refs": ["Judas 5:12"],
+        "denial_markers": ["does not exist", "no such"],
+    }
+})
+_QUOTE_TEMPLATE = {
+    "eng": "Quote {reference} from {version_title} ({version_abbrev}). Verse text only."
+}
+
+
+def _phantom_items(versions: list[int]):
+    return asyncio.run(build_phantom_items(
+        FakeProvider(), _PHANTOM_CFG, languages=["eng"],
+        versions_by_language={"eng": versions},
+        template_by_language=_QUOTE_TEMPLATE,
+    ))
+
+
 def test_build_phantom_items_generates_impossible_refs_with_markers():
-    cfg = PhantomConfig(languages={
-        "eng": {
-            "version_id": 111, "version_abbrev": "NIV",
-            "template": "Quote {reference} from the {version} Bible.",
-            "fake_refs": ["Judas 5:12"],
-            "denial_markers": ["does not exist", "no such"],
-        }
-    })
-    items = asyncio.run(build_phantom_items(FakeProvider(), cfg, languages=["eng"]))
+    items = _phantom_items([111])
     assert items
     assert all(i.language_tag == "eng" and i.version_id == 111 for i in items)
-    # Every prompt names the version and includes the (impossible) reference.
-    assert all("NIV" in i.prompt and i.reference_display in i.prompt for i in items)
+    # Every prompt names the translation and includes the (impossible) reference.
+    assert all("TSTM" in i.prompt and i.reference_display in i.prompt for i in items)
     # Denial markers are carried onto every item so re-scoring needs no config.
     assert all(i.denial_markers == ["does not exist", "no such"] for i in items)
     kinds = {i.kind for i in items}
@@ -128,6 +139,24 @@ def test_build_phantom_items_generates_impossible_refs_with_markers():
     gen = [i for i in items if i.reference_display.startswith("Testamentum ")]
     assert gen and int(gen[0].reference_display.split()[1].split(":")[0]) > 50
     assert any(i.reference_display == "Judas 5:12" for i in items)
+
+
+def test_every_translation_gets_its_own_items():
+    """Hallucination Resistance is scored per translation, not per language.
+
+    It has to be: whether a reference is out of range can depend on the
+    edition's versification, so a single per-language figure would average away
+    the very difference the dimension exists to detect. Every prompt names its
+    translation, which is also what makes the item ids distinct.
+    """
+    items = _phantom_items([111, 1])
+    per_version = {v: [i for i in items if i.version_id == v] for v in (111, 1)}
+    assert per_version[111] and per_version[1]
+    assert len(per_version[111]) == len(per_version[1])  # same probes, both editions
+    assert len({i.id for i in items}) == len(items)      # ids stay unique
+    # The same impossible reference is asked of each edition separately.
+    refs_111 = {i.reference_display for i in per_version[111]}
+    assert refs_111 == {i.reference_display for i in per_version[1]}
 
 
 def _phantom_item(vid, lang, abbrev, score, outcome):

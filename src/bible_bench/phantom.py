@@ -212,18 +212,25 @@ async def build_phantom_items(
     cfg: PhantomConfig,
     *,
     languages: list[str] | None = None,
-    absent_template_by_language: dict[str, str] | None = None,
+    versions_by_language: dict[str, list[int]] | None = None,
+    template_by_language: dict[str, str] | None = None,
 ) -> list[PhantomItem]:
-    """Generate impossible references per (language, version). Out-of-range
-    references use each version's localized book names; fake-book references are
-    config-supplied display strings (English-only by default, since a plausible
-    fake book in one language may be a real book in another).
+    """Generate impossible references for every (language, translation) tested.
 
-    ``absent_from_version`` items are the one kind whose reference is real: they
-    ask the named translation for a book it doesn't carry (Tobit from the NIV).
-    They need a prompt that names the translation, which the ordinary phantom
-    template deliberately doesn't — pass the simple track's per-language
-    ``quote_exact`` wording as ``absent_template_by_language`` to get them.
+    Every prompt names the translation it is asking, in the same words the Direct
+    Quotation track uses — so the only difference between the two dimensions is
+    whether the reference exists. That makes the pair a clean controlled
+    comparison, and it makes this dimension scoreable per translation, which is
+    what versification differences will eventually need: "Psalm 23:6" is a real
+    verse in one versification and past the end of the psalm in another, and you
+    cannot ask that question of a prompt that names no translation.
+
+    Out-of-range references use each version's own localized book names.
+    Fake-book references are config-supplied display strings, English-only by
+    default since a plausible fake book in one language may be a real book in
+    another. ``absent_from_version`` references are real verses the named
+    translation happens not to carry (Tobit from the NIV) — derived per
+    translation by comparing book lists, never from a curated list.
     """
     langs = languages or list(cfg.languages)
     items: list[PhantomItem] = []
@@ -231,67 +238,68 @@ async def build_phantom_items(
         block = cfg.languages.get(lang)
         if not block:
             continue
-        vid = block["version_id"]
-        abbrev = block.get("version_abbrev", "")
-        template = block["template"]
-        accepted = block.get("accepted_version_ids") or [vid]
+        # Prompts come from the simple track's per-language wording so there is
+        # one set of quote instructions to translate and review, not two.
+        template = (template_by_language or {}).get(lang)
+        if not template:
+            continue
         markers = block.get("denial_markers", [])
-        names = await _localized_book_names(client, vid)
+        # A real verse from ANY edition of the language is still real scripture,
+        # so what counts as an honest substitute stays a language-level question.
+        accepted = block.get("accepted_version_ids") or []
+        vids = (versions_by_language or {}).get(lang) or []
 
-        # References that exist in no Bible at all — one shared prompt shape.
-        plain: list[tuple[str, str]] = []  # (kind, display)
-        for i, (usfm, en_name, count) in enumerate(_OOR_CHAPTER_BOOKS):
-            name = names.get(usfm, en_name)
-            offset = _CHAPTER_OFFSETS[i % len(_CHAPTER_OFFSETS)]
-            plain.append(("out_of_range_chapter", f"{name} {count + offset}:1"))
-        for usfm, en_name, ch, verse in _OOR_VERSE_REFS:
-            name = names.get(usfm, en_name)
-            plain.append(("out_of_range_verse", f"{name} {ch}:{verse}"))
-        for fake in block.get("fake_refs", []):
-            plain.append(("fake_book", fake))
-
-        # (kind, display, absent_usfm, source_version_id, source_abbrev, prompt)
-        refs: list[tuple[str, str, str, int | None, str, str]] = [
-            (
-                kind, display, "", None, "",
-                template.replace("{reference}", display).replace("{version}", abbrev),
-            )
-            for kind, display in plain
-        ]
-
-        absent_template = (absent_template_by_language or {}).get(lang)
-        if absent_template:
+        for vid in vids:
             meta = await client.version(vid)
+            abbrev = (meta.get("abbreviation") or "").upper()
             title = meta.get("title") or meta.get("local_title") or abbrev
             local_abbrev = (meta.get("local_abbreviation") or abbrev).upper()
-            for usfm, display, src_vid, src_abbrev in await _absent_from_version_refs(
-                client, lang, vid
-            ):
-                refs.append((
-                    "absent_from_version", display, usfm, src_vid, src_abbrev,
-                    absent_template.format(
-                        reference=display, version_title=title, version_abbrev=local_abbrev,
-                    ),
-                ))
+            names = await _localized_book_names(client, vid)
 
-        for kind, display, absent_usfm, src_vid, src_abbrev, prompt in refs:
-            items.append(
-                PhantomItem(
-                    id=f"p-{lang}-{_slug(display)}",
-                    track="phantom",
-                    language_tag=lang,
-                    version_id=vid,
-                    version_abbrev=abbrev,
-                    reference_display=display,
-                    kind=kind,
-                    prompt=prompt,
-                    accepted_version_ids=list(accepted),
-                    denial_markers=list(markers),
-                    absent_usfm=absent_usfm,
-                    absent_source_version_id=src_vid,
-                    absent_source_abbrev=src_abbrev,
+            # (kind, display, absent_usfm, source_version_id, source_abbrev)
+            refs: list[tuple[str, str, str, int | None, str]] = []
+            for i, (usfm, en_name, count) in enumerate(_OOR_CHAPTER_BOOKS):
+                name = names.get(usfm, en_name)
+                offset = _CHAPTER_OFFSETS[i % len(_CHAPTER_OFFSETS)]
+                refs.append(
+                    ("out_of_range_chapter", f"{name} {count + offset}:1", "", None, "")
                 )
-            )
+            for usfm, en_name, ch, verse in _OOR_VERSE_REFS:
+                name = names.get(usfm, en_name)
+                refs.append(("out_of_range_verse", f"{name} {ch}:{verse}", "", None, ""))
+            for fake in block.get("fake_refs", []):
+                refs.append(("fake_book", fake, "", None, ""))
+            # A translation with no sibling edition to compare against simply
+            # yields no "real verse, wrong canon" items; it is not an error.
+            try:
+                absent = await _absent_from_version_refs(client, lang, vid)
+            except Exception:  # noqa: BLE001 — can't enumerate this language's editions
+                absent = []
+            for usfm, display, src_vid, src_abbrev in absent:
+                refs.append(("absent_from_version", display, usfm, src_vid, src_abbrev))
+
+            for kind, display, absent_usfm, src_vid, src_abbrev in refs:
+                items.append(
+                    PhantomItem(
+                        id=f"p-{lang}-{vid}-{_slug(display)}",
+                        track="phantom",
+                        language_tag=lang,
+                        version_id=vid,
+                        version_abbrev=abbrev,
+                        reference_display=display,
+                        kind=kind,
+                        prompt=template.format(
+                            reference=display,
+                            version_title=title,
+                            version_abbrev=local_abbrev,
+                        ),
+                        accepted_version_ids=list(accepted or [vid]),
+                        denial_markers=list(markers),
+                        absent_usfm=absent_usfm,
+                        absent_source_version_id=src_vid,
+                        absent_source_abbrev=src_abbrev,
+                    )
+                )
     return items
 
 

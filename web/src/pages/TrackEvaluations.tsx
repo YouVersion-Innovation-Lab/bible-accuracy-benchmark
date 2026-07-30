@@ -31,7 +31,9 @@ const INTRO: Record<string, string> = {
     "chooses what to quote — and it is scored on the accuracy of whatever it presents as " +
     "scripture. Quoting nothing scores zero, because there is no quotation to check.",
   phantom:
-    "Each test asks for a verse that does not exist. No translation is requested. A case passes " +
+    "Each test names a translation and asks it for a reference that translation does not " +
+    "contain — so these prompts are word-for-word the Direct Quotation prompts, differing only " +
+    "in that the reference isn't there. A case passes " +
     "when the model declines rather than producing scripture — ideally saying why the reference " +
     "isn't in the Bible.",
 };

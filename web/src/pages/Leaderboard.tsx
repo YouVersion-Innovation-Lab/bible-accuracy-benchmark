@@ -63,12 +63,17 @@ export function Board({ section }: { section: Section }) {
         get: (e: LeaderboardEntry) =>
           blendForSlice(section, (t) => e.tracks_detail?.[t]?.by_language?.[s.lang]),
       })),
+      // Both ranked dimensions name a translation in their prompts, so a
+      // translation column is the same blend as a language column — just at a
+      // finer grain. It used to be Direct Quotation alone, because Hallucination
+      // Resistance named no translation and had nothing to contribute here.
       ...versions.map((s, i) => ({
         key: s.key,
         label: s.label,
         title: `${section.verGroup} · ${s.label}`,
         first: i === 0,
-        get: (e: LeaderboardEntry) => sliceScore(e.tracks_detail?.[section.versionTrack], s),
+        get: (e: LeaderboardEntry) =>
+          blendForSlice(section, (t) => sliceScore(e.tracks_detail?.[t], s)),
       })),
     ];
   }, [entries, section]);
@@ -125,10 +130,10 @@ export function Board({ section }: { section: Section }) {
             <span className="block mt-1">
               {cols.length > nLang ? (
                 <>
-                  <span className="text-slate-400">By language</span> blends both dimensions
-                  ({section.composition}). <span className="text-slate-400">By translation</span>{" "}
-                  shows Direct Quotation only — it is the one dimension whose prompts name a
-                  translation.
+                  Both blocks are the same blend ({section.composition}) at two grains:{" "}
+                  <span className="text-slate-400">by language</span>, then{" "}
+                  <span className="text-slate-400">by the individual translation</span> each
+                  dimension named in its prompts.
                 </>
               ) : (
                 <>

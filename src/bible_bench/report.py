@@ -444,11 +444,12 @@ _SUMMARIZERS = {
     "phantom": summarize_phantom,
 }
 
-# The only dimension whose prompts name a translation, and therefore the only one
-# that varies by translation. The others ask open or impossible questions that
-# name none, so a "per-translation" figure for them is their language's figure
-# under a different heading.
-_TRANSLATION_SCOPED = ("simple",)
+# Dimensions whose prompts name a translation, and therefore vary by one. Both
+# ranked dimensions do: Direct Quotation asks for a verse from a named edition,
+# and Hallucination Resistance asks for a reference that edition does not
+# contain. Scripture in Answers asks an open question that names none, so a
+# "per-translation" figure for it is its language's figure under another heading.
+_TRANSLATION_SCOPED = ("simple", "phantom")
 
 
 def summarize_slices(items_by_track: dict[str, list[dict]]) -> list[dict]:

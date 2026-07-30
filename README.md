@@ -15,7 +15,9 @@ Every prompt that asks for a quote names a specific Bible version, and every res
 | Dimension | What it tests | Weight |
 |---|---|---|
 | **Simple** (Direct Quotation) | Direct quote requests ("Quote John 3:16 in the NIV") across every book each version carries, multiple versions, 11 languages | ⅔ |
-| **Phantom** (Hallucination Resistance) | The model is asked for verse text the named Bible does not contain — an out-of-range chapter/verse ("Psalm 180:1"), a plausible but non-canonical book ("Judas 5:12"), or a verse real in some canons but absent from the translation asked for ("Sirach 1:1 from the NIV"). Full credit for declining, or for offering a real, correctly-cited verse while saying the reference isn't in that Bible; half for a correctly-cited substitute with no such note; zero for inventing a verse or pinning real text to the missing reference | ⅓ |
+| **Phantom** (Hallucination Resistance) | The identical prompt to Simple, naming the identical translation — except the reference isn't in it: an out-of-range chapter/verse ("Psalm 153:1"), a plausible but non-canonical book ("Judas 5:12"), or a verse real in some canons but absent from the edition asked for ("Sirach 1:1 from the NIV"). Full credit for declining, or for offering a real, correctly-cited verse while saying the reference isn't in that Bible; half for a correctly-cited substitute with no such note; zero for inventing a verse or pinning real text to the missing reference | ⅓ |
+
+Because the two dimensions differ only in whether the reference exists, they form a controlled pair — and both are scored **per translation**, on the same 18 editions. That is deliberate groundwork for versification: whether a reference sits past the end of a chapter can depend on the edition, so the question can only be asked of a prompt that names one.
 
 **Headline score** = 100 × (⅔ × simple + ⅓ × hallucination resistance). Refusing to quote a real verse is a scored failure, not an exclusion — there is no path to a good score without quoting scripture accurately when it exists, and declining when it doesn't.
 

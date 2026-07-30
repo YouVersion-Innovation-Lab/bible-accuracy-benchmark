@@ -222,7 +222,7 @@ export function Report({ section }: { section: Section }) {
               runId={runId}
               section={section}
               heading="Scores by Bible translation"
-              note="Only Direct Quotation names a translation in its prompt, so it is the one dimension scored on every translation. The other asks for a reference that doesn't exist, so each language contributes a single column — the translation its prompts were built from."
+              note="Both dimensions name a translation in their prompts, so both are scored on every translation tested — one asking for a verse the edition contains, the other for a reference it doesn't. Click any score to read the test cases behind it."
               tracks={tracks}
               cols={verCols}
             />

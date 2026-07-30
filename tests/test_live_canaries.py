@@ -69,7 +69,21 @@ async def test_localized_human_reference(client):
 _DATASET_DIR = Path(__file__).parent.parent / "dataset"
 
 
-@pytest.mark.parametrize("dataset", ["topics-v1.json", "phantom-v1.json"])
+def test_phantom_takes_its_translations_from_the_spec():
+    """Hallucination Resistance is scored per translation, and its translations
+    come from spec-v1.json — the same list Direct Quotation uses. A version or
+    abbreviation hand-written here would be a second source of truth that could
+    disagree with the spec, which is exactly how Arabic ended up labelled with
+    the wrong translation's abbreviation."""
+    blocks = json.loads((_DATASET_DIR / "phantom-v1.json").read_text())["languages"]
+    strays = {
+        lang: [k for k in ("version_id", "version_abbrev", "template") if k in block]
+        for lang, block in blocks.items()
+    }
+    assert not any(strays.values()), f"per-translation config leaked back in: {strays}"
+
+
+@pytest.mark.parametrize("dataset", ["topics-v1.json"])
 async def test_dataset_abbreviations_match_the_api(client, dataset):
     """The topical and hallucination datasets hand-write each language's
     version_abbrev, and it must name the edition the version_id actually points

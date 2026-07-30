@@ -42,6 +42,9 @@ class FakeProvider:
     async def version(self, version_id: int) -> dict:
         chapters = sorted({".".join(u.split(".")[:2]) for u in self._verses})
         return {
+            "abbreviation": "TSTM",
+            "local_abbreviation": "TSTM",
+            "title": "Testium Standard Version",
             "books": [
                 {
                     "usfm": "GEN",
