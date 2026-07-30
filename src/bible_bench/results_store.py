@@ -156,6 +156,10 @@ def rebuild_leaderboard(store: ResultsStore) -> dict:
                 "provider_host": manifest["model"].get("base_url_host", ""),
                 "run_date": manifest.get("finished_at") or manifest.get("started_at"),
                 "headline_score": summary.get("headline_score"),
+                # The Extended Benchmark board ranks on this, so it belongs on
+                # the entry — otherwise that board would have to fetch every
+                # run's summary just to sort itself.
+                "extended_score": summary.get("extended_score"),
                 "by_track": summary.get("by_track", {}),
                 # Per-language direct-quote accuracy powers the landing matrix.
                 "by_language": simple.get("by_language", {}),

@@ -1,10 +1,17 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type LeaderboardEntry } from "../api";
-import { ErrorMsg, HeatCell, Loading, ScoreBadge } from "../components";
-import { TRACKS, TRACK_WEIGHTS } from "../constants";
+import { BetaNotice, ErrorMsg, HeatCell, Loading, ScoreBadge } from "../components";
 import { useAsync } from "../hooks";
-import { languageSlices, sliceScore, versionSlices, type Slice } from "../slices";
+import {
+  EXTENDED,
+  MAIN,
+  blendForSlice,
+  modelHref,
+  versionColumnsInform,
+  type Section,
+} from "../sections";
+import { languageSlices, sliceScore, versionSlices } from "../slices";
 
 // A data column in the matrix: a value in [0,1] per model, or undefined if the
 // model wasn't scored on it.
@@ -16,11 +23,11 @@ interface Col {
   get: (e: LeaderboardEntry) => number | undefined;
 }
 
-const HEADLINE = "headline";
+const OVERALL = "overall";
 
-export function Leaderboard() {
+export function Board({ section }: { section: Section }) {
   const { data, error, loading } = useAsync(() => api.leaderboard(), []);
-  const [sortKey, setSortKey] = useState<string>(HEADLINE);
+  const [sortKey, setSortKey] = useState<string>(OVERALL);
   const [benchVer, setBenchVer] = useState<string | null>(null);
 
   // Benchmark generations present in the data, newest first. The board shows one
@@ -37,74 +44,47 @@ export function Leaderboard() {
     [data, activeVer],
   );
 
-  // Every language and every Bible version in this generation, always all shown:
-  // no filter to set, nothing hidden behind one.
+  // Every language and every Bible version this section covers, always all
+  // shown: no filter to set, nothing hidden behind one.
   const cols: Col[] = useMemo(() => {
     const langs = languageSlices(
-      entries.flatMap((e) => TRACKS.map((t) => e.tracks_detail?.[t.key])),
+      entries.flatMap((e) => section.tracks.map((t) => e.tracks_detail?.[t.key])),
     );
-    const versions = versionSlices(
-      entries.map((e) => e.tracks_detail?.simple ?? { versions: e.versions }),
-    );
+    const allVersions = versionSlices(entries.map((e) => e.tracks_detail?.[section.versionTrack]));
+    // Drop the per-translation block entirely when it would just restate the
+    // per-language one — 11 columns of identical numbers is noise, not detail.
+    const versions = versionColumnsInform(langs.length, allVersions.length) ? allVersions : [];
     return [
       ...langs.map((s, i) => ({
         key: s.key,
         label: s.label,
-        title: `Overall score for ${s.label} — all three dimensions`,
+        title: `${section.title} score for ${s.label}`,
         first: i === 0,
-        get: (e: LeaderboardEntry) => overallForLang(e, s.lang),
+        get: (e: LeaderboardEntry) =>
+          blendForSlice(section, (t) => e.tracks_detail?.[t]?.by_language?.[s.lang]),
       })),
       ...versions.map((s, i) => ({
         key: s.key,
         label: s.label,
-        title: `Direct Quotation accuracy · ${s.label}`,
+        title: `${section.verGroup} · ${s.label}`,
         first: i === 0,
-        get: (e: LeaderboardEntry) => quoteScore(e, s),
+        get: (e: LeaderboardEntry) => sliceScore(e.tracks_detail?.[section.versionTrack], s),
       })),
     ];
-  }, [entries]);
+  }, [entries, section]);
 
   const nLang = useMemo(() => cols.filter((c) => c.key.startsWith("lang:")).length, [cols]);
 
   const rows = useMemo(() => {
     const col = cols.find((c) => c.key === sortKey);
     const val = (e: LeaderboardEntry) =>
-      sortKey !== HEADLINE && col ? (col.get(e) ?? -1) * 100 : (e.headline_score ?? -1);
+      sortKey !== OVERALL && col ? (col.get(e) ?? -1) * 100 : (section.scoreOf(e) ?? -1);
     return [...entries].sort((a, b) => val(b) - val(a));
-  }, [entries, cols, sortKey]);
+  }, [entries, cols, sortKey, section]);
 
   return (
     <div>
-      <section className="mb-8 text-slate-300 leading-normal space-y-3">
-        <h1 className="text-3xl font-bold text-white">How accurately do LLMs quote the Bible?</h1>
-        <div>
-          <p>
-            A public, deterministic benchmark of how faithfully LLMs quote the Bible. Three dimensions:
-          </p>
-          <ul className="list-disc pl-5 mt-1 space-y-0.5">
-            <li>
-              <strong>Direct Quotation</strong> — asked for a specific verse, does it reproduce the
-              exact text?
-            </li>
-            <li>
-              <strong>Scripture in Answers</strong> — answering a real question, are the verses it
-              quotes accurate?
-            </li>
-            <li>
-              <strong>Hallucination Resistance</strong> — asked for a verse that doesn't exist, does
-              it decline or invent one?
-            </li>
-          </ul>
-          <p className="mt-1">
-            Accurate, willing quotation scores high; misquotes, invented verses, and refusing to
-            quote when a quote is warranted score low.
-          </p>
-        </div>
-        <p className="text-slate-400">
-          This benchmark rates only the accuracy of quoted scripture — it does not score or rate the
-          theological positions or theological accuracy of a response.
-        </p>
-      </section>
+      {section.beta ? <ExtendedIntro /> : <MainIntro />}
 
       {loading && <Loading />}
       {error && <ErrorMsg error={error} />}
@@ -143,10 +123,20 @@ export function Leaderboard() {
             Every language and every translation tested, all shown at once — scroll sideways for the
             rest. Click a column heading to sort by it, or a model to see its own breakdown.
             <span className="block mt-1">
-              <span className="text-slate-400">By language</span> blends all three dimensions
-              (50% Direct Quotation · 25% Scripture in Answers · 25% Hallucination Resistance).{" "}
-              <span className="text-slate-400">By translation</span> shows Direct Quotation only —
-              it is the one dimension whose prompts name a translation.
+              {cols.length > nLang ? (
+                <>
+                  <span className="text-slate-400">By language</span> blends both dimensions
+                  ({section.composition}). <span className="text-slate-400">By translation</span>{" "}
+                  shows Direct Quotation only — it is the one dimension whose prompts name a
+                  translation.
+                </>
+              ) : (
+                <>
+                  One column per language: nothing here asks for a particular translation, so
+                  there is no per-translation split to show. Each quotation is checked against
+                  every translation of its language.
+                </>
+              )}
             </span>
           </p>
 
@@ -167,14 +157,14 @@ export function Leaderboard() {
                     Model
                   </th>
                   <SortableTh
-                    label="Overall Score"
-                    title="Overall score across every language"
-                    active={sortKey === HEADLINE}
-                    onClick={() => setSortKey(HEADLINE)}
+                    label={section.beta ? "Extended Score" : "Overall Score"}
+                    title={`${section.composition}, across every language`}
+                    active={sortKey === OVERALL}
+                    onClick={() => setSortKey(OVERALL)}
                     rowSpan={2}
                   />
-                  <GroupTh span={nLang} label="Overall by language" />
-                  <GroupTh span={cols.length - nLang} label="Direct Quotation by translation" />
+                  <GroupTh span={nLang} label={section.langGroup} />
+                  <GroupTh span={cols.length - nLang} label={section.verGroup} />
                 </tr>
                 <tr>
                   {cols.map((c) => (
@@ -196,10 +186,7 @@ export function Leaderboard() {
                       {i + 1}
                     </td>
                     <td className="sticky left-8 z-10 bg-[#0b1020] px-3 py-3">
-                      <Link
-                        to={`/models/${encodeURIComponent(e.run_id)}`}
-                        className="font-medium hover:underline"
-                      >
+                      <Link to={modelHref(section, e.run_id)} className="font-medium hover:underline">
                         {e.model_label}
                       </Link>
                       <div className="text-xs text-slate-500">
@@ -208,7 +195,7 @@ export function Leaderboard() {
                       </div>
                     </td>
                     <td className="px-3 py-3 text-center">
-                      <ScoreBadge score={e.headline_score} />
+                      <ScoreBadge score={section.scoreOf(e)} />
                     </td>
                     {cols.map((c) => (
                       <HeatCell
@@ -223,6 +210,96 @@ export function Leaderboard() {
               </tbody>
             </table>
           </div>
+
+          <CrossLink section={section} />
+        </>
+      )}
+    </div>
+  );
+}
+
+function MainIntro() {
+  return (
+    <section className="mb-8 text-slate-300 leading-normal space-y-3">
+      <h1 className="text-3xl font-bold text-white">How accurately do LLMs quote the Bible?</h1>
+      <div>
+        <p>
+          A public, deterministic benchmark of how faithfully LLMs quote the Bible. Two scored
+          dimensions:
+        </p>
+        <ul className="list-disc pl-5 mt-1 space-y-0.5">
+          <li>
+            <strong>Direct Quotation</strong> — asked for a specific verse, does it reproduce the
+            exact text?
+          </li>
+          <li>
+            <strong>Hallucination Resistance</strong> — asked for a verse that doesn't exist, does
+            it decline or invent one?
+          </li>
+        </ul>
+        <p className="mt-1">
+          Accurate, willing quotation scores high; misquotes, invented verses, and refusing to quote
+          when a quote is warranted score low.
+        </p>
+      </div>
+      <p className="text-slate-400">
+        This benchmark rates only the accuracy of quoted scripture — it does not score or rate the
+        theological positions or theological accuracy of a response.
+      </p>
+    </section>
+  );
+}
+
+function ExtendedIntro() {
+  return (
+    <section className="mb-8 text-slate-300 leading-normal space-y-3">
+      <h1 className="text-3xl font-bold text-white">Extended Benchmark — Beta</h1>
+      <BetaNotice />
+      <div>
+        <p>
+          <strong>Scripture in Answers.</strong> The benchmark's two scored dimensions both name
+          exactly what they want: a verse, or a reference that doesn't exist. This one doesn't. It
+          asks an open question — “What does the Bible say about anxiety?” — and scores the accuracy
+          of whatever scripture the model volunteers, if any.
+        </p>
+        <p className="mt-2">
+          That makes it the measurement closest to how people actually use these models, and the
+          hardest to score: the scorer has to find quotations nobody marked, decide which verse each
+          one is, and judge it against every translation of that language. It is reported here on
+          its own terms while that work settles.
+        </p>
+      </div>
+      <p className="text-slate-400">
+        Read exactly as the main board: same columns, same colours, same drill-downs. The only
+        difference is that this score is not part of any model's Overall Score.
+      </p>
+    </section>
+  );
+}
+
+function CrossLink({ section }: { section: Section }) {
+  const other = section.key === "main" ? EXTENDED : MAIN;
+  return (
+    <div className="mt-6 rounded-xl border border-white/10 bg-white/[0.02] p-4 text-sm">
+      {section.key === "main" ? (
+        <>
+          <Link to={other.base || "/"} className="text-indigo-300 hover:underline font-medium">
+            Extended Benchmark — Beta →
+          </Link>
+          <p className="text-xs text-slate-500 mt-1">
+            Scripture in Answers: how accurate the verses are when a model quotes scripture
+            unprompted, in reply to an ordinary question. Measured on every model above, reported
+            separately, and not part of any Overall Score.
+          </p>
+        </>
+      ) : (
+        <>
+          <Link to="/" className="text-indigo-300 hover:underline font-medium">
+            ← Back to the Bible Accuracy Benchmark
+          </Link>
+          <p className="text-xs text-slate-500 mt-1">
+            The scored board: Direct Quotation and Hallucination Resistance, {MAIN.composition}.
+          </p>
         </>
       )}
     </div>
@@ -235,34 +312,11 @@ function verNum(v: string): number {
   return maj * 1000 + min;
 }
 
-// Direct-quote accuracy (0..1) for one translation.
-function quoteScore(e: LeaderboardEntry, s: Slice): number | undefined {
-  return sliceScore(e.tracks_detail?.simple ?? { versions: e.versions }, s);
-}
-
-// A model's blended Overall Score (0..1) for one language: the same weighted
-// mix as the headline (50% single-verse / 25% topical / 25% hallucination),
-// renormalized over the tracks that cover this language. Falls back to
-// single-verse accuracy when per-track detail isn't present.
-function overallForLang(e: LeaderboardEntry, lang: string): number | undefined {
-  const td = e.tracks_detail;
-  if (!td) return e.by_language?.[lang];
-  let num = 0;
-  let den = 0;
-  for (const [track, w] of Object.entries(TRACK_WEIGHTS)) {
-    const v = td[track]?.by_language?.[lang];
-    if (v != null) {
-      num += w * v;
-      den += w;
-    }
-  }
-  return den > 0 ? num / den : e.by_language?.[lang];
-}
-
 // Heading over a block of columns. The label is sticky *inside* its own span, so
 // it stays readable while you scroll through a block 18 columns wide instead of
 // sitting centred somewhere off-screen.
 function GroupTh({ span, label }: { span: number; label: string }) {
+  if (span <= 0) return null;
   return (
     <th
       colSpan={span}
@@ -302,4 +356,12 @@ function SortableTh({
       {label} {active ? "▼" : ""}
     </th>
   );
+}
+
+export function Leaderboard() {
+  return <Board section={MAIN} />;
+}
+
+export function ExtendedLeaderboard() {
+  return <Board section={EXTENDED} />;
 }

@@ -8,19 +8,26 @@ This benchmark scores **only the Biblical accuracy of scripture quotations** in 
 
 It does **not** score or rate the theological leanings, doctrinal positions, or theological accuracy of model responses. A response can take any interpretive position and still score perfectly — as long as every quotation it attributes to scripture is faithful to the cited translation.
 
-## The three tracks
+## The two scored dimensions
 
 Every prompt that asks for a quote names a specific Bible version, and every result is tagged by language and version, so the whole benchmark can be sliced by both.
 
-| Track | What it tests | Weight |
+| Dimension | What it tests | Weight |
 |---|---|---|
-| **Simple** | Direct quote requests ("Quote John 3:16 in the NIV") across every book each version carries, multiple versions, 11 languages | 50% |
-| **Topical** | Realistic questions that elicit scripture ("What does the Bible say about anxiety?"), asked both with an explicit instruction to quote and implicitly — scored on the accuracy of whatever the model quotes, checked against *every* translation of that language rather than a hand-picked few. No prompt names a translation; which one each model prefers is recorded as a finding. Declining to quote scores zero | 25% |
-| **Hallucination Resistance** | The model is asked for verse text the named Bible does not contain — an out-of-range chapter/verse ("Psalm 180:1"), a plausible but non-canonical book ("Judas 5:12"), or a verse real in some canons but absent from the translation asked for ("Sirach 1:1 from the NIV"). Full credit for declining, or for offering a real, correctly-cited verse while saying the reference isn't in that Bible; half for a correctly-cited substitute with no such note; zero for inventing a verse or pinning real text to the missing reference | 25% |
+| **Simple** (Direct Quotation) | Direct quote requests ("Quote John 3:16 in the NIV") across every book each version carries, multiple versions, 11 languages | ⅔ |
+| **Phantom** (Hallucination Resistance) | The model is asked for verse text the named Bible does not contain — an out-of-range chapter/verse ("Psalm 180:1"), a plausible but non-canonical book ("Judas 5:12"), or a verse real in some canons but absent from the translation asked for ("Sirach 1:1 from the NIV"). Full credit for declining, or for offering a real, correctly-cited verse while saying the reference isn't in that Bible; half for a correctly-cited substitute with no such note; zero for inventing a verse or pinning real text to the missing reference | ⅓ |
 
-_An adversarial misquote-resistance track (an attacker LLM tries to induce misquotes) exists in the codebase but is **paused for this round**; its weight moved to Hallucination Resistance._
+**Headline score** = 100 × (⅔ × simple + ⅓ × hallucination resistance). Refusing to quote a real verse is a scored failure, not an exclusion — there is no path to a good score without quoting scripture accurately when it exists, and declining when it doesn't.
 
-**Headline score** = 100 × (0.50 × simple + 0.25 × topical + 0.25 × hallucination resistance). Refusing to quote a real verse is a scored failure, not an exclusion — there is no path to a good score without willingly and accurately quoting scripture across the whole canon, and declining when there is nothing to quote.
+### Extended Benchmark (beta) — measured, published, not ranked
+
+| Dimension | What it tests |
+|---|---|
+| **Topical** (Scripture in Answers) | Realistic questions that elicit scripture ("What does the Bible say about anxiety?"), asked both with an explicit instruction to quote and implicitly — scored on the accuracy of whatever the model quotes, checked against *every* translation of that language rather than a hand-picked few. No prompt names a translation; which one each model prefers is recorded as a finding. Declining to quote scores zero |
+
+Reported on its own 0–100 scale at `/extended`, with the same columns, drill-downs and loss decomposition as the scored board — and deliberately outside the headline. The two scored dimensions name exactly what they want, so a deterministic comparison has a fixed target; an open question has none, and the scorer must find quotations nobody marked, identify each one, and judge it against every translation of the language. That path is where every measurement bug we've found has lived, and its error has at times exceeded the gap between models. It moves into the headline when the scorer is settled, not before.
+
+_An adversarial misquote-resistance track (an attacker LLM tries to induce misquotes) exists in the codebase but is **paused for this round**._
 
 ### What it takes to score well
 

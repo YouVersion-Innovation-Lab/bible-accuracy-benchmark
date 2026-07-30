@@ -12,6 +12,7 @@ import { ErrorMsg, Loading } from "../components";
 import { TRACK_BY_KEY, langName } from "../constants";
 import { PhantomWork, SimpleWork, TopicalWork } from "../evalWork";
 import { useAsync } from "../hooks";
+import { modelHref, sectionForTrack } from "../sections";
 
 const OUTCOMES = [
   { key: "all", label: "All" },
@@ -67,12 +68,17 @@ export function TrackEvaluations() {
   const scope = [lang ? langName(lang) : "all languages", abbrev].filter(Boolean).join(" · ");
   // Keep the outcome tab when widening the subset back out to the whole run.
   const wholeRun = outcome === "all" ? "" : `?outcome=${outcome}`;
+  // Both boards share this page, so "back" has to return to whichever one owns
+  // this dimension — landing on the scored board after drilling in from the beta
+  // board would quietly suggest the number you just read was part of the ranking.
+  const section = sectionForTrack(track);
+  const backToModel = modelHref(section, runId);
 
   if (!meta) {
     return (
       <div className="space-y-3">
         <p className="text-slate-300">Unknown evaluation dimension “{track}”.</p>
-        <Link to={`/models/${encodeURIComponent(runId)}`} className="text-indigo-300 hover:underline">
+        <Link to={backToModel} className="text-indigo-300 hover:underline">
           ← Back to model
         </Link>
       </div>
@@ -82,14 +88,16 @@ export function TrackEvaluations() {
   return (
     <div className="space-y-6">
       <div>
-        <Link
-          to={`/models/${encodeURIComponent(runId)}`}
-          className="text-sm text-slate-400 hover:underline"
-        >
+        <Link to={backToModel} className="text-sm text-slate-400 hover:underline">
           ← Back to {label}
         </Link>
         <h1 className="text-2xl font-bold mt-1">
           {label} <span className="text-slate-500">·</span> {meta.name}
+          {section.beta && (
+            <span className="ml-2 rounded bg-amber-400/15 text-amber-300 text-[10px] uppercase tracking-wide px-1.5 py-0.5 align-middle">
+              extended · beta
+            </span>
+          )}
         </h1>
         <p className="text-slate-400 text-sm mt-1 leading-normal">{INTRO[track]}</p>
         <p className="text-slate-500 text-xs mt-2">

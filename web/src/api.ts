@@ -36,6 +36,9 @@ export interface LeaderboardEntry {
   provider_host: string;
   run_date: string;
   headline_score: number | null;
+  // Score for the Extended Benchmark (beta) dimensions, on their own 0-100
+  // scale. Deliberately not folded into headline_score.
+  extended_score?: number | null;
   by_track: Record<string, number>;
   by_language: Record<string, number>;
   versions: VersionScore[];
@@ -69,6 +72,13 @@ export interface Summary {
   headline_score: number;
   headline_partial?: boolean;
   score_factors?: ScoreFactor[];
+  // Which dimensions the headline covers, and which are published beside it in
+  // the Extended Benchmark. Sent by the scorer so the site never has to keep
+  // its own copy of that decision.
+  headline_tracks?: string[];
+  extended_tracks?: string[];
+  extended_score?: number | null;
+  extended_score_factors?: ScoreFactor[];
   by_track: Record<string, number>;
   tracks: Record<string, TrackSummary>;
   usage?: Record<string, number>;

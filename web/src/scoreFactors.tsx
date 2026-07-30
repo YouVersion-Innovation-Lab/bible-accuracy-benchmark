@@ -15,7 +15,7 @@
  * declining, but it is not the same event. Folding them together reports a
  * platform policy as a model's choice.
  */
-import type { Summary } from "./api";
+import type { ScoreFactor } from "./api";
 import { TRACKS } from "./constants";
 
 type FactorCopy = {
@@ -125,8 +125,7 @@ function copyFor(key: string): FactorCopy {
 
 const trackName = (key: string) => TRACKS.find((t) => t.key === key)?.name ?? key;
 
-export function ScoreFactors({ summary }: { summary: Summary }) {
-  const factors = summary.score_factors ?? [];
+export function ScoreFactors({ factors, score }: { factors: ScoreFactor[]; score: number | null }) {
   if (factors.length === 0) {
     // Either a flawless run, or a run scored before factors were recorded.
     // Saying nothing is right for the first and honest for the second.
@@ -215,7 +214,7 @@ export function ScoreFactors({ summary }: { summary: Summary }) {
       )}
 
       <div className="text-xs text-slate-500 mt-4 pt-3 border-t border-white/5 tabular-nums">
-        {total.toFixed(1)} lost + {(summary.headline_score ?? 0).toFixed(1)} scored = 100
+        {total.toFixed(1)} lost + {(score ?? 0).toFixed(1)} scored = 100
       </div>
     </div>
   );

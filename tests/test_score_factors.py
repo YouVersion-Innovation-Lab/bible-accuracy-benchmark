@@ -128,9 +128,8 @@ def test_phantom_factors_sum_to_the_shortfall():
     assert abs(_total(s["score_factors"]) - (1 - s["track_score"])) < TOL
 
 
-def test_headline_factors_reconcile_to_the_overall_score():
-    """The whole point: a reader can add the list up and land on the score."""
-    tracks = {
+def _three_tracks() -> dict[str, dict]:
+    return {
         "simple": summarize_simple([
             simple_item("eng", 0.8, "minor"), simple_item("spa", 0.0, "fabricated"),
         ]),
@@ -141,11 +140,47 @@ def test_headline_factors_reconcile_to_the_overall_score():
             phantom_item("eng", 1.0, "refused"), phantom_item("spa", 0.0, "fabricated_text"),
         ]),
     }
-    s = build_summary(tracks)
+
+
+def test_headline_factors_reconcile_to_the_overall_score():
+    """The whole point: a reader can add the list up and land on the score."""
+    s = build_summary(_three_tracks())
     assert abs(_total(s["score_factors"]) - (100 - s["headline_score"])) < 0.05
     # Each factor names which dimension it came from, so the panel can group.
-    assert {f["track"] for f in s["score_factors"]} <= {"simple", "topical", "phantom"}
+    assert {f["track"] for f in s["score_factors"]} <= {"simple", "phantom"}
     assert all(f["points"] > 0 for f in s["score_factors"])
+
+
+def test_the_headline_covers_only_the_two_ranked_dimensions():
+    """Scripture in Answers is measured and published but must not touch the
+    headline: a reader who adds up "what dropped this score" has to land on the
+    score, and a dimension that contributes points without contributing weight
+    would break that in the direction of understating the total."""
+    tracks = _three_tracks()
+    s = build_summary(tracks)
+    simple, phantom = tracks["simple"]["track_score"], tracks["phantom"]["track_score"]
+    assert s["headline_score"] == round(100 * (2 * simple + phantom) / 3, 2)
+    assert s["headline_tracks"] == ["simple", "phantom"]
+    assert "topical" not in {f["track"] for f in s["score_factors"]}
+    # ...and dropping it entirely leaves the headline untouched.
+    assert build_summary({k: v for k, v in tracks.items() if k != "topical"})[
+        "headline_score"
+    ] == s["headline_score"]
+
+
+def test_the_extended_score_stands_alone_with_its_own_decomposition():
+    """The Extended board needs the same shape of number as the headline — a
+    0-100 score plus factors summing to its shortfall — or it can't be read the
+    same way."""
+    tracks = _three_tracks()
+    s = build_summary(tracks)
+    assert s["extended_tracks"] == ["topical"]
+    assert s["extended_score"] == round(100 * tracks["topical"]["track_score"], 2)
+    assert abs(_total(s["extended_score_factors"]) - (100 - s["extended_score"])) < 0.05
+    assert {f["track"] for f in s["extended_score_factors"]} == {"topical"}
+    # A run without the extended dimension says so rather than reporting a zero.
+    bare = build_summary({k: v for k, v in tracks.items() if k != "topical"})
+    assert bare["extended_score"] is None and bare["extended_score_factors"] == []
 
 
 def test_a_perfect_run_has_no_factors():

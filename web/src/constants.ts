@@ -7,6 +7,8 @@ export interface TrackMeta {
   name: string;
   short: string;
   blurb: string;
+  /** Published in the Extended Benchmark (beta), outside the headline score. */
+  extended?: boolean;
 }
 
 export const TRACKS: TrackMeta[] = [
@@ -28,6 +30,7 @@ export const TRACKS: TrackMeta[] = [
       "model quotes that match a real translation character-for-character. No translation is " +
       "requested — quoting any real one faithfully counts, and each verse is checked against every " +
       "translation of its language. Quoting nothing scores zero.",
+    extended: true,
   },
   {
     key: "phantom",
@@ -45,13 +48,17 @@ export const TRACK_BY_KEY: Record<string, TrackMeta> = Object.fromEntries(
   TRACKS.map((t) => [t.key, t]),
 );
 
-// Composite weights — must match TRACK_WEIGHTS in report.py. Used to blend the
-// per-track, per-language scores into an "overall score" for each language.
+// Headline weights — must match HEADLINE_WEIGHTS in report.py. Relative and
+// normalized wherever they're used, so 2:1 means Direct Quotation counts twice
+// what Hallucination Resistance does. Scripture in Answers is absent on purpose:
+// it's published in the Extended Benchmark, not ranked.
 export const TRACK_WEIGHTS: Record<string, number> = {
-  simple: 0.5,
-  topical: 0.25,
-  phantom: 0.25,
+  simple: 2,
+  phantom: 1,
 };
+
+export const HEADLINE_TRACKS = TRACKS.filter((t) => !t.extended);
+export const EXTENDED_TRACKS = TRACKS.filter((t) => t.extended);
 
 // ISO-639-3 tag → English name for benchmark languages (extra entries are
 // harmless; only the languages present in a run's data are ever rendered).

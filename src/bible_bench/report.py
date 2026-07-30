@@ -1,13 +1,14 @@
 """Aggregation: per-item scored records → summary metrics + composite score.
 
-Headline = 100 × (0.50·simple + 0.25·topical + 0.25·hallucination resistance).
-Tracks not present in a run are dropped from the weighted average and the
-weights renormalized, so a simple-only pilot run still yields a comparable
-simple-track score (with headline_partial=True flagged).
+Headline = 100 × (⅔·simple + ⅓·hallucination resistance), over the two
+dimensions the benchmark ranks on. Tracks not present in a run are dropped from
+the weighted average and the weights renormalized, so a simple-only pilot run
+still yields a comparable simple-track score (with headline_partial=True).
 
-Adversarial (misquote-resistance) is paused for this round; its weight was
-reassigned to the phantom/hallucination track. If an adversarial summary is
-present in a run it is still stored, just not folded into the headline.
+Every other dimension is summarized in full and published, just outside the
+headline — see EXTENDED_TRACKS. Nothing is discarded: `tracks` always carries
+every summary a run produced, so a dimension can move in or out of the headline
+without re-scoring a single item.
 """
 
 from __future__ import annotations
@@ -16,7 +17,19 @@ from collections import defaultdict
 
 from .usfm import CANONS
 
-TRACK_WEIGHTS = {"simple": 0.50, "topical": 0.25, "phantom": 0.25}
+# Relative, and normalized before use — "2:1" states that Direct Quotation
+# counts twice what Hallucination Resistance does without a repeating decimal
+# in the source. Reproducing the requested verse is the benchmark's subject;
+# refusing to invent one is the guardrail that stops silence scoring well.
+HEADLINE_WEIGHTS = {"simple": 2, "phantom": 1}
+
+# Measured, stored and displayed in full, deliberately outside the headline.
+# Scripture in Answers asks an open question and scores whatever the model
+# volunteers, which makes it the least settled scorer of the three; ranking
+# models on it would put the benchmark's shakiest measurement in its most
+# quoted number. Each extended dimension stands alone on its own 100-point
+# scale rather than being blended with the others.
+EXTENDED_TRACKS = ("topical",)
 
 # Grades that mean the model presented text as scripture but got it wrong,
 # vs. simply declined.
@@ -398,25 +411,23 @@ def summarize_phantom(items: list[dict]) -> dict:
     }
 
 
-def build_summary(track_summaries: dict[str, dict], usage: dict | None = None) -> dict:
-    """Combine per-track summaries into the run summary with composite score."""
-    present = {t: track_summaries[t] for t in TRACK_WEIGHTS if t in track_summaries}
-    weight_total = sum(TRACK_WEIGHTS[t] for t in present)
-    if weight_total > 0:
-        headline = sum(
-            TRACK_WEIGHTS[t] * present[t]["track_score"] for t in present
-        ) / weight_total
-    else:
-        headline = 0.0
-    # "What dropped this score" — every factor from every dimension, rescaled by
-    # that dimension's weight so the numbers are points off 100, ranked worst
-    # first. They sum to (100 - headline_score) by construction: each dimension's
-    # factors sum to its own shortfall, and the headline is a weighted mean of the
-    # dimensions. A reader can therefore add the list up and land on the score.
+def _composite(tracks: dict[str, dict], weights: dict[str, float]) -> tuple[float, list[dict]]:
+    """A weighted score in [0,1] plus its loss decomposition in points off 100.
+
+    "What dropped this score" — every factor from every dimension, rescaled by
+    that dimension's weight, ranked worst first. The factors sum to (100 −
+    score) by construction: each dimension's factors sum to its own shortfall,
+    and the composite is a weighted mean of the dimensions. A reader can
+    therefore add the list up and land on the score.
+    """
+    total = sum(weights[t] for t in tracks)
+    if total <= 0:
+        return 0.0, []
+    score = sum(weights[t] * tracks[t]["track_score"] for t in tracks) / total
     factors: list[dict] = []
-    for track in present:
-        weight = TRACK_WEIGHTS[track] / weight_total if weight_total else 0.0
-        for f in present[track].get("score_factors", []):
+    for track in tracks:
+        weight = weights[track] / total
+        for f in tracks[track].get("score_factors", []):
             factors.append({
                 "track": track,
                 "key": f["key"],
@@ -424,11 +435,30 @@ def build_summary(track_summaries: dict[str, dict], usage: dict | None = None) -
                 "n": f["n"],
             })
     factors = [f for f in sorted(factors, key=lambda f: -f["points"]) if f["points"] > 0]
+    return score, factors
+
+
+def build_summary(track_summaries: dict[str, dict], usage: dict | None = None) -> dict:
+    """Combine per-track summaries into the run summary with composite score."""
+    present = {t: track_summaries[t] for t in HEADLINE_WEIGHTS if t in track_summaries}
+    headline, factors = _composite(present, HEADLINE_WEIGHTS)
+    # The extended dimensions get the identical treatment on their own scale —
+    # same composite, same decomposition — so the site can present them the way
+    # it presents the headline, and a reader reads one kind of number, not two.
+    extended = {t: track_summaries[t] for t in EXTENDED_TRACKS if t in track_summaries}
+    ext_score, ext_factors = _composite(extended, dict.fromkeys(EXTENDED_TRACKS, 1))
     return {
         "headline_score": round(100 * headline, 2),
-        "headline_partial": set(present) != set(TRACK_WEIGHTS),
+        "headline_partial": set(present) != set(HEADLINE_WEIGHTS),
         "score_factors": factors,
-        "by_track": {t: present[t]["track_score"] for t in present},
+        # Which dimensions the headline covers, so the site doesn't have to
+        # hardcode a copy of this decision and drift from it.
+        "headline_tracks": [t for t in HEADLINE_WEIGHTS if t in present],
+        "extended_tracks": [t for t in EXTENDED_TRACKS if t in extended],
+        "extended_score": round(100 * ext_score, 2) if extended else None,
+        "extended_score_factors": ext_factors,
+        # Every track a run produced, headline or not.
+        "by_track": {t: ts["track_score"] for t, ts in track_summaries.items()},
         "tracks": track_summaries,
         "usage": usage or {},
         "scoring_scope_note": (

@@ -74,6 +74,27 @@ export function ErrorMsg({ error }: { error: string }) {
   return <p className="text-rose-400">Error: {error}</p>;
 }
 
+// Why the Extended Benchmark is separate, said once and reused wherever its
+// numbers appear. A beta board that doesn't say what's provisional about it is
+// just a second leaderboard with a smaller font.
+export function BetaNotice() {
+  return (
+    <div className="rounded-lg border border-amber-400/25 bg-amber-400/[0.06] px-4 py-3 text-sm">
+      <span className="rounded bg-amber-400/15 text-amber-300 text-[10px] uppercase tracking-wide px-1.5 py-0.5 align-middle">
+        beta
+      </span>{" "}
+      <span className="text-amber-100/90">
+        Not part of any model's Overall Score.
+      </span>{" "}
+      <span className="text-slate-400">
+        These dimensions are measured on every model and reported in full, but held out of the
+        ranking while their scoring is still being settled. Treat the numbers as evidence for
+        discussion, not as a verdict.
+      </span>
+    </div>
+  );
+}
+
 export function SensitiveTag() {
   return (
     <span className="ml-2 rounded bg-amber-500/15 text-amber-300 text-[10px] px-1.5 py-0.5 align-middle">

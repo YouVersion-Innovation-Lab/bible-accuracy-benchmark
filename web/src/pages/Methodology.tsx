@@ -22,22 +22,15 @@ export function Methodology() {
         this round.)
       </Section>
 
-      <Section title="The three tracks">
+      <Section title="The two scored dimensions">
         <ul className="list-disc pl-6 space-y-1">
           <li>
-            <strong>Direct Quotation (50%).</strong> Direct quote requests ("Quote John 3:16 in the
+            <strong>Direct Quotation (⅔).</strong> Direct quote requests ("Quote John 3:16 in the
             NIV") sampled across every book of the Bible, many translations, and 11
             languages.
           </li>
           <li>
-            <strong>Scripture in Answers (25%).</strong> Realistic questions that elicit scripture
-            ("What does the Bible say about anxiety?"), asked both with and without an
-            explicit instruction to quote, spanning everyday, doctrinal, interfaith, and
-            cross-cultural subjects. Scored on the accuracy of whatever the model quotes;
-            a response that paraphrases or declines to quote scores zero.
-          </li>
-          <li>
-            <strong>Hallucination Resistance (25%).</strong> The model is asked for verse
+            <strong>Hallucination Resistance (⅓).</strong> The model is asked for verse
             text the named Bible does not contain — an out-of-range chapter or verse ("Psalm
             180:1"), a plausible but non-canonical book ("Judas 5:12"), or a verse that is
             real in some canons but absent from the translation asked for ("Sirach 1:1 from
@@ -48,11 +41,45 @@ export function Methodology() {
           </li>
         </ul>
         <p className="mt-2">
-          <strong>Overall Score</strong> = 100 × (0.50 × single-verse accuracy + 0.25 ×
-          topical-quote accuracy + 0.25 × hallucination resistance), each averaged over the
-          languages tested. There is no path to a good score without willingly and
-          accurately quoting scripture across the whole canon — and declining when there is
-          nothing to quote.
+          <strong>Overall Score</strong> = 100 × (⅔ × single-verse accuracy + ⅓ ×
+          hallucination resistance), each averaged over the languages tested. Both halves are
+          load-bearing in opposite directions: a model that refuses to quote scores zero on
+          the first, and a model that answers everything confidently scores zero on the
+          second. There is no path to a good score without quoting scripture accurately when
+          it exists and declining when it doesn't.
+        </p>
+        <p className="mt-2">
+          Direct Quotation carries twice the weight because reproducing a requested verse is
+          the benchmark's subject. Hallucination Resistance is the guardrail that stops
+          silence, or invention, from looking like accuracy.
+        </p>
+      </Section>
+
+      <Section title="The Extended Benchmark (beta), and why it's separate">
+        <p>
+          <strong>Scripture in Answers</strong> asks realistic questions that elicit scripture
+          ("What does the Bible say about anxiety?") across everyday, doctrinal, interfaith,
+          and cross-cultural subjects, and scores the accuracy of whatever the model chooses
+          to quote. It is measured on every model and{" "}
+          <a href="/extended" className="underline">
+            published in full
+          </a>
+          , but it is <strong>not part of the Overall Score</strong>.
+        </p>
+        <p className="mt-2">
+          The reason is the scorer, not the subject. The two scored dimensions name exactly
+          what they want — a specific verse, or a reference that doesn't exist — so a
+          deterministic comparison has a fixed target. An open question has none: the scorer
+          must find quotations nobody marked as quotations, decide which verse each one is,
+          and judge it against every translation of that language. Every measurement error we
+          have found and fixed so far has lived in that path, and its error bar has at times
+          exceeded the gap between models. A number that unreliable does not belong inside a
+          ranking that AI labs are asked to act on.
+        </p>
+        <p className="mt-2 text-slate-400">
+          It is the measurement closest to how people actually use these models, which is
+          exactly why we would rather report it honestly beside the score than fold it in
+          before it's ready.
         </p>
       </Section>
 
