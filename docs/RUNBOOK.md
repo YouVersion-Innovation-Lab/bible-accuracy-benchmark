@@ -104,3 +104,38 @@ so models can't memorize a fixed list. Run all models in a refresh with the
   concurrent calls; large versions (reverse-index build for topical) are the
   slowest step. Let it finish; it's cached in-memory for the rest of the run.
 - **Leaderboard didn't update after publish** — the site caches for 5 minutes.
+
+## Fast runs
+
+A fast pass runs ~10% of the items and finishes in minutes rather than hours.
+Use it to get every model on the board quickly, or to check a change end to end
+before spending a full sweep.
+
+```bash
+bible-bench run --base-url https://openrouter.ai/api/v1 \
+  --model x-ai/grok-4.5 --label "Grok 4.5" \
+  --api-key-env OPENROUTER_API_KEY --fast
+bible-bench publish --model x-ai/grok-4.5 --run-version v0.5-fast
+```
+
+Two properties make the results usable rather than merely quick:
+
+* **Its own generation.** A fast run records `run_version = v0.5-fast`, so it
+  never mixes with full results — the board shows one generation at a time and
+  offers both in its selector.
+* **The same questions.** The item draw is seeded by the plain version, so a fast
+  run's references are a strict *subset* of the full run's. A fast score and a
+  full score therefore disagree only by coverage, not by sample.
+
+Items are thinned **within each language**, never as a prefix of the list. The
+item lists are built language by language, so a naive `items[:10%]` would cover
+English and Spanish and nothing else — and since track scores macro-average over
+languages, that would report a two-language result as eleven. A fast run keeps
+all 11 languages and all 18 translations; it asks fewer questions of each.
+
+Roughly, per model: ~260 Direct Quotation + ~120 Scripture in Answers + ~35
+Hallucination ≈ 415 calls, against ~4,240 for a full run.
+
+`--scale` still works and overrides what `--fast` would choose, e.g.
+`--fast --scale 0.25` for a bigger fast pass. `score` and `resummarize` address a
+fast run with `--run-version v0.5-fast`.

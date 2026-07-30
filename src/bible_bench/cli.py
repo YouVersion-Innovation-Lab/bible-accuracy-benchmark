@@ -76,11 +76,38 @@ from .yv_client import BibleClient
 # stays wired but dormant (never in ALL_TRACKS).
 ALL_TRACKS = ("simple", "topical", "phantom")
 
+# A fast pass is a separate generation with the same questions — see cmd_run.
+FAST_SUFFIX = "-fast"
+FAST_SCALE = 0.1
+# Both are "current": re-summarizing either applies today's reporting rules to
+# results today's code produced, which is the case --allow-older exists to block.
+_CURRENT_VERSIONS = (BENCHMARK_VERSION, BENCHMARK_VERSION + FAST_SUFFIX)
+
 console = Console()
 
 
 def _now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def _thin_per_language(items: list, scale: float) -> list:
+    """Keep ``scale`` of the items WITHIN EACH language.
+
+    A global prefix would not do: the item lists are built language by language,
+    so items[:10%] covers the first language or two and nothing else. Track scores
+    are macro-averages over languages, so that would produce a "benchmark" scored
+    on English and Spanish while reporting it as eleven languages. Thinning inside
+    each language keeps a fast run the same SHAPE as a full one, just smaller.
+    """
+    if scale >= 1.0:
+        return items
+    by_lang: dict[str, list] = {}
+    for it in items:
+        by_lang.setdefault(it.language_tag, []).append(it)
+    out: list = []
+    for group in by_lang.values():
+        out.extend(group[: max(1, round(len(group) * scale))])
+    return out
 
 
 def _cache_dir(args) -> str | None:
@@ -188,7 +215,14 @@ async def cmd_run(args) -> int:
                       f"Choose from {list(ALL_TRACKS)}.")
         return 2
     tracks = only or set(ALL_TRACKS)
-    run_version = BENCHMARK_VERSION  # the benchmark version comes from the codebase
+    # A fast run is its own generation on the board (v0.5-fast), so it never mixes
+    # with full results — but it is SEEDED by the plain version, so its questions
+    # are a strict subset of the full run's rather than a different draw. A fast
+    # score and a full score therefore disagree only by coverage, not by sample.
+    run_version = BENCHMARK_VERSION + FAST_SUFFIX if args.fast else BENCHMARK_VERSION
+    sample_seed = BENCHMARK_VERSION
+    if args.fast and args.scale == 1.0:
+        args.scale = FAST_SCALE
     run_key = _run_key(run_version, model_cfg.model)  # identity = version + model id
     run_dir = f"runs/{run_key}"
     tracks_str = ",".join(sorted(tracks))
@@ -220,7 +254,7 @@ async def cmd_run(args) -> int:
         topical_items = []
         if "simple" in tracks:
             with console.status("Sampling simple-track items from spec…"):
-                items = await _sample_items(client, args.spec, run_version, args.scale)
+                items = await _sample_items(client, args.spec, sample_seed, args.scale)
             console.print(f"Sampled [bold]{len(items)}[/bold] simple items across "
                           f"{len({i.language_tag for i in items})} languages.")
         if "topical" in tracks:
@@ -229,10 +263,8 @@ async def cmd_run(args) -> int:
                 [x.strip() for x in args.topical_languages.split(",") if x.strip()]
                 if args.topical_languages else None
             )
-            topical_items = build_topical_items(cfg, languages=topical_langs)
-            if args.scale < 1.0:
-                keep = max(1, int(len(topical_items) * args.scale))
-                topical_items = topical_items[:keep]
+            topical_items = _thin_per_language(
+                build_topical_items(cfg, languages=topical_langs), args.scale)
             console.print(f"Built [bold]{len(topical_items)}[/bold] topical items.")
         adv_goals = []
         adv_cfg = None
@@ -263,9 +295,7 @@ async def cmd_run(args) -> int:
                 versions_by_language=phantom_versions,
                 template_by_language=simple_quote_templates(),
             )
-            if args.scale < 1.0:
-                keep = max(1, int(len(phantom_items) * args.scale))
-                phantom_items = phantom_items[:keep]
+            phantom_items = _thin_per_language(phantom_items, args.scale)
             console.print(f"Built [bold]{len(phantom_items)}[/bold] phantom items across "
                           f"{len({i.language_tag for i in phantom_items})} languages.")
         manifest = {
@@ -560,7 +590,7 @@ def cmd_resummarize(args) -> int:
     # rewrites history: reporting rules change between versions (v0.4 moved the
     # deuterocanon out of the headline, which shifts every v0.3 simple score).
     # Older results are meant to stay frozen at the version that produced them.
-    if args.run_version != BENCHMARK_VERSION and not args.allow_older:
+    if args.run_version not in _CURRENT_VERSIONS and not args.allow_older:
         console.print(
             f"[red]{run_key} was scored at {args.run_version}, but this codebase is "
             f"{BENCHMARK_VERSION}.[/red] Re-summarizing would apply {BENCHMARK_VERSION} "
@@ -882,8 +912,16 @@ def main(argv: list[str] | None = None) -> int:
                         "one dimension's design changes: 'phantom' re-asks 325 items "
                         "instead of re-running all 3,956. Default: the whole benchmark, "
                         "replacing the run.")
+    r.add_argument("--fast", action="store_true",
+                   help=f"Run a fast pass: about {int(FAST_SCALE * 100)}%% of the items, "
+                        f"thinned within every language so the result keeps the same shape. "
+                        f"Recorded as its own generation ('{BENCHMARK_VERSION}{FAST_SUFFIX}') "
+                        f"so it never mixes with full results, but seeded by "
+                        f"{BENCHMARK_VERSION} so its questions are a subset of the full "
+                        f"run's. Publishable like any other run.")
     r.add_argument("--scale", type=float, default=1.0,
-                   help="Scale factor on per-tier counts (use <1 for quick pilots)")
+                   help="Scale factor on per-tier counts (use <1 for quick pilots). "
+                        "Overrides the scale --fast would pick.")
     r.add_argument("--concurrency", type=int, default=12,
                    help="Max concurrent model requests per track (lower it — e.g. 3-4 — "
                         "to stay under a provider's rate limit; e.g. OpenRouter models)")
