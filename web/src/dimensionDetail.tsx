@@ -270,31 +270,22 @@ function CanonBreakdown({ ts }: { ts: TrackSummary }) {
   const counts = ts.canon_counts ?? {};
   const langs = ts.canon_languages ?? {};
   if (Object.keys(byCanon).length === 0) return null;
-  const headline = ts.headline_canon ?? "protestant";
   const tested = CANONS.filter((c) => (counts[c.key] ?? 0) > 0);
   const untested = CANONS.filter((c) => c.key !== "other" && !(counts[c.key] ?? 0));
 
   return (
     <div>
       <div className="text-xs text-slate-500 mb-2">
-        Score by canon — which books were asked for
+        Score by canon — all of it counts; this is only which books were asked
       </div>
       <table className="w-full text-sm">
         <tbody>
           {tested.map((c) => {
             const score = byCanon[c.key];
-            const isHeadline = c.key === headline;
             return (
               <tr key={c.key} className="align-top border-t border-white/5 first:border-0">
                 <td className="py-1.5 pr-3 w-[52%]">
-                  <div className={isHeadline ? "text-slate-100" : "text-amber-200"}>
-                    {c.label}
-                    {isHeadline && (
-                      <span className="ml-2 text-[10px] uppercase tracking-wide text-slate-500">
-                        in Overall Score
-                      </span>
-                    )}
-                  </div>
+                  <div className="text-slate-100">{c.label}</div>
                   <div className="text-xs text-slate-500 leading-snug">{c.blurb}</div>
                   {langs[c.key] && (
                     <div className="text-[11px] text-slate-600 mt-0.5">
@@ -315,7 +306,9 @@ function CanonBreakdown({ ts }: { ts: TrackSummary }) {
                   )}
                 </td>
                 <td className="py-1.5 w-[20%]">
-                  <Bar frac={score ?? 0} good={isHeadline} />
+                  {/* Every canon counts now, so none of them is the "real" one
+                      to colour differently. */}
+                  <Bar frac={score ?? 0} good />
                 </td>
               </tr>
             );

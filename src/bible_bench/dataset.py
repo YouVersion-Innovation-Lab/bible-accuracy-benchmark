@@ -25,7 +25,7 @@ from pathlib import Path
 
 from . import versification
 from .normalize import normalize
-from .usfm import PROTESTANT_66, VerseRef, canon_of
+from .usfm import VerseRef, canon_of
 from .yv_client import BibleClient
 
 # The scheme every reference is drawn and stored in. Editions get it translated.
@@ -41,18 +41,24 @@ class Reference:
 
 def draw_references(
     spec: dict, seed: str, famous: list[str], obscure: list[str], *,
-    counts_scale: float = 1.0, probe: set[str] | None = None,
+    books: list[str], counts_scale: float = 1.0, probe: set[str] | None = None,
 ) -> list[Reference]:
     """The global reference list: famous + obscure (curated) + body (drawn).
 
-    Deterministic from ``seed`` alone and entirely offline — chapter and verse
-    bounds come from the vendored `eng` versification table, not the API, so the
-    same benchmark version always produces the same questions.
+    Body is exactly one verse per book, over ``books`` — the union of every book
+    ANY tested edition carries, which is what makes the tier version-driven
+    rather than canon-driven. Every book contributes equally regardless of
+    length, and every edition is asked the same verse of each book it has.
 
-    Body is exactly one verse per book of the shared 66, which is what makes the
-    tier comparable: every book contributes equally regardless of length, and
-    every edition is asked the same verse of Genesis, the same verse of Exodus,
-    and so on.
+    The union matters for more than the deuterocanon. Daniel and Esther exist in
+    Hebrew and Greek forms under different codes (`DAN`/`DAG`, `EST`/`ESG`), and
+    only 64 of the Protestant 66 are in all 18 editions for exactly that reason.
+    Carrying both forms in the list means every edition is asked a Daniel and an
+    Esther — each gets the one it actually has, and drops the other.
+
+    Deterministic given (seed, books). Chapter and verse bounds come from the
+    vendored `eng` versification table, which numbers all 85 books in the union,
+    so the draw itself needs no API call.
     """
     probe = probe or set()
 
@@ -65,8 +71,7 @@ def draw_references(
 
     rng = random.Random(int(hashlib.sha256(f"{seed}:body".encode()).hexdigest(), 16) % (2**32))
     taken = {r.usfm for r in refs}
-    books = scale(list(PROTESTANT_66))
-    for book in books:
+    for book in scale(sorted(books)):
         chapters = versification.chapter_count(book, REFERENCE_SCHEME)
         if not chapters:
             continue
@@ -197,47 +202,6 @@ class DatasetSampler:
             canon=canon_of(VerseRef.parse(usfm).book),
         )
 
-    async def _extra_canon_items(
-        self, rng: random.Random, lang: str, lang_name: str, version_ids: list[int],
-        distractors: list[int], count: int,
-    ) -> list[BenchmarkItem]:
-        """Books an edition carries that the shared canon doesn't.
-
-        Inherently per-edition — a Catholic Bible has Tobit and a Protestant one
-        doesn't — so this is the one pass that cannot use the global reference
-        list. Derived from each version's own metadata, reported as its own canon
-        slice, and never folded into the headline. Asking an edition WITHOUT the
-        book is a hallucination test, not a quotation test, and lives in the
-        phantom track's absent_from_version kind.
-        """
-        if count <= 0:
-            return []
-        out: list[BenchmarkItem] = []
-        shared = set(PROTESTANT_66)
-        for vid in version_ids:
-            meta = await self._client.version(vid)
-            chapters = await self._chapters_by_book(vid)
-            extra = [cu for book, chs in sorted(chapters.items())
-                     if book not in shared for cu in chs]
-            if not extra:
-                continue
-            rng.shuffle(extra)
-            picked: list[str] = []
-            for chapter in extra:
-                if len(picked) >= count:
-                    break
-                verses = [u for u in await self._valid_verses(vid, chapter) if u not in picked]
-                if verses:
-                    picked.append(rng.choice(verses))
-            for usfm in picked:
-                item = await self._make_item(
-                    lang, lang_name, vid, (meta.get("abbreviation") or "").upper(),
-                    source_usfm=usfm, usfm=usfm, tier="extra_canon", distractors=distractors,
-                )
-                if item:
-                    out.append(item)
-        return out
-
     async def sample(self, seed: str, counts_scale: float = 1.0) -> list[BenchmarkItem]:
         """Every (reference, translation) pair the Direct Quotation track tests.
 
@@ -250,19 +214,31 @@ class DatasetSampler:
 
         No language branch anywhere: a translation is a translation.
         """
+        # The book union, derived from the editions themselves — the same
+        # principle as v0.4's canon work: whatever a version has, it can be asked
+        # for, and no book list lives in this codebase.
+        by_version: dict[int, tuple[str, str, str]] = {}
+        books: set[str] = set()
+        for lang_cfg in self._spec["languages"].values():
+            for vid in lang_cfg.get("versions") or [lang_cfg["primary"]]:
+                meta = await self._client.version(vid)
+                by_version[vid] = (
+                    meta.get("vrs") or REFERENCE_SCHEME,
+                    (meta.get("abbreviation") or "").upper(),
+                    "",
+                )
+                books |= set(await self._client.version_books(vid))
+
         refs = draw_references(self._spec, seed, self._famous, self._obscure,
-                               counts_scale=counts_scale, probe=self._probe)
-        extra_count = max(0, round(
-            (self._spec.get("extra_canon", {}).get("count") or 0) * counts_scale))
+                               books=sorted(books), counts_scale=counts_scale,
+                               probe=self._probe)
         items: list[BenchmarkItem] = []
         for lang, lang_cfg in self._spec["languages"].items():
             lang_name = lang_cfg["name"]
             distractors = self._spec.get("distractor_pools", {}).get(lang, [])
             version_ids = lang_cfg.get("versions") or [lang_cfg["primary"]]
             for vid in version_ids:
-                meta = await self._client.version(vid)
-                scheme = meta.get("vrs") or REFERENCE_SCHEME
-                abbrev = (meta.get("abbreviation") or "").upper()
+                scheme, abbrev, _ = by_version[vid]
                 for ref in refs:
                     # THE shared path: correct the reference for this edition's
                     # versification, then ask this edition whether it has it.
@@ -275,10 +251,4 @@ class DatasetSampler:
                     if item:
                         items.append(item)
                 self._client.release_version(vid)
-            if extra_count:
-                seed_int = int(hashlib.sha256(f"{seed}:{lang}:extra".encode()).hexdigest(), 16)
-                items.extend(await self._extra_canon_items(
-                    random.Random(seed_int % (2**32)), lang, lang_name,
-                    version_ids, distractors, extra_count,
-                ))
         return items

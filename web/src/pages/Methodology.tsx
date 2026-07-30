@@ -83,27 +83,37 @@ export function Methodology() {
         </p>
       </Section>
 
-      <Section title="Which books, and why the score covers the shared 66">
+      <Section title="Which books, and how one question set covers them all">
         <p>
           Different Christian traditions receive different books as scripture, and the
           benchmark tests each translation on the books that translation actually carries —
-          read from its own metadata, never from a list of our own. A Catholic Bible is
-          asked about Tobit and Sirach; a Protestant one isn't, because it doesn't contain
-          them. Asking a Bible for a book it doesn't have is a{" "}
-          <em>hallucination</em> test, not a quotation test.
+          read from its own metadata, never from a list of ours. A Catholic Bible is asked
+          about Tobit and Sirach because it contains them; a Protestant one isn't, because it
+          doesn't. Asking a Bible for a book it doesn't have is a <em>hallucination</em> test,
+          not a quotation test.
         </p>
         <p className="mt-2">
-          The <strong>Overall Score covers the 66 books every translation here shares</strong>.
-          The wider canons — the Catholic deuterocanon, and the books of the Eastern canons
-          beyond it — are scored and reported as their own labelled slices, and never averaged
-          into the headline. The reason is comparability: which additional books are testable
-          depends on which editions the Bible catalogue exposes for each language. English has
-          a Catholic and an Orthodox edition available; German has neither. Folding canon into
-          the headline would make a model's German score look better than its English one purely
-          because we couldn't test the German Catholic canon.
+          One reference list is drawn per benchmark version and asked of every translation, so
+          every column answers the same questions. Its per-book verses are drawn from the{" "}
+          <strong>union of every book any tested edition carries</strong> — 85 across the
+          current eighteen. Where an edition doesn't have the reference, the item drops.
         </p>
         <p className="mt-2">
-          Where no such edition is available for a language, the canon breakdown says{" "}
+          That union carries both textual forms of Daniel and Esther, which exist in Hebrew and
+          Greek versions under different identifiers. It has to: only 64 of the Protestant 66
+          are present in all eighteen editions, for exactly that reason. Carrying both means
+          every edition is asked a Daniel and an Esther — each gets the one it actually has.
+        </p>
+        <p className="mt-2">
+          <strong>Every book an edition carries is scored.</strong> There is no separate
+          treatment for the deuterocanon or the Eastern canons: a quotation from Sirach is a
+          quotation. Canon is reported as a labelled slice so "is this model weaker on the
+          deuterocanon?" stays answerable, but it no longer decides what counts. Two editions
+          can therefore differ in item count, and the per-translation scores say plainly which
+          canons each one covered.
+        </p>
+        <p className="mt-2">
+          Where no edition of a canon is available for a language, the canon breakdown says{" "}
           <strong>not tested</strong> — never a blank or a zero, which would read as a model
           failure when it is a gap in what we could obtain.
         </p>

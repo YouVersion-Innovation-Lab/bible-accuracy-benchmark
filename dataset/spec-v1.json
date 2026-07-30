@@ -1,6 +1,6 @@
 {
   "spec_version": "v2",
-  "description": "ONE reference list, asked of EVERY translation. Drawn in the `eng` versification scheme and translated into each edition's own scheme before being asked (see src/bible_bench/versification.py and dataset/versification/README.md), because the same reference is not the same verse across schemes. Where an edition does not carry the resolved reference the item is dropped — that absence is Hallucination Resistance's subject. There are no per-language counts and no language branches: every translation faces identical questions.",
+  "description": "ONE reference list, asked of EVERY translation. Drawn in the `eng` versification scheme and translated into each edition's own scheme before being asked (see src/bible_bench/versification.py and dataset/versification/README.md), because the same reference is not the same verse across schemes. Where an edition does not carry the resolved reference the item is dropped — that absence is Hallucination Resistance's subject. There are no per-language counts and no language branches: every translation faces identical questions. All canons are scored together: an edition is scored on the books it actually carries, and canon is a reported slice rather than a filter.",
   "famous_file": "dataset/famous-v1.jsonl",
   "tiers": {
     "famous": {
@@ -13,8 +13,8 @@
     },
     "body": {
       "strategy": "one_random_verse_per_book",
-      "books": "PROTESTANT_66",
-      "note": "Exactly one verse per book of the shared 66, seeded by benchmark version. Every book weighs the same regardless of length, and every edition is asked the same verse of each book. Chapter and verse bounds come from the vendored eng versification table, so the draw needs no API call."
+      "books": "union of every book any tested edition carries",
+      "note": "Exactly one verse per book, over the union of every book any tested edition carries (85 across the current 18) — so the tier is version-driven, not canon-driven. Every book weighs the same regardless of length, and every edition is asked the same verse of each book it has. The union carries both textual forms of Daniel and Esther (DAN/DAG, EST/ESG), which is why every edition gets one of each rather than dropping the book: only 64 of the Protestant 66 are present in all 18 editions, for exactly that reason. Chapter and verse bounds come from the vendored eng versification table, which numbers all 85, so the draw needs no API call."
     }
   },
   "probe_set": {
@@ -40,10 +40,6 @@
       "ROM.16.24",
       "1JN.5.7"
     ]
-  },
-  "extra_canon": {
-    "count": 30,
-    "description": "Books an edition carries that the language's primary (Protestant) version does not — the Catholic deuterocanon, and the Orthodox books beyond it. Derived from each version's own metadata, never from a hard-coded book list: whatever a version has, it can be asked for. Reported as its own canon slice, not folded into the headline."
   },
   "languages": {
     "eng": {

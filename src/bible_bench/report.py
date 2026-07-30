@@ -133,10 +133,13 @@ def summarize_simple(items: list[dict]) -> dict:
         canon_counts[canon] += 1
         canon_lang[canon][it["language_tag"]].append(s["item_score"])
         version_canon[vid][canon].append(s["item_score"])
-        if canon == "protestant":
-            by_lang[it["language_tag"]].append(s["item_score"])
-            by_tier[it["tier"]].append(s["item_score"])
-            by_version[vid].append(s["item_score"])
+        # Every item counts, whichever canon its book belongs to. An edition is
+        # scored on the books it actually carries: a Catholic Bible is asked about
+        # Tobit because it has Tobit, and that answer is as much a quotation as
+        # any other. Canon stays a reported slice, never a filter.
+        by_lang[it["language_tag"]].append(s["item_score"])
+        by_tier[it["tier"]].append(s["item_score"])
+        by_version[vid].append(s["item_score"])
         version_meta.setdefault(
             vid,
             {
@@ -155,15 +158,8 @@ def summarize_simple(items: list[dict]) -> dict:
 
     lang_means = {lang: _mean(v) for lang, v in by_lang.items()}
     macro = _mean(list(lang_means.values()))
-    # Shared-canon items only, matching what track_score averages, so the factors
-    # reconcile to it. Extra-canon losses are visible in by_canon instead.
-    shared_items = [
-        it for it in items
-        if (it.get("canon") or ("catholic" if it.get("tier") == "deuterocanon" else "protestant"))
-        == "protestant"
-    ]
     factors = _macro_loss(
-        shared_items,
+        items,
         lang_of=lambda it: it["language_tag"],
         score_of=lambda it: it["score"]["item_score"],
         cause_of=lambda it: (
@@ -172,16 +168,16 @@ def summarize_simple(items: list[dict]) -> dict:
         ),
     )
     # Per-version detail (each version_id belongs to exactly one language) so the
-    # website can filter the leaderboard by language and Bible version. `score` is
-    # shared-canon only so a Catholic edition stays comparable to a Protestant one;
-    # `canon_profile` names the canons that edition was actually tested on.
+    # website can filter the leaderboard by translation. `score` covers everything
+    # that edition was asked; `canon_profile` names which canons that turned out
+    # to include, so a reader can see WHY two editions differ in item count.
     versions = []
     for vid, meta in sorted(version_meta.items()):
-        shared = by_version.get(vid, [])
+        scores = by_version.get(vid, [])
         versions.append({
             **meta,
-            "score": round(_mean(shared), 4),
-            "n": len(shared),
+            "score": round(_mean(scores), 4),
+            "n": len(scores),
             "canon_profile": [c for c in CANONS if version_canon[vid].get(c)],
             "by_canon": {
                 c: round(_mean(v), 4)
@@ -197,7 +193,8 @@ def summarize_simple(items: list[dict]) -> dict:
         "by_version": {k: round(_mean(v), 4) for k, v in sorted(by_version.items())},
         "versions": versions,
         # Canon slices, each macro-averaged over the languages that have an
-        # edition carrying it. Reported beside the headline, never inside it.
+        # edition carrying it. Descriptive only — "is this model worse on the
+        # deuterocanon?" is worth answering, but it no longer gates anything.
         "by_canon": {
             c: round(_mean([_mean(v) for v in canon_lang[c].values()]), 4)
             for c in CANONS
@@ -207,7 +204,6 @@ def summarize_simple(items: list[dict]) -> dict:
         "canon_languages": {
             c: sorted(canon_lang[c]) for c in CANONS if canon_lang.get(c)
         },
-        "headline_canon": "protestant",
         "score_factors": factors,
         "grades": dict(sorted(grades.items())),
         "verbatim_rate": round(verbatim / total, 4) if total else 0.0,

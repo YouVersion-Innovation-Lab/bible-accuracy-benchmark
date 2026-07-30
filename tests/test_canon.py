@@ -94,39 +94,59 @@ def _simple_item(lang: str, vid: int, usfm: str, score: float) -> dict:
     }
 
 
-def test_headline_excludes_the_wider_canons():
-    """The Overall Score covers the shared 66 only. Otherwise a model's score for
-    a language would depend on whether a Catholic edition happens to be available
-    there, which would make cross-language comparison meaningless."""
+def test_every_canon_is_scored_together():
+    """One score, all books. An edition is scored on what it actually carries: a
+    Catholic Bible is asked about Tobit because it HAS Tobit, and that answer is
+    as much a quotation as any other. Canon remains a reported slice so "is this
+    model worse on the deuterocanon?" stays answerable, but it gates nothing."""
     items = [
         _simple_item("eng", 1, "GEN.1.1", 1.0),
-        _simple_item("eng", 2, "TOB.1.1", 0.0),   # Catholic — must not drag it down
-        _simple_item("eng", 2, "3MA.1.1", 0.0),   # Eastern — likewise
+        _simple_item("eng", 2, "TOB.1.1", 0.0),   # Catholic — counts
+        _simple_item("eng", 2, "3MA.1.1", 0.0),   # Eastern — counts
         _simple_item("deu", 5, "GEN.1.1", 1.0),
     ]
     s = summarize_simple(items)
-    assert s["track_score"] == 1.0
-    assert s["headline_canon"] == "protestant"
+    # English averages all three of its items; German has only its one.
+    assert s["by_language"]["eng"] == round(1 / 3, 4)
+    assert s["by_language"]["deu"] == 1.0
+    assert s["track_score"] == round((1 / 3 + 1.0) / 2, 4)
+    assert "headline_canon" not in s
+    # Still reported, just no longer a filter.
     assert s["by_canon"] == {"protestant": 1.0, "catholic": 0.0, "orthodox": 0.0}
     assert s["canon_counts"] == {"protestant": 2, "catholic": 1, "orthodox": 1}
-    # German has no Catholic edition: it must be absent from that slice, not zero.
+    # German has no Catholic edition: absent from that slice, never a zero.
     assert s["canon_languages"]["catholic"] == ["eng"]
     assert s["canon_languages"]["protestant"] == ["deu", "eng"]
-    # tier means difficulty again — no canon value hiding inside it.
     assert set(s["by_tier"]) == {"body"}
 
 
-def test_version_scores_stay_comparable_across_canons():
-    """A Catholic edition's headline score covers the shared books only, so it can
-    be compared to a Protestant edition at all; its canon detail sits beside it."""
+def test_the_loss_decomposition_still_reconciles_with_every_canon_in():
+    """The factor list has to add up to the shortfall, and it did that by
+    filtering to the same subset the score averaged. Now that the score covers
+    everything, so must the factors."""
+    items = [
+        _simple_item("eng", 1, "GEN.1.1", 0.5),
+        _simple_item("eng", 2, "TOB.1.1", 0.0),
+        _simple_item("deu", 5, "GEN.1.1", 0.8),
+    ]
+    s = summarize_simple(items)
+    total = sum(f["points"] for f in s["score_factors"])
+    assert abs(total - (1 - s["track_score"])) < 2e-4
+
+
+def test_a_versions_score_covers_every_book_it_was_asked():
+    """Per-translation is the primary granularity, and there a wider canon is not
+    a comparability problem: each edition is scored on its own books. canon_profile
+    records which canons that turned out to include, so a reader can see why two
+    editions differ in item count."""
     items = [
         _simple_item("eng", 1, "GEN.1.1", 0.9),
         _simple_item("eng", 2, "GEN.1.1", 0.8),
         _simple_item("eng", 2, "TOB.1.1", 0.2),
     ]
     by_id = {v["version_id"]: v for v in summarize_simple(items)["versions"]}
-    assert by_id[2]["score"] == 0.8            # shared canon only
-    assert by_id[2]["n"] == 1
+    assert by_id[2]["score"] == 0.5            # (0.8 + 0.2) / 2 — everything
+    assert by_id[2]["n"] == 2
     assert by_id[2]["canon_profile"] == ["protestant", "catholic"]
     assert by_id[2]["by_canon"] == {"catholic": 0.2, "protestant": 0.8}
     assert by_id[1]["canon_profile"] == ["protestant"]
@@ -140,7 +160,7 @@ def test_older_runs_without_canon_labels_still_summarize():
     shared = _simple_item("eng", 1, "GEN.1.1", 1.0)
     del shared["canon"]
     s = summarize_simple([shared, old])
-    assert s["track_score"] == 1.0
+    assert s["track_score"] == 0.75           # both items, one language
     assert s["by_canon"] == {"protestant": 1.0, "catholic": 0.5}
 
 
@@ -149,8 +169,11 @@ def test_spec_has_no_hard_coded_canon_book_list():
     committed book list is the thing v0.4 removed."""
     spec = json.loads(open("dataset/spec-v1.json").read())
     assert "deuterocanon" not in spec
-    assert "books" not in spec["extra_canon"]
-    assert spec["extra_canon"]["count"] > 0
+    # The deuterocanon needs no separate pass: body draws from the union of every
+    # book any edition carries, so "which books exist" is answered by the
+    # editions rather than by a count in the spec.
+    assert "extra_canon" not in spec
+    assert spec["tiers"]["body"]["books"].startswith("union of every book")
 
 
 @pytest.mark.parametrize(

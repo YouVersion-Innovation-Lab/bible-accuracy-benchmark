@@ -4,11 +4,11 @@ export interface VersionScore {
   version_id: number;
   language_tag: string;
   version_abbrev: string;
-  score: number; // 0..1 — SHARED-canon items only, so editions stay comparable
+  score: number; // 0..1 — every book this edition was asked about
   n: number;
-  // Which canons this edition was actually tested on, and how it did on each.
-  // A Catholic or Orthodox edition carries books a Protestant one doesn't; the
-  // score above deliberately excludes them so the two can be compared at all.
+  // Which canons that turned out to include, and how it did on each. A Catholic
+  // or Orthodox edition carries books a Protestant one doesn't, which is why two
+  // editions can differ in item count; both are scored on what they carry.
   canon_profile?: string[];
   by_canon?: Record<string, number>;
   canon_counts?: Record<string, number>;
@@ -109,13 +109,12 @@ export interface TrackSummary {
   by_language?: Record<string, number>;
   by_tier?: Record<string, number>;
   by_version?: Record<string, number>;
-  // Canon slices, reported beside the headline and never folded into it: which
-  // books are testable depends on which editions this Bible API exposes, so a
-  // headline including them wouldn't be comparable across languages.
+  // Canon slices — descriptive, not a filter. Every book an edition carries is
+  // scored, so these answer "is this model worse on the deuterocanon?" rather
+  // than marking which books count.
   by_canon?: Record<string, number>;
   canon_counts?: Record<string, number>;
   canon_languages?: Record<string, string[]>;
-  headline_canon?: string;
   // Per-dimension loss attribution; summed and reweighted into Summary.score_factors.
   score_factors?: { key: string; points: number; n: number }[];
   versions?: VersionScore[];
