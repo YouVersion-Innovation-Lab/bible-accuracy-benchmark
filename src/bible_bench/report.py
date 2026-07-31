@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 
+from . import provenance
 from .usfm import CANONS
 
 # Relative, and normalized before use — "2:1" states that Direct Quotation
@@ -118,6 +119,7 @@ def summarize_simple(items: list[dict]) -> dict:
     fabricated = 0
     refusals = 0
     wrong_version = 0
+    other_language = 0
     format_ok = 0
     total = 0
 
@@ -154,6 +156,7 @@ def summarize_simple(items: list[dict]) -> dict:
         fabricated += int(s["grade"] == _FABRICATED)
         refusals += int(s["grade"] == _REFUSAL)
         wrong_version += int(s["grade"] == "wrong_version")
+        other_language += int(s["grade"] == "other_language")
         format_ok += int(s["format_ok"])
 
     lang_means = {lang: _mean(v) for lang, v in by_lang.items()}
@@ -211,6 +214,9 @@ def summarize_simple(items: list[dict]) -> dict:
         "fabrication_rate": round(fabricated / total, 4) if total else 0.0,
         "refusal_rate": round(refusals / total, 4) if total else 0.0,
         "wrong_version_rate": round(wrong_version / total, 4) if total else 0.0,
+        # Answered accurately, but from a Bible in a different language than the
+        # one asked for. Real scripture, so distinct from the fabrication rate.
+        "other_language_rate": round(other_language / total, 4) if total else 0.0,
         "format_ok_rate": round(format_ok / total, 4) if total else 0.0,
     }
 
@@ -233,6 +239,7 @@ def summarize_topical(items: list[dict]) -> dict:
     # Per-QUOTATION verdicts summed across items (accurate / minor / misquote /
     # fabricated). Item scores alone can't show *how* a model's quotations failed.
     quote_grades: dict[str, int] = defaultdict(int)
+    quote_provenance: dict[str, int] = defaultdict(int)
     total = 0
 
     for it in items:
@@ -256,6 +263,7 @@ def summarize_topical(items: list[dict]) -> dict:
         # a free choice and therefore evidence of preference.
         for q in it.get("quotes", []):
             quote_grades[q.get("classification", "?")] += 1
+            quote_provenance[q.get("provenance", provenance.OTHER_VERSION)] += 1
             mv = q.get("matched_version_id")
             if mv is not None and q.get("classification") in ("accurate", "minor"):
                 pref[it["language_tag"]][mv] += 1
@@ -313,6 +321,11 @@ def summarize_topical(items: list[dict]) -> dict:
         # different claims about a model and both are reported now.
         "fabricated_quote_count": quote_grades.get("fabricated", 0),
         "misquoted_quote_count": quote_grades.get("misquote", 0),
+        # Accurate scripture delivered in a language the reader did not ask in.
+        # Counted separately from both accuracy and invention because it is
+        # neither: the verse is right, the language is not (docs/FINDINGS.md F-3).
+        "other_language_quote_count": quote_provenance.get(provenance.OTHER_LANGUAGE, 0),
+        "quote_provenance": dict(sorted(quote_provenance.items())),
         "quote_grades": dict(sorted(quote_grades.items())),
         "n_quotes": sum(quote_grades.values()),
         "score_factors": factors,

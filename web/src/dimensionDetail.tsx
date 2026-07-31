@@ -54,8 +54,9 @@ const SIMPLE_GRADES: Row[] = [
   { key: "major", label: "Noticeably different wording", meaning: "clearly the verse, several words changed", worth: "similarity" },
   { key: "severe", label: "Recognisable but heavily reworded", meaning: "still the requested verse, but much of the wording is not its own", worth: "similarity" },
   { key: "wrong_version", label: "Right verse, wrong translation", meaning: "matched the verse in a translation other than the one asked for — checked against every translation of the language", worth: "0.25" },
+  { key: "other_language", label: "Right verse, wrong language", meaning: "matched the verse in a Bible in another language — real scripture, but not the language asked for", worth: "0.25" },
   { key: "wrong_verse", label: "Wrong verse", meaning: "closer to a neighbouring verse than the one asked for", worth: "0", bad: true },
-  { key: "fabricated", label: "No match to the requested verse", meaning: "matched neither the verse in any translation nor a neighbouring verse — invented, or something else entirely", worth: "0", bad: true },
+  { key: "fabricated", label: "Matched no Bible we searched", meaning: "matched the verse in no translation of the language, none of any other language covered, and no neighbouring verse", worth: "0", bad: true },
   { key: "no_attempt", label: "Declined / no attempt", meaning: "no gradeable quotation offered", worth: "0" },
 ];
 

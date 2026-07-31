@@ -14,6 +14,47 @@ response.
 
 ---
 
+## C-1 · Correction: "invented scripture" was mostly a measurement failure
+
+**Applies to:** every number published before `SCORING_VERSION` 1.3.0 (2026-07-31)
+**Direction of the error:** overstated fabrication, understated Scripture in Answers
+
+Any fabrication figure recorded before 1.3.0 is too high, and the effect is large
+enough that it changes conclusions rather than nudging them. Three bugs, all the
+same mistake — **reporting a failed search as a finding about the model**:
+
+1. **The candidate-proposal stage dropped verses 97% identical to the quotation.**
+   It nominated verses by shared word 4-grams, requiring two — five consecutive
+   identical words — so two scattered one-character differences disqualified a
+   verse that was otherwise word-for-word, with no similarity ever computed.
+   Measured against brute force over every verse of every edition, on the spans
+   ten runs had graded "invented", it found the right verse **13% of the time**.
+   Languages with rich morphology or accented editions suffered most: Hindi,
+   Korean and Arabic accounted for 611 of the 820 affected verdicts.
+2. **The identification floor was 0.75**, so a recognisable-but-poor quotation was
+   an invention rather than a misquote.
+3. **Only the language asked about was searched**, so accurate scripture in
+   another language was an invention too (F-3).
+
+Brute-forced against every verse of every edition of the language asked, on a
+121-span sample drawn evenly from all eleven languages: **89% were at least 0.60
+similar to a real verse in that language** — they were not inventions. Of the
+remaining 11%, most were accurate quotations in a different language. (A sample
+rather than all 820, because brute force costs ~10⁹ comparisons per language.)
+
+What this does *not* change: refusal rates, Direct Quotation headline scores, and
+Hallucination Resistance outcomes were unaffected — verified by re-scoring, where
+those numbers came back byte-identical. The correction lands on the *labels* in
+Direct Quotation and on the *scores* in Scripture in Answers.
+
+The lesson generalises beyond this benchmark: a search that finds nothing is not
+evidence that nothing exists, and "we did not find it" is a different claim from
+"the model made it up". The scorer now keeps those apart by construction — see
+`quoted.py` and `provenance.py` — and reserves the word "fabricated" for text that
+matched no Bible in any language the benchmark covers.
+
+---
+
 ## F-1 · GPT-5.6 Terra declines to quote in-copyright translations
 
 **Observed:** v0.5-fast, run `v0.5-fast--gpt-5-6-terra` (2026-07-31)
@@ -122,26 +163,33 @@ quotes the scripture **in English**:
 The quotation is accurate — it matches NIV Philippians 4:6 at similarity 1.000.
 It is simply in the wrong language for the reader who asked.
 
-The language profile makes the behaviour unmistakable. Share of quotations that
-matched no verse in the language asked:
+The language profile makes the behaviour unmistakable. Share of quotations
+identified as coming from a Bible in a language other than the one asked in — now
+measured directly rather than inferred from what went unmatched:
 
 | eng | fra | spa | por | deu | rus | zho | kor | ind | arb | hin |
 |---|---|---|---|---|---|---|---|---|---|---|
-| 0% | 0% | 0% | 0% | 23% | 31% | 31% | 45% | 45% | 81% | **100%** |
+| 0% | 0% | 0% | 0% | 22% | 28% | 30% | 30% | 43% | 81% | **100%** |
 
-Zero in the five European languages, 100% in Hindi. No model invents scripture
-every single time in one language and never in another; it is code-switching,
-and it correlates with how well-resourced the language is.
+Zero in the four Western European languages, 100% in Hindi. No model invents
+scripture every single time in one language and never in another; it is
+code-switching, and it correlates with how well-resourced the language is.
 
-This is why Grok's Extended (Scripture in Answers) score was 66.2 while its
-Direct Quotation was 84.6 — the widest such gap of any model tested. Direct
-Quotation names the translation, so Grok complies; the open question doesn't, and
-it defaults to English.
+Every one of Grok's 186 cross-language quotations matched the **English NIV at
+similarity 1.000**. It is not approximating and not translating on the fly; it is
+reproducing an English edition verbatim in answer to a question asked in Hindi,
+Arabic, Korean, Indonesian, Chinese, Russian or German.
 
-Until 2026-07-31 these were graded `fabricated`. They are now
-`other_language` — a distinct verdict, because "quoted the right verse in the
-wrong language" and "invented a verse" are different failures and a frontier lab
-would fix them differently.
+This is why Grok's Extended (Scripture in Answers) score sits well below its
+Direct Quotation score — the widest such gap of any model tested. Direct Quotation
+names the translation, so Grok complies; the open question doesn't, and it
+defaults to English.
+
+Until 2026-07-31 these were graded `fabricated` — all 196 of Grok's, of a model
+that had invented nothing. They are now `other_language`, a distinct verdict
+scoring 0.25: real scripture was delivered, so it is not invention, but the reader
+did not get their language, so it is not a pass. See C-1, since two other bugs
+were inflating the same count.
 
 ---
 

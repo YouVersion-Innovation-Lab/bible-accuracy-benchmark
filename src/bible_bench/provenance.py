@@ -47,9 +47,9 @@ ORDER = (REQUESTED, OTHER_VERSION, OTHER_LANGUAGE, NONE)
 #: the scorer's meaning.
 LABELS = {
     REQUESTED: "the translation asked for",
-    OTHER_VERSION: "a different translation of the same language",
+    OTHER_VERSION: "another translation of the same language",
     OTHER_LANGUAGE: "a translation in a different language",
-    NONE: "no translation we carry",
+    NONE: "no translation we searched",
 }
 
 
@@ -63,9 +63,17 @@ def rank(provenance: str) -> int:
 
 @dataclass(frozen=True)
 class Source:
-    """One candidate edition a span of text might have come from."""
+    """One edition — either the one a question asked for, or one a span matched.
 
-    version_id: int
+    ``version_id`` is None when the question named a language but no particular
+    edition. Scripture in Answers works that way on purpose: the model chooses
+    what to quote, so no edition can be "the" one, and preferring the item's
+    nominal version would corrupt the "which translation does this model reach
+    for" finding. With no edition requested, every edition of the language ranks
+    equally as OTHER_VERSION and fidelity decides between them.
+    """
+
+    version_id: int | None
     language_tag: str
     version_abbrev: str = ""
 

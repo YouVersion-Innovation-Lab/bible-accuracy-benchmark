@@ -12,8 +12,9 @@ inverted the intended judgement rather than nudging a number:
        threshold — so quoting half a verse perfectly was graded as misquoting it.
 """
 
+from bible_bench import provenance, quoted
 from bible_bench.phantom import score_phantom_verdicts
-from bible_bench.quotefind import Detection, Identification
+from bible_bench.quotefind import Detection
 from bible_bench.runner import _attribute, _topical_verdicts, marked_spans_of
 from bible_bench.topical import score_topical_verdicts
 
@@ -32,16 +33,32 @@ def _det(usfm="PSA.23.1", sim=1.0, start=0, end=VERSE_LEN, verse=VERSE, vid=111)
     return {usfm: Detection(usfm, vid, sim, start, end, verse_loose=verse)}
 
 
-def _ids(text, usfm="PSA.23.1", verse=VERSE, vid=111, sim=1.0):
-    """Span-level identifications for every marked quotation in ``text``.
+def _judged(span_loose, usfm="PSA.23.1", verse=VERSE, vid=111, lang="eng",
+            prov=provenance.OTHER_VERSION):
+    """What ``quoted.scan`` would have concluded about one span."""
+    fidelity, coverage = quoted.fidelity_and_coverage(span_loose, verse)
+    return quoted.Judgement(
+        match=provenance.Match(
+            provenance=prov, similarity=fidelity, usfm=usfm, version_id=vid,
+            language_tag=lang,
+        ),
+        fidelity=fidelity,
+        coverage=coverage,
+    )
 
-    Marked quotations are now identified from their OWN words (see
-    quotefind.scan_and_identify), so a test that exercises the marked path must
-    supply that identification rather than a whole-response detection.
+
+def _ids(text, usfm="PSA.23.1", verse=VERSE, vid=111, only=None, **kw):
+    """Judgements for every marked quotation in ``text``.
+
+    Marked quotations are identified from their OWN words (see ``quoted.scan``),
+    so a test that exercises the marked path supplies that judgement rather than
+    a whole-response detection. ``only`` narrows it to spans containing a
+    substring, for tests where just one quotation is the target.
     """
     return {
-        i: Identification(usfm=usfm, version_id=vid, similarity=sim, verse_loose=verse)
-        for i in range(len(marked_spans_of(text)))
+        i: _judged(m[4], usfm=usfm, verse=verse, vid=vid, **kw)
+        for i, m in enumerate(marked_spans_of(text))
+        if only is None or only in m[4]
     }
 
 
@@ -270,11 +287,7 @@ def test_fragment_of_a_long_verse_in_a_long_answer_is_found():
         "Both speak to the same theme at length, with much intervening prose."
     )
     # No whole-response detection at all for the fragment — the old failure mode.
-    ids = {
-        i: Identification(usfm="PSA.104.15", version_id=59, similarity=1.0,
-                          verse_loose=verse)
-        for i, m in enumerate(marked_spans_of(text)) if "gladden" in m[4]
-    }
+    ids = _ids(text, usfm="PSA.104.15", verse=verse, vid=59, only="gladden")
     verdicts = _topical_verdicts(text, {}, (), ids)
     hit = [v for v in verdicts if v["matched_usfm"] == "PSA.104.15"]
     assert len(hit) == 1
@@ -301,10 +314,7 @@ def test_a_reworded_real_verse_is_a_misquote_not_an_invention():
     a misquote, and calling it invention overstates what the model did."""
     verse = "and do not get drunk with wine for that is debauchery but be filled with the spirit"
     text = '"Do not be drunk with wine, in which is debauchery" (Ephesians 5:18).'
-    ids = {
-        0: Identification(usfm="EPH.5.18", version_id=59, similarity=0.80,
-                          verse_loose=verse)
-    }
+    ids = _ids(text, usfm="EPH.5.18", verse=verse, vid=59)
     (v,) = _topical_verdicts(text, {}, (), ids)
     assert v["classification"] == "misquote", "a real verse, reworded"
     assert v["matched_usfm"] == "EPH.5.18", "and we can say WHICH verse"
@@ -317,6 +327,37 @@ def test_invention_is_reserved_for_text_matching_no_verse():
     assert v["classification"] == "fabricated"
     assert v["matched_usfm"] is None
     assert v["score"] == 0.0
+
+
+def test_scripture_in_another_language_is_not_an_invention():
+    """FINDINGS F-3: asked in Hindi, Grok 4.5 answers with Hindi prose and an
+    accurate ENGLISH quotation. Searching only the language asked found nothing,
+    and "we found nothing" was reported as "the model invented this" — all 52 of
+    its Hindi quotations, of a model that had invented nothing.
+
+    It is still a failure: the reader asked in their language and did not get it.
+    So it earns partial credit, not a pass, and never the word "fabricated".
+    """
+    text = '"The Lord is my shepherd; I shall not want" is the comfort here.'
+    ids = _ids(text, prov=provenance.OTHER_LANGUAGE, lang="eng")
+    (v,) = _topical_verdicts(text, {}, (), ids)
+    assert v["classification"] == "accurate", "the scripture itself is accurate"
+    assert v["provenance"] == provenance.OTHER_LANGUAGE
+    assert 0 < v["score"] < 1, "real scripture, wrong language: neither pass nor invention"
+    assert v["matched_usfm"] == "PSA.23.1", "and we can say WHICH verse it was"
+
+
+def test_every_verdict_records_where_the_words_came_from():
+    """The site imports provenance.LABELS, so a verdict without a provenance would
+    leave its wording free to drift from the scorer's meaning — which is how
+    "fabricated" came to describe four different things."""
+    text = '"The Lord is my shepherd; I shall not want" (Psalm 23:1).'
+    for verdicts in (
+        _topical_verdicts(text, {}, (), _ids(text)),
+        _topical_verdicts(text, {}, (), _none(text)),
+    ):
+        for v in verdicts:
+            assert v["provenance"] in provenance.ORDER
 
 
 def test_a_quoted_phrase_is_still_not_a_verse_claim():

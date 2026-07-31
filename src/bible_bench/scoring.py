@@ -20,9 +20,10 @@ import regex
 from rapidfuzz import fuzz
 from rapidfuzz.distance import Levenshtein
 
+from . import quoted
 from .normalize import normalize
 
-SCORING_VERSION = "1.2.0"
+SCORING_VERSION = "1.3.0"
 
 # Severity thresholds (loose-normalized similarity). Tuned during the pilot;
 # changes bump SCORING_VERSION.
@@ -48,7 +49,15 @@ WRONG_VERSE_TARGET_MAX = 0.50
 ATTEMPT_SIM_FLOOR = 0.30      # below this vs every candidate → no_attempt
 OVERQUOTE_LEN_RATIO = 1.25
 
-GRADE_FIXED_SCORES = {"perfect": 1.0, "near_perfect": 0.98, "wrong_version": 0.25}
+GRADE_FIXED_SCORES = {
+    "perfect": 1.0,
+    "near_perfect": 0.98,
+    # Both are "real scripture, but not the Bible I asked for", so both take the
+    # one shared number for that (see quoted.WRONG_BIBLE_SCORE) rather than each
+    # keeping a copy that could drift.
+    "wrong_version": quoted.WRONG_BIBLE_SCORE,
+    "other_language": quoted.WRONG_BIBLE_SCORE,
+}
 # Grades scored continuously on similarity to the requested verse, rather than a
 # fixed value — a closer attempt is worth more, with no step changes.
 CONTINUOUS_GRADES = ("minor", "major", "severe")
@@ -227,7 +236,7 @@ def extract_attempt(response: str, truth: str) -> Extraction:
 @dataclass(frozen=True)
 class ItemScore:
     # grade ∈ perfect | near_perfect | minor | major | wrong_version |
-    #         wrong_verse | fabricated | no_attempt
+    #         other_language | wrong_verse | severe | fabricated | no_attempt
     grade: str
     item_score: float         # 0..1
     qer: float
@@ -240,6 +249,7 @@ class ItemScore:
     edit_ops: dict[str, int] = field(default_factory=dict)
     best_distractor: dict | None = None   # {"key": ..., "similarity": ...}
     best_neighbor: dict | None = None     # {"usfm": ..., "similarity": ...}
+    best_foreign: dict | None = None      # {"key": ..., "similarity": ...}
     scoring_version: str = SCORING_VERSION
 
 
@@ -266,12 +276,15 @@ def score_item(
     truth: str,
     distractors: dict[str, str] | None = None,
     neighbors: dict[str, str] | None = None,
+    foreign: dict[str, str] | None = None,
 ) -> ItemScore:
     """Score one simple-track response against ground truth.
 
     ``distractors``: same verse in other versions of the same language
     (key → verse text). ``neighbors``: other verses of the same chapter in the
-    target version (usfm → verse text).
+    target version (usfm → verse text). ``foreign``: the same verse as editions in
+    OTHER languages render it, so answering in the wrong language is recognised as
+    real scripture rather than invention.
     """
     truth_strict = normalize(truth, "strict")
     truth_loose = normalize(truth, "loose")
@@ -296,6 +309,12 @@ def score_item(
         if best_n is None or s > best_n[1]:
             best_n = (usfm_key, s)
 
+    best_f: tuple[str, float] | None = None
+    for key, text in (foreign or {}).items():
+        s = _candidate_similarity(normalize(text, "loose"), ex.trivial_loose, response_loose)
+        if best_f is None or s > best_f[1]:
+            best_f = (key, s)
+
     overquote = False
     if ex.trivial_loose and len(ex.trivial_loose) >= OVERQUOTE_LEN_RATIO * len(truth_loose):
         infix_sim, _ = _best_infix_similarity(truth_loose, ex.trivial_loose)
@@ -318,6 +337,7 @@ def score_item(
     # Severity decision tree (sequential; first match wins).
     d_sim = best_d[1] if best_d else 0.0
     n_sim = best_n[1] if best_n else 0.0
+    f_sim = best_f[1] if best_f else 0.0
     if verbatim_strict:
         grade = "perfect"
     elif sim_t >= NEAR_PERFECT_SIM:
@@ -331,11 +351,24 @@ def score_item(
         # every translation available, not a few hand-picked ones, so a faithful
         # quotation from an edition we didn't ask for is recognised as such.
         grade = "wrong_version"
+    elif f_sim >= WRONG_VERSION_SIM and f_sim >= sim_t + WRONG_VERSION_MARGIN:
+        # The right verse, in the wrong LANGUAGE — asked for the Spanish NVI, the
+        # model answered from an English Bible. Real scripture, so not invention.
+        #
+        # The bar stays at WRONG_VERSION_SIM rather than dropping to the
+        # recognisable floor, and deliberately so: similarity across a language
+        # boundary is not the same evidence as similarity within one. Related
+        # languages share proper nouns, so a genealogy verse in Spanish collides
+        # with its Portuguese counterpart at 0.61-0.70 while still being plainly
+        # Spanish. Measured on ten runs, every match below 0.95 was that kind of
+        # coincidence and every genuine one was at 0.96 or above — a real
+        # cross-language quotation simply IS the other language's text.
+        grade = "other_language"
     elif n_sim >= WRONG_VERSE_SIM and sim_t < WRONG_VERSE_TARGET_MAX:
         grade = "wrong_verse"
     elif sim_t >= SEVERE_SIM:
         grade = "severe"
-    elif not refused and (attempted or max(sim_t, d_sim, n_sim) >= ATTEMPT_SIM_FLOOR):
+    elif not refused and (attempted or max(sim_t, d_sim, n_sim, f_sim) >= ATTEMPT_SIM_FLOOR):
         # Matches neither the requested verse in ANY translation nor a neighbouring
         # verse. This is the only case that earns the word "fabricated".
         #
@@ -383,5 +416,8 @@ def score_item(
         ),
         best_neighbor=(
             {"usfm": best_n[0], "similarity": round(best_n[1], 4)} if best_n else None
+        ),
+        best_foreign=(
+            {"key": best_f[0], "similarity": round(best_f[1], 4)} if best_f else None
         ),
     )

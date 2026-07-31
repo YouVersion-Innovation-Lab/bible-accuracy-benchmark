@@ -30,12 +30,16 @@ from typing import Protocol
 
 import regex
 
+from . import quoted
 from .normalize import normalize
 from .usfm import BOOK_NAME_TO_USFM
 
-ACCURATE_SIM = 0.98      # loose-normalized similarity to count a quote accurate
-MINOR_SIM = 0.90         # accurate-with-minor-errors band
-LOCATE_SIM = 0.60        # reverse index located the verse, wording may differ
+# Aliases, not copies. These three numbers are the shared fidelity ladder (see
+# quoted.py) and were previously written out again here; a threshold with two
+# homes is a threshold that will eventually disagree with itself.
+ACCURATE_SIM = quoted.VERBATIM        # counts as an accurate quotation
+MINOR_SIM = quoted.NEAR               # accurate-with-minor-errors band
+LOCATE_SIM = quoted.RECOGNISABLE      # located the verse; wording may differ
 _MIN_QUOTE_WORDS = 4     # for spaced scripts
 _MIN_QUOTE_CHARS = 12    # for unspaced scripts
 _ADJ_CHARS = 250

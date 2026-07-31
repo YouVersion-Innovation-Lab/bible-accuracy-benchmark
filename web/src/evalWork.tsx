@@ -178,10 +178,12 @@ function gradeExplanation(item: EvalItem): string {
       return `similarity ${sim?.toFixed(3)} still identifies the requested verse (≥ ${SIM.severe}), but much of the wording is not its own`;
     case "wrong_version":
       return "matches this verse in a different translation — every translation of the language was checked";
+    case "other_language":
+      return "matches this verse in a Bible in another language — real scripture, but not the language asked for";
     case "wrong_verse":
       return "closer to a neighbouring verse than to the one asked for";
     case "fabricated":
-      return "matches neither the requested verse in any translation nor a neighbouring verse";
+      return "matched no Bible searched — not this verse in any translation of the language, nor in any other language covered, nor a neighbouring verse";
     case "no_attempt":
       return "no gradeable quote attempt (declined, or nothing verse-like)";
     default:
@@ -201,6 +203,8 @@ function scoreRule(item: EvalItem): string {
       return `1 − QER = 1 − ${item.qer?.toFixed(4)}`;
     case "wrong_version":
       return "wrong_version → 0.25";
+    case "other_language":
+      return "other_language → 0.25";
     default:
       return `${item.grade} → 0`;
   }

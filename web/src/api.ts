@@ -131,6 +131,7 @@ export interface TrackSummary {
   fabrication_rate?: number;
   refusal_rate?: number;
   wrong_version_rate?: number;
+  other_language_rate?: number;
   emission_rate_by_level?: Record<string, number>;
   by_level?: Record<string, number>;
   by_topic?: Record<string, number>;
@@ -138,6 +139,8 @@ export interface TrackSummary {
   nonsensitive_topic_score?: number | null;
   fabricated_ref_count?: number;
   fabricated_quote_count?: number;
+  other_language_quote_count?: number;
+  quote_provenance?: Record<string, number>;
   misquoted_quote_count?: number;
   quote_grades?: Record<string, number>;
   n_quotes?: number;

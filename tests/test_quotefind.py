@@ -1,14 +1,19 @@
 """Content-first scripture detection: identify a span by content, not by the
-reference printed next to it, across every translation of a language."""
+reference printed next to it, across every translation of a language.
+
+No real verse text appears here (none may be committed). The fixtures instead
+reproduce the SHAPES that made real quotations undetectable — a combining accent,
+a diacritic, an agglutinated verb ending — using the fake "1 Testium" corpus.
+"""
 
 import asyncio
 
+from bible_bench import provenance, quoted
 from bible_bench.quotefind import (
-    IDENTIFY_FLOOR,
+    MIN_SHARED_FRACTION,
     Span,
     VersionIndex,
-    identify_all,
-    is_unspaced,
+    fidelity_and_coverage,
     ngrams,
     similarity,
 )
@@ -44,64 +49,119 @@ def test_similarity_prefers_the_fairer_reading():
     quote = "woe to those who decree iniquitous decrees and who write oppressive statutes"
     verse = "woe to those who make iniquitous decrees who write oppressive statutes"
     # Two substituted words; must land in the "minor" band, not below it.
-    assert 0.90 <= similarity(quote, verse) < 0.98
+    assert quoted.NEAR <= similarity(quote, verse) < quoted.VERBATIM
 
 
-def test_ngrams_word_and_char_modes():
-    w = ngrams("one two three four five", unspaced=False)
-    assert "one two three four" in w and "two three four five" in w
-    c = ngrams("起初造物者藉着他的话语", unspaced=True)
-    assert all(len(g) == 8 for g in c)
-    assert any("起初造物者" in g for g in c)
+def test_ngrams_are_characters_for_every_script():
+    """One tokenisation, no spaced/unspaced fork to guess wrong about."""
+    w = ngrams("one two three four five")
+    assert all(len(g) == 6 for g in w)
+    assert "onetwo" in w
+    c = ngrams("起初造物者藉着他的话语")
+    assert all(len(g) == 6 for g in c)
+    assert "起初造物者藉" in c
 
 
-def test_is_unspaced_detects_cjk():
-    assert is_unspaced("起初造物者藉着他的话语创造了天和地")
-    assert not is_unspaced("In the beginning the maker shaped the heavens")
+def test_fidelity_and_coverage_separate_two_questions():
+    verse = V1["TES.1.1"].lower()
+    half = "in the beginning the maker shaped the heavens"
+    fidelity, coverage = fidelity_and_coverage(half, verse)
+    assert fidelity > 0.95, "a faithful fragment is faithful"
+    assert coverage < 0.7, "but only part of the verse arrived"
+    # Quoting past the end is not credited above a whole verse.
+    _f, over = fidelity_and_coverage(verse + " " + verse, verse)
+    assert over == 1.0
+    assert fidelity_and_coverage("", verse) == (0.0, 0.0)
 
 
 def test_index_identifies_the_right_verse_without_any_reference():
-    idx = VersionIndex(1, V1, unspaced=False)
+    idx = VersionIndex(1, V1)
     usfm, sim = idx.best("in the beginning the maker shaped the heavens and the earth by his word")
     assert usfm == "TES.1.1"
-    assert sim > 0.98
+    assert sim > quoted.VERBATIM
 
 
 def test_index_makes_no_claim_about_unrelated_text():
-    idx = VersionIndex(1, V1, unspaced=False)
+    idx = VersionIndex(1, V1)
     usfm, sim = idx.best("the quarterly earnings report exceeded analyst expectations")
-    assert usfm is None or sim < IDENTIFY_FLOOR
+    assert usfm is None or sim < quoted.RECOGNISABLE
+
+
+def test_proposal_survives_scattered_one_character_differences():
+    """The bug that produced hundreds of false "invented scripture" verdicts.
+
+    An edition writes two words with accents the model omits. Under word 4-grams
+    each difference destroys the four grams containing it, so a twelve-word verse
+    differing at words 4 and 9 keeps exactly ONE shared gram against a floor of
+    two — and a verse otherwise word-for-word is never compared at all. That is
+    the real geometry of Russian 1 Peter 5:7, whose edition writes the verb with a
+    stress mark and another word with a diaeresis: similarity 0.972, one shared
+    4-gram, graded an invention.
+
+    Stage 1 is a speed optimization, so what it declines to propose it silently
+    decides. This asserts it proposes.
+    """
+    edition = {"TES.3.1": "Cast all your cáres upon him because he provídes for you always"}
+    plain = "cast all your cares upon him because he provides for you always"
+    idx = VersionIndex(1, edition)
+    assert "TES.3.1" in idx.propose(plain), "a near-identical verse must be considered"
+    usfm, sim = idx.best(plain)
+    assert usfm == "TES.3.1"
+    assert sim >= quoted.NEAR
+
+
+def test_proposal_survives_whole_token_changes():
+    """Agglutinative morphology changes whole words, which is fatal to word
+    n-grams: Korean "맡기라" vs "맡겨 버리라" left one shared 4-gram out of six and
+    a real quotation at 0.806 similarity was called invented."""
+    edition = {"TES.4.1": "Entrust every worry unto him for he watches over you"}
+    reworded = "entrust every worry to him for he watches you"
+    idx = VersionIndex(1, edition)
+    assert "TES.4.1" in idx.propose(reworded)
+    _usfm, sim = idx.best(reworded)
+    assert sim >= quoted.RECOGNISABLE, "recognisable, so a misquote — not an invention"
+
+
+def test_proposal_bar_scales_to_the_shorter_side():
+    """One absolute floor cannot serve a short span and a whole answer at once;
+    the bar is a fraction of whichever side offers fewer grams."""
+    idx = VersionIndex(1, V1)
+    short = "the counsel of the scornful"
+    assert len(ngrams(short)) < 40
+    assert "TES.2.1" in idx.propose(short), "a short quotation must stay findable"
+    assert 0 < MIN_SHARED_FRACTION < 1
 
 
 def test_present_finds_an_unmarked_quote_inside_prose():
     """No quotation marks anywhere — detection is verse-driven, so it still
     finds the verse embedded in surrounding commentary."""
-    idx = VersionIndex(1, V1, unspaced=False)
+    idx = VersionIndex(1, V1)
     response = (
         "Many readers find comfort here. In the beginning the maker shaped the heavens "
         "and the earth by his word, which speaks to divine intent, as commentators note."
     )
-    found = idx.present(response.lower())
+    found = idx.present(response.lower(), floor=quoted.RECOGNISABLE)
     assert "TES.1.1" in found
-    assert found["TES.1.2"] if "TES.1.2" in found else True  # only assert the target
 
 
 def test_present_ignores_a_response_with_no_scripture():
-    idx = VersionIndex(1, V1, unspaced=False)
-    assert idx.present("this paragraph discusses supply chain logistics only") == {}
+    idx = VersionIndex(1, V1)
+    assert idx.present(
+        "this paragraph discusses supply chain logistics only", floor=quoted.RECOGNISABLE
+    ) == {}
 
 
-def test_unspaced_index_identifies_cjk_verse():
-    idx = VersionIndex(48, CJK, unspaced=True)
+def test_cjk_needs_no_special_case():
+    idx = VersionIndex(48, CJK)
     usfm, sim = idx.best("起初造物者藉着他的话语创造了天和地")
     assert usfm == "TES.1.1"
-    assert sim > 0.98
+    assert sim > quoted.VERBATIM
 
 
 class FakeClient:
-    """Serves the two fake translations the way BibleClient would."""
+    """Serves the fake translations the way BibleClient would."""
 
-    CORPUS = {1: V1, 2: V2}
+    CORPUS = {1: V1, 2: V2, 48: CJK}
 
     async def version(self, version_id):
         return {
@@ -114,39 +174,65 @@ class FakeClient:
         return self.CORPUS[version_id]
 
 
-def test_identify_all_picks_the_translation_the_model_actually_quoted():
+ENG1 = provenance.Source(version_id=1, language_tag="eng", version_abbrev="V1")
+ENG2 = provenance.Source(version_id=2, language_tag="eng", version_abbrev="V2")
+ZHO = provenance.Source(version_id=48, language_tag="zho", version_abbrev="CJK")
+
+
+def _scan(editions, spans, requested):
+    return asyncio.run(
+        quoted.scan(FakeClient(), editions, {}, spans, requested=requested)
+    )
+
+
+def test_scan_picks_the_translation_the_model_actually_quoted():
     """The regression this module exists for: a faithful quote of a translation
     other than the 'expected' one must be identified as faithful, and attributed
     to the translation it really came from."""
-    client = FakeClient()
     spans = [
         # Verbatim from V2 — must not be judged against V1 and marked a misquote.
         Span(key="a", item_id="i1", text=V2["TES.1.1"], quoted=True),
-        # Verbatim from V1.
         Span(key="b", item_id="i1", text=V1["TES.2.1"], quoted=True),
     ]
-    got = asyncio.run(identify_all(client, [1, 2], spans))
-    assert got["a"].usfm == "TES.1.1"
-    assert got["a"].version_id == 2, "should attribute to the translation actually quoted"
-    assert got["a"].similarity > 0.98
-    assert got["b"].usfm == "TES.2.1"
-    assert got["b"].version_id == 1
-    assert got["b"].similarity > 0.98
+    no_edition_asked = {s.key: provenance.Source(None, "eng") for s in spans}
+    _det, got = _scan([ENG1, ENG2], spans, no_edition_asked)
+    assert got["a"].match.usfm == "TES.1.1"
+    assert got["a"].match.version_id == 2, "attribute to the translation actually quoted"
+    assert got["a"].fidelity > quoted.VERBATIM
+    assert got["b"].match.version_id == 1
+    assert got["a"].band == "verbatim"
 
 
-def test_identify_all_reports_nothing_for_invented_text():
-    client = FakeClient()
-    spans = [
-        Span(key="x", item_id="i", quoted=True,
-             text="And the auditor spake unto the ledger, saying"),
-    ]
-    got = asyncio.run(identify_all(client, [1, 2], spans))
-    assert "x" not in got
+def test_scan_reports_nothing_for_invented_text():
+    spans = [Span(key="x", item_id="i", quoted=True,
+                  text="And the auditor spake unto the ledger, saying")]
+    _det, got = _scan([ENG1, ENG2], spans, {"x": provenance.Source(None, "eng")})
+    assert "x" not in got or not got["x"].found
 
 
-def test_classification_bands():
-    from bible_bench.quotefind import Identification
+def test_scan_names_a_match_in_another_language_as_such():
+    """FINDINGS F-3: asked in one language, the model quotes accurately in
+    another. Searching only the language asked reported that as invention; all 52
+    of Grok 4.5's Hindi quotations were graded "invented a verse"."""
+    spans = [Span(key="q", item_id="i", text=V1["TES.1.1"], quoted=True)]
+    asked_in_chinese = {"q": provenance.Source(version_id=48, language_tag="zho")}
+    # Searching only the language asked: nothing found, which would read as invention.
+    _det, narrow = _scan([ZHO], spans, asked_in_chinese)
+    assert "q" not in narrow or not narrow["q"].found
+    # Searching wider: real scripture, wrong language. A different claim entirely.
+    _det, wide = _scan([ZHO, ENG1], spans, asked_in_chinese)
+    assert wide["q"].found
+    assert wide["q"].match.provenance == provenance.OTHER_LANGUAGE
+    assert wide["q"].match.language_tag == "eng"
 
-    assert Identification("A.1.1", 1, 1.0).classification(accurate=0.98, minor=0.90) == "accurate"
-    assert Identification("A.1.1", 1, 0.93).classification(accurate=0.98, minor=0.90) == "minor"
-    assert Identification("A.1.1", 1, 0.80).classification(accurate=0.98, minor=0.90) == "partial"
+
+def test_scan_prefers_the_right_bible_over_a_better_match_elsewhere():
+    """Provenance outranks fidelity, or a model gets credit for answering a
+    question it wasn't asked."""
+    spans = [Span(key="q", item_id="i", text=V1["TES.1.1"], quoted=True)]
+    asked_for_v2 = {"q": provenance.Source(version_id=2, language_tag="eng")}
+    _det, got = _scan([ENG1, ENG2], spans, asked_for_v2)
+    # V1 is the verbatim match; V2 is the same verse, differently worded. The
+    # edition ASKED FOR wins even though the other matches better.
+    assert got["q"].match.version_id == 2
+    assert got["q"].match.provenance == provenance.REQUESTED

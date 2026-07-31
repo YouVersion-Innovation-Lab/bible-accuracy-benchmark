@@ -59,14 +59,19 @@ const FACTOR_COPY: Record<string, FactorCopy> = {
     detail:
       "Quoted the verse accurately — from a different translation than the one asked for. Scored at 0.25 because the words were real scripture, just not the requested edition.",
   },
+  other_language: {
+    label: "Right verse, wrong language",
+    detail:
+      "Quoted the verse accurately — from a Bible in a different language than the one asked for. Real scripture, so it is not invention; not the language the reader asked in, so it is not a pass. Worth the same 0.25 as the wrong translation.",
+  },
   wrong_verse: {
     label: "Quoted a neighbouring verse",
     detail: "The text matches a verse near the one requested, not the one requested.",
   },
   fabricated: {
-    label: "No match to the requested verse",
+    label: "Matched no Bible we searched",
     detail:
-      "The text matches neither the requested verse in any translation of that language nor a neighbouring verse. Either invented, or a different passage altogether. The most serious failure in this dimension.",
+      "The text matches neither the requested verse — in any translation of that language, or of any other language the benchmark covers — nor a neighbouring verse. The most serious failure in this dimension. Stated as what we searched rather than as 'invented', because a search that finds nothing is not proof that nothing exists.",
   },
   no_attempt: {
     label: "Declined to quote",

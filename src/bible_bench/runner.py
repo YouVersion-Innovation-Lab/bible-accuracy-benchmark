@@ -20,20 +20,21 @@ import hashlib
 import re
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 
-from . import quotefind
+from . import provenance, quoted, quotefind, versification
 from .adversarial.encounter import run_encounter
 from .adversarial.goals import Goal
 from .adversarial.judge import AdversarialJudge
-from .auditor import ACCURATE_SIM, MINOR_SIM, QuoteAuditor, extract_quotes
-from .dataset import BenchmarkItem
+from .auditor import ACCURATE_SIM, QuoteAuditor, extract_quotes
+from .dataset import REFERENCE_SCHEME, BenchmarkItem
 from .llm import LlmClient
 from .normalize import normalize
 from .phantom import PhantomItem, score_phantom_verdicts
 from .prompts import BENCHMARK_SYSTEM_PROMPT, render_simple_prompt
-from .scoring import SEVERE_SIM, score_item
+from .scoring import score_item
 from .topical import TopicalItem, score_topical_verdicts
+from .versification import VersificationError
 from .yv_client import BibleClient
 
 ProgressCb = Callable[[dict], None]
@@ -162,6 +163,9 @@ async def score_simple(
             by_lang[item.language_tag].append(resp)
 
     results: list[dict] = []
+    # (index into results, item, response, distractors, neighbours) for answers a
+    # single-language search could not explain. Re-examined once, at the end.
+    unexplained: list[tuple[int, BenchmarkItem, dict, dict[int, str], dict[str, str]]] = []
     completed = 0
     total = sum(len(v) for v in by_lang.values())
     for lang, lang_responses in sorted(by_lang.items()):
@@ -198,11 +202,76 @@ async def score_simple(
             completed += 1
             if record:
                 results.append(record)
+                if record["score"]["grade"] in _UNEXPLAINED_GRADES:
+                    # Keep only what a second look needs. Every OTHER language is
+                    # still unsearched, so neither "invented" nor "didn't answer" is
+                    # yet a claim we've earned — see _regrade_across_languages.
+                    unexplained.append(
+                        (len(results) - 1, item, resp, alt[item.id], neighbors[item.id])
+                    )
             if progress:
                 progress({"phase": "score", "completed": completed, "total": total})
+
+    await _regrade_across_languages(unexplained, items_by_id, client, results)
     # Stable order for reproducible output files.
     results.sort(key=lambda r: r["item_id"])
     return results
+
+
+async def _regrade_across_languages(
+    unexplained: list[tuple[int, BenchmarkItem, dict, dict[int, str], dict[str, str]]],
+    items_by_id: dict[str, BenchmarkItem],
+    client: BibleClient,
+    results: list[dict],
+) -> None:
+    """Give the answers we were about to call inventions one more look.
+
+    Asked for a verse in one language, a model sometimes answers accurately in
+    another — GPT-5.6 Terra declines an in-copyright translation and offers a
+    public-domain one instead (docs/FINDINGS.md F-1), and MiniMax M3 answered a
+    Spanish request with the verse in Chinese. Searching only the language asked
+    made every one of those an invention.
+
+    The verse is resolved per edition through the same versification path the
+    dataset uses, so "the same verse" means the same verse and not the same verse
+    NUMBER — Psalms are renumbered wholesale between schemes.
+
+    Cost is proportional to the problem: only the two grades a single-language
+    search cannot distinguish from a cross-language answer are re-examined, which
+    across ten published runs was 318 items of ~2,500.
+    """
+    if not unexplained:
+        return
+    editions = sorted({
+        (i.language_tag, i.version_id) for i in items_by_id.values()
+    })
+    # {item_id: {edition label: that edition's rendering of the same verse}}
+    foreign: dict[str, dict[str, str]] = defaultdict(dict)
+    for lang, vid in editions:
+        scheme = ((await client.version(vid)).get("vrs") or REFERENCE_SCHEME).lower()
+        for _idx, item, _resp, _alt, _neigh in unexplained:
+            if item.language_tag == lang:
+                continue  # same language: already covered by the distractor pass
+            try:
+                target = versification.translate(item.source_usfm, REFERENCE_SCHEME, scheme)
+            except VersificationError:
+                continue
+            if not target:
+                continue  # the verse does not exist under this scheme
+            try:
+                span = await client.verse(vid, target)
+            except Exception:  # noqa: BLE001 — an edition without the verse tells us nothing
+                continue
+            if span is not None and span.text.strip():
+                foreign[item.id][f"{lang}:{vid}"] = span.text
+        client.release_version(vid)
+
+    for idx, item, resp, alt_versions, neighbors in unexplained:
+        record = _score_one(
+            item, resp, alt_versions, neighbors, foreign=foreign.get(item.id)
+        )
+        if record:
+            results[idx] = record
 
 
 def _score_one(
@@ -210,9 +279,11 @@ def _score_one(
     resp: dict,
     alt_versions: dict[int, str],
     neighbors: dict[str, str],
+    foreign: dict[str, str] | None = None,
 ) -> dict | None:
     """Grade one answer. ``alt_versions`` is the requested verse as every
-    translation of the language renders it, keyed by version id."""
+    translation of the language renders it, keyed by version id; ``foreign`` is the
+    same verse as editions in OTHER languages render it."""
     truth = alt_versions.get(item.version_id, "")
     # Drop items whose ground-truth verse has no text (absent or blank in this
     # version) — there is nothing to score a quote against, same as a missing
@@ -223,7 +294,7 @@ def _score_one(
     # candidate. Keyed by version id so the report can name which edition the
     # model actually quoted.
     distractors = {str(vid): t for vid, t in alt_versions.items() if vid != item.version_id}
-    score = score_item(resp["response_text"], truth, distractors, neighbors)
+    score = score_item(resp["response_text"], truth, distractors, neighbors, foreign)
     truth_digest = hashlib.sha256(normalize(truth, "loose").encode()).hexdigest()
     return {
         "item_id": item.id,
@@ -295,6 +366,132 @@ async def generate_topical(
     return collected
 
 
+# Crossing a language boundary demands a stronger match than staying inside one,
+# because similarity is not neutral across languages: related languages share
+# proper nouns and cognates, so a verse full of names collides by accident.
+# Measured on the ten published runs, Spanish answers matched Portuguese editions
+# of the same verse at 0.61–0.70 and German matched English at 0.75 — every one of
+# them noise, the text plainly still in the language asked. The genuine cases,
+# where the model really did answer in another language, sat at 0.96–1.00. So
+# ``RECOGNISABLE`` is the right floor within a language and much too low across
+# one; a real cross-language quotation IS the other language's text.
+CROSS_LANGUAGE_FLOOR = quoted.NEAR
+
+# Direct-quote grades that a one-language search cannot tell apart from an answer
+# given accurately in another language, and which therefore get a second look.
+#
+# ``no_attempt`` belongs here as much as ``fabricated`` does, which is not obvious.
+# "Did the model attempt a quotation" is judged partly on length relative to the
+# requested verse, and scripts differ enormously in how many characters the same
+# sentence takes: a full, accurate Chinese verse is a fraction of the length of its
+# English counterpart, so answering an English request from a Chinese Bible reads
+# as too short to be an attempt at all. Both grades mean "we could not account for
+# this answer", and neither is a finding until every language has been searched.
+_UNEXPLAINED_GRADES = ("fabricated", "no_attempt")
+
+
+@dataclass
+class _Batch:
+    """One language's responses with every quotation in them already identified.
+
+    Shared by the two dimensions that judge scripture a model *volunteered*
+    (Scripture in Answers, Hallucination Resistance). They differ only in the
+    verdict they draw from it, so the finding of quotations happens once.
+    """
+
+    lang: str
+    responses: list[dict]
+    texts: dict[str, str]
+    editions: list[provenance.Source]
+    detections: dict[str, dict[str, quotefind.Detection]]
+    marked_by_item: dict[str, list]
+
+
+async def _identify_quotations(
+    items_by_id: dict,
+    responses: list[dict],
+    client: BibleClient,
+    *,
+    include_duplicates: bool,
+    progress: ProgressCb | None = None,
+) -> tuple[list[_Batch], dict[str, quoted.Judgement]]:
+    """Find what every quoted span in every response actually is.
+
+    Two passes, and the second is the one that keeps this honest:
+
+      1. **the language asked about** — every edition of it, so a faithful quote
+         from a translation we didn't nominate still reads as faithful;
+      2. **every other language the benchmark covers** — but only for the spans
+         pass 1 matched nothing at all.
+
+    Pass 2 exists because "we searched one language and found nothing" was being
+    reported as "the model invented this". Asked an open question in Hindi, Grok
+    4.5 answers with Hindi prose and an accurate ENGLISH quotation; all 52 of its
+    Hindi quotations were graded as invented scripture (docs/FINDINGS.md F-3).
+    Quoting the right verse in the wrong language and inventing a verse are
+    different failures, a frontier lab would fix them differently, and a benchmark
+    that cannot tell them apart tells that lab the wrong thing.
+
+    It is cheap because it is scoped to what pass 1 could not explain — a handful
+    of spans — and to one edition per language rather than all ~200.
+    """
+    by_lang: dict[str, list[dict]] = defaultdict(list)
+    for resp in responses:
+        item = items_by_id.get(resp["item_id"])
+        if item is not None:
+            by_lang[item.language_tag].append(resp)
+
+    batches: list[_Batch] = []
+    judgements: dict[str, quoted.Judgement] = {}
+    all_spans: dict[str, quotefind.Span] = {}
+    requested: dict[str, provenance.Source] = {}
+
+    for lang, lang_responses in sorted(by_lang.items()):
+        texts = {r["item_id"]: (r.get("response_text") or "") for r in lang_responses}
+        first = items_by_id[lang_responses[0]["item_id"]]
+        editions = [
+            provenance.Source(version_id=vid, language_tag=lang)
+            for vid in (
+                client.load_language_versions(lang, include_duplicates=include_duplicates)
+                or (first.accepted_version_ids or [first.version_id])
+            )
+        ]
+        spans, marked_by_item = _spans_for(texts)
+        # No edition is "the" one here: these dimensions let the model choose what
+        # to quote, so preferring the item's nominal version would corrupt the
+        # "which translation does this model reach for" finding. Language, though,
+        # is what the reader asked in and does matter.
+        for s in spans:
+            all_spans[s.key] = s
+            requested[s.key] = provenance.Source(version_id=None, language_tag=lang)
+        detections, found = await quoted.scan(
+            client, editions, texts, spans, requested=requested, progress=progress
+        )
+        judgements.update(found)
+        batches.append(_Batch(
+            lang=lang, responses=lang_responses, texts=texts, editions=editions,
+            detections=detections, marked_by_item=marked_by_item,
+        ))
+
+    # Pass 2. One edition per language — the ones the benchmark itself tests — so
+    # the cost is bounded no matter how many editions a language publishes.
+    unexplained = [s for key, s in sorted(all_spans.items()) if key not in judgements]
+    if unexplained:
+        elsewhere = [
+            provenance.Source(version_id=vid, language_tag=tag, version_abbrev=abbrev)
+            for tag, vid, abbrev in sorted({
+                (i.language_tag, i.version_id, i.version_abbrev)
+                for i in items_by_id.values()
+            })
+        ]
+        _, found = await quoted.scan(
+            client, elsewhere, {}, unexplained, requested=requested,
+            floor=CROSS_LANGUAGE_FLOOR, progress=progress,
+        )
+        judgements.update(found)
+    return batches, judgements
+
+
 async def score_topical_items(
     items_by_id: dict[str, TopicalItem],
     responses: list[dict],
@@ -304,48 +501,31 @@ async def score_topical_items(
 ) -> list[dict]:
     """Score topical responses by identifying quotations by CONTENT.
 
-    Batched per language, translations in the outer loop: every quotation is
-    identified against every translation the benchmark covers for that language
-    (see quotefind), rather than against a short accepted list and whatever
-    reference happened to sit next to it. A faithful quote of any real
-    translation therefore counts as faithful, and which translation the model
-    reached for is recorded rather than prescribed.
+    Every quotation is identified against every translation the benchmark covers
+    for the language asked — and, if that finds nothing, against every other
+    language too (see ``_identify_quotations``) — rather than against a short
+    accepted list and whatever reference happened to sit next to it. A faithful
+    quote of any real translation therefore counts as faithful, and which
+    translation the model reached for is recorded rather than prescribed.
     """
+    batches, judgements = await _identify_quotations(
+        items_by_id, responses, client, include_duplicates=False, progress=progress
+    )
     results: list[dict] = []
-    by_lang: dict[str, list[dict]] = defaultdict(list)
-    for resp in responses:
-        item = items_by_id.get(resp["item_id"])
-        if item is not None:
-            by_lang[item.language_tag].append(resp)
-
     done = 0
-    total = sum(len(v) for v in by_lang.values())
-    for lang, lang_responses in sorted(by_lang.items()):
-        texts = {r["item_id"]: (r.get("response_text") or "") for r in lang_responses}
-        sample = next((t for t in texts.values() if t), "")
-        unspaced = quotefind.is_unspaced(sample)
-
-        # Every translation of this language, recorded by prefetch. Falls back to
-        # the item's accepted list if the manifest is missing.
-        first = items_by_id[lang_responses[0]["item_id"]]
-        version_ids = client.load_language_versions(lang) or (
-            first.accepted_version_ids or [first.version_id]
-        )
-        spans, marked_by_item = _spans_for(texts)
-        detections, identified = await quotefind.scan_and_identify(
-            client, version_ids, texts, spans, unspaced=unspaced
-        )
+    total = sum(len(b.responses) for b in batches)
+    for batch in batches:
+        first = items_by_id[batch.responses[0]["item_id"]]
         # References are a claim signal ("these words are that verse") and are
         # resolved from the language's own localized book names.
         resolver = await QuoteAuditor(client)._resolver(first.version_id)  # noqa: SLF001
-
-        for resp in lang_responses:
+        for resp in batch.responses:
             item = items_by_id[resp["item_id"]]
-            text = texts[item.id]
+            text = batch.texts[item.id]
             refs = resolver.find(text)
             verdicts = _topical_verdicts(
-                text, detections.get(item.id, {}), refs,
-                _span_ids_for(item.id, marked_by_item[item.id], identified),
+                text, batch.detections.get(item.id, {}), refs,
+                _span_ids_for(item.id, batch.marked_by_item[item.id], judgements),
             )
             tscore = score_topical_verdicts(verdicts)
             results.append({
@@ -362,7 +542,7 @@ async def score_topical_items(
                 "response_text": text,
                 "topical_score": asdict(tscore),
                 "quotes": verdicts,
-                "translations_searched": len(version_ids),
+                "translations_searched": len(batch.editions),
                 "usage": {
                     "input_tokens": resp.get("input_tokens", 0),
                     "output_tokens": resp.get("output_tokens", 0),
@@ -438,9 +618,8 @@ async def _mark_absent_book_quotes(
     edition we hold renders it differently, so detection found nothing and the
     answer was recorded as invented scripture. Measured across twelve such answers,
     real quotations sit at 0.70–1.00 against the true verse while unrelated
-    scripture from the same chapter sits at 0.43–0.52 — so ``SEVERE_SIM`` (0.60),
-    already calibrated for the same job in the direct-quote track, separates them
-    with room to spare.
+    scripture from the same chapter sits at 0.43–0.52 — so ``quoted.RECOGNISABLE``
+    (0.60), the floor every dimension shares, separates them with room to spare.
 
     Marked spans carry ``quoted_absent_book``, which tells the scorer the model
     answered the question it was asked rather than substituting a different verse —
@@ -493,7 +672,7 @@ async def _mark_absent_book_quotes(
             sim = quotefind.similarity(quote, normalize(span.text, "loose"))
             if sim > best:
                 best, best_vid = sim, vid
-        if best >= SEVERE_SIM:
+        if best >= quoted.RECOGNISABLE:
             v["classification"] = "unverified_edition"
             v["matched_usfm"] = item.absent_usfm
             v["nearest_version_id"] = best_vid
@@ -591,13 +770,15 @@ def _spans_for(texts: dict[str, str]) -> tuple[list, dict[str, list]]:
     return spans, per_item
 
 
-def _span_ids_for(item_id: str, marked: list, identified: dict) -> dict[int, object]:
-    """Identifications for one item's marked spans, keyed by ordinal."""
-    out: dict[int, object] = {}
+def _span_ids_for(
+    item_id: str, marked: list, judgements: dict[str, quoted.Judgement]
+) -> dict[int, quoted.Judgement]:
+    """Judgements for one item's marked spans, keyed by ordinal."""
+    out: dict[int, quoted.Judgement] = {}
     for i in range(len(marked)):
-        ident = identified.get(f"{item_id}#{i}")
-        if ident is not None:
-            out[i] = ident
+        judgement = judgements.get(f"{item_id}#{i}")
+        if judgement is not None:
+            out[i] = judgement
     return out
 
 
@@ -628,24 +809,37 @@ def _classify(fidelity: float) -> str:
     Note what is absent: "fabricated". Reaching this function means a real verse
     was identified, so the only question left is how faithfully it was quoted.
     Invention is a separate finding — text that matches no verse in any
-    translation — and conflating the two accused models of inventing scripture
-    they had merely reworded.
+    translation we searched — and conflating the two accused models of inventing
+    scripture they had merely reworded.
     """
-    if fidelity >= ACCURATE_SIM:
+    if fidelity >= quoted.VERBATIM:
         return "accurate"
-    if fidelity >= MINOR_SIM:
+    if fidelity >= quoted.NEAR:
         return "minor"
     return "misquote"
+
+
+#: Real accurate scripture, but not in the language the reader asked in. Scored
+#: like the direct-quote track's ``wrong_version``, and for the same reason: the
+#: model delivered genuine scripture, so this is not invention, but it did not
+#: answer the question that was asked, so it is not a pass either.
+OTHER_LANGUAGE_SCORE = 0.25
 
 
 def _verdict(
     quote_loose: str, classification: str, fidelity: float, coverage: float,
     usfm: str | None, version_id: int | None,
     raw_start: int | None, raw_end: int | None, *, unquoted: bool = False,
+    provenance_of: str,
 ) -> dict:
     """One per-quotation verdict record. A misquote scores 0 — presenting wrong
     words as scripture is the failure, however close they came."""
-    score = 0.0 if classification in ("misquote", "fabricated") else round(fidelity, 4)
+    if classification in ("misquote", "fabricated"):
+        score = 0.0
+    elif provenance_of == provenance.OTHER_LANGUAGE:
+        score = OTHER_LANGUAGE_SCORE
+    else:
+        score = round(fidelity, 4)
     return {
         "quote": quote_loose[:400],
         "classification": classification,
@@ -653,6 +847,10 @@ def _verdict(
         "coverage": round(coverage, 4),
         "matched_usfm": usfm,
         "matched_version_id": version_id,
+        # Where the words came from relative to what was asked. Recorded on every
+        # verdict so the site's wording can't drift from the scorer's meaning —
+        # which is how "fabricated" came to describe four different things.
+        "provenance": provenance_of,
         "score": score,
         "unquoted": unquoted,
         "raw_start": raw_start,
@@ -708,20 +906,22 @@ def _topical_verdicts(
     # fragment of a long verse undetectable in a long answer.
     out: list[dict] = []
     for i, (_lo, _hi, raw_start, raw_end, span_loose) in enumerate(marked_spans):
-        ident = (span_ids or {}).get(i)
-        if ident is None:
-            # Matched no verse in any translation of the language. Only now is
-            # "invented" a fair word — and only for something long enough to be a
-            # claim about a verse rather than a phrase in quotation marks.
+        judgement = (span_ids or {}).get(i)
+        if judgement is None or not judgement.found:
+            # Matched no verse in ANY translation of ANY language we searched. Only
+            # now is "invented" a fair word — and only for something long enough to
+            # be a claim about a verse rather than a phrase in quotation marks.
             if len(_WORDS.findall(span_loose)) >= _MIN_FABRICATION_WORDS:
                 out.append(_verdict(
                     span_loose, "fabricated", 0.0, 0.0, None, None, raw_start, raw_end,
+                    provenance_of=provenance.NONE,
                 ))
             continue
-        fidelity, coverage = ident.fidelity_and_coverage(span_loose)
+        match = judgement.match
         out.append(_verdict(
-            span_loose, _classify(fidelity), fidelity, coverage,
-            ident.usfm, ident.version_id, raw_start, raw_end,
+            span_loose, _classify(judgement.fidelity), judgement.fidelity,
+            judgement.coverage, match.usfm, match.version_id, raw_start, raw_end,
+            provenance_of=match.provenance,
         ))
 
     # Unmarked text is the other half, and needs the verse-driven pass: with no
@@ -744,6 +944,9 @@ def _topical_verdicts(
         verdict = _verdict(
             loose[det.start:det.end], _classify(fidelity), fidelity, 1.0,
             usfm, det.version_id, None, None, unquoted=True,
+            # Detections only ever come from editions of the language asked about,
+            # so this leg cannot produce a cross-language finding.
+            provenance_of=provenance.OTHER_VERSION,
         )
         scored.append((verdict["score"], det.start, det.end, verdict))
 
@@ -821,52 +1024,41 @@ async def score_phantom_items(
     for it instead of being marked as inventing text merely because it used a
     translation the old accepted list didn't include.
     """
+    # Duplicates INCLUDED here, unlike the topical track. The dedupe exists so two
+    # editions with identical text don't fight over which translation a model
+    # prefers — a finding this track doesn't report. What it cost here was
+    # coverage: Russian Synodal-with-deuterocanon is deduped away and is the only
+    # Russian Bible carrying Sirach and Wisdom, so two correct answers matching it
+    # at 1.00 and 0.92 were scored as invented scripture.
+    batches, judgements = await _identify_quotations(
+        items_by_id, responses, client, include_duplicates=True, progress=progress
+    )
     results: list[dict] = []
-    by_lang: dict[str, list[dict]] = defaultdict(list)
-    for resp in responses:
-        item = items_by_id.get(resp["item_id"])
-        if item is not None:
-            by_lang[item.language_tag].append(resp)
-
     auditor = QuoteAuditor(client)  # reference extraction only (attribution check)
     done = 0
-    total = sum(len(v) for v in by_lang.values())
-    for lang, lang_responses in sorted(by_lang.items()):
-        texts = {r["item_id"]: (r.get("response_text") or "") for r in lang_responses}
-        sample = next((t for t in texts.values() if t), "")
-        first = items_by_id[lang_responses[0]["item_id"]]
-        # Duplicates INCLUDED here, unlike the topical track. The dedupe exists so
-        # two editions with identical text don't fight over which translation a
-        # model prefers — a finding this track doesn't report. What it cost here was
-        # coverage: Russian Synodal-with-deuterocanon is deduped away and is the only
-        # Russian Bible carrying Sirach and Wisdom, so two correct answers matching
-        # it at 1.00 and 0.92 were scored as invented scripture.
-        version_ids = client.load_language_versions(lang, include_duplicates=True) or (
-            first.accepted_version_ids or [first.version_id]
-        )
-        spans, marked_by_item = _spans_for(texts)
-        detections, identified = await quotefind.scan_and_identify(
-            client, version_ids, texts, spans, unspaced=quotefind.is_unspaced(sample)
-        )
+    total = sum(len(b.responses) for b in batches)
+    for batch in batches:
+        version_ids = [e.version_id for e in batch.editions]
+        first = items_by_id[batch.responses[0]["item_id"]]
         # absent_from_version items ask about a book the tested translation lacks,
         # so its metadata has no name for it. Merge in the edition that does, or
         # "Sirach 1:1" wouldn't resolve and a correct self-citation would read as
         # an uncited quotation.
         absent_sources = sorted({
             items_by_id[r["item_id"]].absent_source_version_id
-            for r in lang_responses
+            for r in batch.responses
             if items_by_id[r["item_id"]].absent_source_version_id
         })
         resolver = await auditor._resolver(  # noqa: SLF001
             first.version_id, *(v for v in absent_sources if v != first.version_id)
         )
 
-        for resp in lang_responses:
+        for resp in batch.responses:
             item = items_by_id[resp["item_id"]]
-            text = texts[item.id]
+            text = batch.texts[item.id]
             verdicts = _topical_verdicts(
-                text, detections.get(item.id, {}), (),
-                _span_ids_for(item.id, marked_by_item[item.id], identified),
+                text, batch.detections.get(item.id, {}), (),
+                _span_ids_for(item.id, batch.marked_by_item[item.id], judgements),
             )
             # Attribution is adjacency-gated (see _attribute), which is what
             # keeps the denied phantom reference from being read as the citation

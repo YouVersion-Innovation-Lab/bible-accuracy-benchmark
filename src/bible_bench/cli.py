@@ -823,6 +823,7 @@ def _print_summary(summary: dict) -> None:
         t.add_row("Fabrication rate", f"{100 * simple['fabrication_rate']:.1f}%")
         t.add_row("Refusal rate", f"{100 * simple['refusal_rate']:.1f}%")
         t.add_row("Wrong-version rate", f"{100 * simple['wrong_version_rate']:.1f}%")
+        t.add_row("Wrong-language rate", f"{100 * simple.get('other_language_rate', 0):.1f}%")
     topical = summary.get("tracks", {}).get("topical")
     if topical:
         emit = topical.get("emission_rate_by_level", {})

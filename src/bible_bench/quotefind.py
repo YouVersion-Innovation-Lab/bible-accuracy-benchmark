@@ -18,68 +18,101 @@ becomes a separate, secondary judgement.
 
 Identification is two-stage, both stages deterministic:
 
-  1. **Propose** — an inverted n-gram index over one translation's whole text
-     nominates verses sharing enough n-grams with the text. Word 4-grams for
-     spaced scripts; character 8-grams for unspaced ones (CJK, Thai, Khmer, Lao,
-     Myanmar), where word tokens don't exist. Thresholds were tuned for full
-     recall at ~0.3% of verses proposed.
+  1. **Propose** — an inverted character-n-gram index over one translation's whole
+     text nominates verses sharing enough n-grams with the text to be worth a
+     proper comparison. Recall is what matters here; see ``VersionIndex``.
   2. **Confirm** — character-level similarity against the proposed verses, using
      best-window alignment so a faithful *partial* quotation still matches.
 
-Scale note: a language can have ~90 translations, and one index is ~100MB, so
-``identify_all`` iterates translations in the OUTER loop — each is loaded,
-indexed, matched against every span, then dropped. Peak memory stays at one
-index regardless of how many translations are covered.
+This module is the **mechanics** of searching: index one edition, find the best
+verse in it. What a hit MEANS — which edition it came from relative to the one
+asked for, and whether the words were faithful — belongs to :mod:`provenance` and
+:mod:`quoted`, which every dimension shares. Keeping the search separate from the
+judgement is what stops three dimensions from inventing three vocabularies again.
+
+Scale note: a language can have ~90 translations, so callers iterate translations
+in the OUTER loop — each is loaded, indexed, matched against every span, then
+dropped. Peak memory stays at one index regardless of how many are covered.
 """
 
 from __future__ import annotations
 
-import re
 from collections import defaultdict
 from dataclasses import dataclass
 
-import regex
-
 from .normalize import normalize
 
-# Tuned on real model output: full recall of known quotations while proposing
-# ~0.3% of a translation's verses. Word n-grams break on substituted words, so
-# the shared-gram bar is deliberately low — precision comes from stage 2.
-NGRAM_WORDS = 4
-MIN_SHARED_WORDS = 2
-NGRAM_CHARS = 8
-MIN_SHARED_CHARS = 8
+# Stage 1 is a SPEED optimization, not a judgement — and that distinction is the
+# whole design. Every verse it declines to propose is silently decided "not this
+# verse", with no similarity ever computed, so its bar must be set for recall and
+# precision must come entirely from stage 2.
+#
+# It was previously set as though it were a judgement, and the cost was large.
+# Word 4-grams needing 2 shared grams means a verse must share FIVE consecutive
+# identical words to be considered at all, so two scattered one-character
+# differences destroy four grams each and disqualify a verse that is otherwise
+# word-for-word. Real examples, both graded "invented scripture":
+#
+#   * Russian 1 Peter 5:7 — the edition writes "возложи́те" with a stress mark and
+#     "печется" without the diaeresis; the model wrote both plainly. Similarity
+#     0.972, shared 4-grams 1, and so never considered.
+#   * Korean 1 Peter 5:7 — agglutination ("맡기라" vs "맡겨 버리라") changes whole
+#     tokens. Similarity 0.806, shared 4-grams 1.
+#
+# Character n-grams are the fix, and they are also a simplification: one
+# tokenisation for every script instead of a spaced/unspaced fork that had to
+# guess which kind of text it was looking at. A one-character difference costs at
+# most N grams rather than N whole words, morphology no longer wipes out a token,
+# and CJK needs no special case because it never had word tokens to begin with.
+NGRAM_CHARS = 6
 
-# Below this we make no claim about which verse a span is.
-IDENTIFY_FLOOR = 0.75
+# How much of the SHORTER side's n-grams must be shared. Relative, not absolute,
+# because the two questions asked of this index have query lengths that differ by
+# a factor of ~25 and one absolute floor cannot serve both:
+#
+#   * "what verse is this span" — query and verse are the same length, so a real
+#     match shares most of both sides' grams;
+#   * "does this verse appear anywhere in this answer" — the verse is a small
+#     fraction of the query, so a real match shares nearly all of the VERSE's
+#     grams and only a few percent of the query's.
+#
+# Taking the shorter side adapts to both, which is why one rule now replaces the
+# previous pair of absolute constants.
+#
+# Measured against brute force over every verse of every edition, on the spans ten
+# published runs had graded "invented": the old word-4-gram rule found the verse
+# 13% of the time, this finds it 81%, while still proposing only ~3% of a
+# translation's verses for a whole answer. The remaining 19% are quotations
+# reworded far enough that they share little text with any verse — no n-gram
+# proposal can reach those, and they land as "misquote" rather than "invented",
+# which is the smaller error of the two.
+MIN_SHARED_FRACTION = 0.10
 
 # A short verse must be matched almost in full to count (see VersionIndex.present).
-# Same bar the auditor uses for "accurate", kept here to avoid a circular import.
+# This is quoted.VERBATIM, written out because quoted imports this module and the
+# reverse would be a cycle — the one place the ladder is duplicated. A test pins
+# the two together (test_quoted.py) so they cannot drift apart silently.
 SHORT_VERSE_WHOLE_FLOOR = 0.98
-
-_WORD = re.compile(r"\w+", re.UNICODE)
-_UNSPACED = regex.compile(
-    r"[\p{Han}\p{Hiragana}\p{Katakana}\p{Thai}\p{Khmer}\p{Lao}\p{Myanmar}]"
-)
-
-
-def is_unspaced(text: str) -> bool:
-    """True for scripts written without word spaces, which need char n-grams."""
-    sample = text[:400]
-    if not sample:
-        return False
-    return len(_UNSPACED.findall(sample)) / len(sample) > 0.3
+# Verses below this length are the ones that rule applies to: "the fear of the
+# LORD" aligns perfectly inside dozens of longer verses, so a window match proves
+# nothing about it.
+SHORT_VERSE_CHARS = 40
 
 
-def ngrams(loose_text: str, *, unspaced: bool) -> set[str]:
-    """N-gram set used for candidate proposal. Input must be loose-normalized."""
-    if unspaced:
-        s = loose_text.replace(" ", "")
-        n = NGRAM_CHARS
-        return {s[i : i + n] for i in range(max(0, len(s) - n + 1))}
-    w = _WORD.findall(loose_text)
-    n = NGRAM_WORDS
-    return {" ".join(w[i : i + n]) for i in range(max(0, len(w) - n + 1))}
+def ngrams(loose_text: str) -> set[str]:
+    """N-gram set used for candidate proposal. Input must be loose-normalized.
+
+    Character n-grams, for every script. Word n-grams were a worse fit even for
+    the scripts that have words: a single differing character costs N whole
+    tokens rather than N grams, so a stress mark on one Russian word or a Korean
+    verb ending disqualified verses that were otherwise word-for-word. Dropping
+    the spaced/unspaced fork also removes a guess about what kind of text we are
+    looking at — CJK needed the character path anyway, and now it is not a
+    special case.
+    """
+    s = loose_text.replace(" ", "")
+    n = NGRAM_CHARS
+    return {s[i : i + n] for i in range(max(0, len(s) - n + 1))}
 
 
 def similarity(quote_loose: str, verse_loose: str) -> float:
@@ -108,6 +141,29 @@ def similarity(quote_loose: str, verse_loose: str) -> float:
     ) / 100.0
 
 
+def fidelity_and_coverage(span_loose: str, verse_loose: str) -> tuple[float, float]:
+    """How faithful the quoted words are, and how much of the verse arrived.
+
+    Two numbers because they answer different questions and a scorer needs both:
+
+    fidelity — are the words right? Best alignment of the span within the verse,
+    so a faithful *fragment* reads as faithful (1.0) rather than as a partly wrong
+    whole verse. Quoting half a verse correctly is a correct quotation of that
+    half.
+
+    coverage — how much of the verse was actually delivered, capped at 1.0 so
+    quoting across a verse boundary is not credited above a full verse.
+
+    Defined here, next to the similarity it is built from, and re-exported by
+    :mod:`quoted` so every dimension measures fidelity the same way.
+    """
+    if not span_loose or not verse_loose:
+        return 0.0, 0.0
+    return similarity(span_loose, verse_loose), min(
+        1.0, len(span_loose) / len(verse_loose)
+    )
+
+
 @dataclass(frozen=True)
 class Span:
     """A stretch of one response that might be scripture."""
@@ -118,78 +174,57 @@ class Span:
     quoted: bool      # inside quote marks / a blockquote (vs. found unmarked)
 
 
-@dataclass
-class Identification:
-    """The best verse identification for one span, across all translations.
+class VersionIndex:
+    """Inverted n-gram index over the whole text of ONE translation.
 
-    Span-driven: the span's own words are matched against the index, so nothing
-    depends on guessing where in a response the quotation sits. That guess is what
-    made a short fragment of a long verse undetectable inside a long answer —
-    "and wine to gladden the heart of man" is Psalm 104:15 verbatim in the ESV, and
-    was recorded as invented scripture.
+    Stage 1 of identification, and only stage 1: it nominates verses worth
+    comparing properly. It is a speed optimization, so its bar is set for recall
+    — a verse it declines to nominate is silently judged "not this verse", with
+    no similarity ever computed, and that silence is indistinguishable from a
+    model having invented the text. Precision belongs to stage 2.
     """
 
-    usfm: str
-    version_id: int
-    similarity: float
-    verse_loose: str = ""
-
-    def classification(self, *, accurate: float, minor: float) -> str:
-        if self.similarity >= accurate:
-            return "accurate"
-        if self.similarity >= minor:
-            return "minor"
-        return "partial"
-
-    def fidelity_and_coverage(self, span_loose: str) -> tuple[float, float]:
-        """(fidelity, coverage) of the span against the verse it was identified as.
-        Same meaning as ``Detection.fidelity_and_coverage``."""
-        if not span_loose or not self.verse_loose:
-            return 0.0, 0.0
-        return similarity(span_loose, self.verse_loose), min(
-            1.0, len(span_loose) / len(self.verse_loose)
-        )
-
-
-class VersionIndex:
-    """Inverted n-gram index over the whole text of ONE translation."""
-
-    def __init__(self, version_id: int, verses: dict[str, str], *, unspaced: bool):
+    def __init__(self, version_id: int, verses: dict[str, str]):
         self.version_id = version_id
-        self.unspaced = unspaced
         self.verses: dict[str, str] = {u: normalize(t, "loose") for u, t in verses.items()}
         self._index: dict[str, list[str]] = defaultdict(list)
+        #: n-grams per verse, so the proposal floor can scale to the shorter side.
+        self._sizes: dict[str, int] = {}
         for usfm, loose in self.verses.items():
-            for g in ngrams(loose, unspaced=unspaced):
+            grams = ngrams(loose)
+            self._sizes[usfm] = len(grams)
+            for g in grams:
                 self._index[g].append(usfm)
 
     def propose(self, loose_text: str) -> list[str]:
         """Verses sharing enough n-grams with the text to be worth confirming.
 
-        A short span can't meet the usual shared-gram bar — "You shall not murder"
-        is four words, so it yields exactly one word 4-gram and could never reach
-        two. That made every verse under five words *unfindable*, and Exodus 20:13
-        quoted perfectly was recorded as invented scripture. The bar therefore
-        drops to what the span can actually offer. Precision is not lost: a span
-        this short is only credited if it matches nearly the whole verse (see
-        ``present``), so a stock phrase that happens to sit inside a long verse
-        still fails confirmation.
+        The bar is a fraction of the SHORTER side's grams, which is what lets one
+        rule serve both a short span and a whole answer (see
+        ``MIN_SHARED_FRACTION``). It also handles a very short quotation without a
+        special case: "You shall not murder" offers few grams, so few are
+        demanded, and Exodus 20:13 quoted perfectly is findable. Precision is not
+        lost there — a match against a short verse must additionally be
+        near-complete (see ``present``), so a stock phrase sitting inside a long
+        verse still fails confirmation.
         """
-        grams = ngrams(loose_text, unspaced=self.unspaced)
+        grams = ngrams(loose_text)
+        if not grams:
+            return []
         hits: dict[str, int] = defaultdict(int)
         for g in grams:
             for usfm in self._index.get(g, ()):
                 hits[usfm] += 1
-        floor = MIN_SHARED_CHARS if self.unspaced else MIN_SHARED_WORDS
-        floor = max(1, min(floor, len(grams)))
-        return [u for u, n in hits.items() if n >= floor]
+        return [
+            u
+            for u, n in hits.items()
+            if n >= max(1, MIN_SHARED_FRACTION * min(len(grams), self._sizes[u]))
+        ]
 
     def _is_short(self, loose_text: str) -> bool:
-        """True when the span is too short to clear the normal shared-gram bar, so
-        its match must be confirmed against the whole verse rather than a window."""
-        return len(ngrams(loose_text, unspaced=self.unspaced)) < (
-            MIN_SHARED_CHARS if self.unspaced else MIN_SHARED_WORDS
-        )
+        """True when a window match against this text proves little, so it must be
+        confirmed against the whole string instead."""
+        return len(loose_text) < SHORT_VERSE_CHARS
 
     def best(self, loose_text: str) -> tuple[str | None, float]:
         """Best (usfm, similarity) for a span within this translation."""
@@ -200,13 +235,20 @@ class VersionIndex:
                 best_usfm, best_sim = usfm, sim
         return best_usfm, best_sim
 
-    def present(self, loose_response: str) -> dict[str, tuple[float, int, int, float]]:
+    def present(
+        self, loose_response: str, *, floor: float
+    ) -> dict[str, tuple[float, int, int, float]]:
         """Verses of this translation that appear anywhere in a whole response.
 
         Verse-driven rather than window-driven, so an unmarked quotation is found
-        without guessing where it starts. Returns {usfm: (similarity, start, end)}
-        with offsets into the loose-normalized response, so the caller can tell
-        whether a detection sits inside a span the model explicitly quoted.
+        without guessing where it starts. Returns {usfm: (similarity, start, end,
+        whole_ratio)} with offsets into the loose-normalized response, so the
+        caller can tell whether a detection sits inside a span the model
+        explicitly quoted.
+
+        ``floor`` is the caller's: how similar counts as "this verse is here" is a
+        judgement, and every dimension takes it from the same place
+        (``quoted.RECOGNISABLE``) rather than each keeping its own number.
         """
         from rapidfuzz import fuzz
 
@@ -223,10 +265,10 @@ class VersionIndex:
             if self._is_short(vloose) and whole < SHORT_VERSE_WHOLE_FLOOR:
                 # The VERSE is short, so a window match proves little: "the fear of
                 # the LORD" aligns perfectly inside dozens of verses. Only a
-                # near-complete match counts. This is what keeps the lowered
+                # near-complete match counts. This is what keeps the recall-first
                 # proposal bar above from turning stock phrases into quotations.
                 continue
-            if sim >= IDENTIFY_FLOOR:
+            if sim >= floor:
                 out[usfm] = (sim, start, end, whole)
         return out
 
@@ -292,132 +334,58 @@ class Detection:
         return fidelity, coverage
 
 
-async def scan_responses(
+async def scan_editions(
     client,
-    version_ids: list[int],
-    texts: dict[str, str],
-    *,
-    unspaced: bool = False,
-    progress=None,
-) -> dict[str, dict[str, Detection]]:
-    """Every verse detectable in each response, across every translation.
-
-    One pass covers quoted and unquoted scripture alike, because detection is
-    verse-driven. Translations are the outer loop so peak memory is one index.
-
-    Returns {response_key: {usfm: best Detection}} — best meaning the translation
-    the text most closely matches, which is how the model's preferred translation
-    is observed rather than assumed.
-    """
-    loose = {k: normalize(t, "loose") for k, t in texts.items()}
-    out: dict[str, dict[str, Detection]] = {k: {} for k in texts}
-    for n, vid in enumerate(version_ids, 1):
-        verses = await load_verses(client, vid)
-        if not verses:
-            continue
-        index = VersionIndex(vid, verses, unspaced=unspaced)
-        for key, text in loose.items():
-            if not text:
-                continue
-            for usfm, (sim, start, end, whole) in index.present(text).items():
-                cur = out[key].get(usfm)
-                if cur is None or sim > cur.similarity:
-                    out[key][usfm] = Detection(
-                        usfm, vid, sim, start, end,
-                        verse_loose=index.verses[usfm], whole_ratio=whole,
-                    )
-        del index, verses
-        if progress:
-            progress({"phase": "identify", "completed": n, "total": len(version_ids)})
-    return out
-
-
-async def scan_and_identify(
-    client,
-    version_ids: list[int],
+    editions,
     texts: dict[str, str],
     spans: list[Span],
     *,
-    unspaced: bool = False,
+    floor: float,
+    on_edition,
     progress=None,
-) -> tuple[dict[str, dict[str, Detection]], dict[str, Identification]]:
-    """Both passes over one set of indexes: verse-driven and span-driven.
+) -> dict[str, dict[str, Detection]]:
+    """Walk every edition once, feeding both passes from the same index.
 
-    They answer different questions and each is wrong for the other's job:
+    Two questions are asked of each index, and each is wrong for the other's job:
 
-      * **verse-driven** (``scan_responses``) asks "does this verse appear anywhere
-        in the answer", which is the only way to find scripture the model never
-        marked as a quotation;
-      * **span-driven** (``identify_all``) asks "what verse is *this* stretch of
-        text", which is the right question whenever the model told us the
-        boundaries by putting them in quotation marks.
+      * **verse-driven** (``present``) — "does this verse appear anywhere in the
+        answer", the only way to find scripture the model never marked as a
+        quotation;
+      * **span-driven** (``best``) — "what verse is *this* stretch of text", the
+        right question whenever the model gave us the boundaries with quote marks.
 
-    Running them separately would build every translation's index twice — around
-    90 indexes for English — so they share one pass here.
+    Asking them in separate passes would build every index twice — around 90 of
+    them for English — so they share one walk here. Editions are the OUTER loop
+    and each index is released before the next is built, so peak memory is one
+    index however many editions are covered.
+
+    The span answers go to ``on_edition(edition, index)``, a callback, because
+    choosing between competing editions needs to know what a match MEANS — which
+    is provenance's job, not this module's (see :mod:`quoted`). The verse-driven
+    detections are returned directly since they are per-verse, not per-span.
     """
     loose_texts = {k: normalize(t, "loose") for k, t in texts.items()}
-    loose_spans = {s.key: normalize(s.text, "loose") for s in spans}
     detections: dict[str, dict[str, Detection]] = {k: {} for k in texts}
-    best: dict[str, Identification] = {}
 
-    for n, vid in enumerate(version_ids, 1):
+    for n, edition in enumerate(editions, 1):
+        vid = edition.version_id
         verses = await load_verses(client, vid)
         if not verses:
             continue
-        index = VersionIndex(vid, verses, unspaced=unspaced)
+        index = VersionIndex(vid, verses)
         for key, text in loose_texts.items():
             if not text:
                 continue
-            for usfm, (sim, start, end, whole) in index.present(text).items():
+            for usfm, (sim, start, end, whole) in index.present(text, floor=floor).items():
                 cur = detections[key].get(usfm)
                 if cur is None or sim > cur.similarity:
                     detections[key][usfm] = Detection(
                         usfm, vid, sim, start, end,
                         verse_loose=index.verses[usfm], whole_ratio=whole,
                     )
-        for s in spans:
-            usfm, sim = index.best(loose_spans[s.key])
-            if usfm and sim >= IDENTIFY_FLOOR:
-                cur = best.get(s.key)
-                if cur is None or sim > cur.similarity:
-                    best[s.key] = Identification(
-                        usfm=usfm, version_id=vid, similarity=sim,
-                        verse_loose=index.verses[usfm],
-                    )
+        if spans:
+            on_edition(edition, index)
         del index, verses
         if progress:
-            progress({"phase": "identify", "completed": n, "total": len(version_ids)})
-    return detections, best
-
-
-async def identify_all(
-    client,
-    version_ids: list[int],
-    spans: list[Span],
-    *,
-    unspaced: bool = False,
-    progress=None,
-) -> dict[str, Identification]:
-    """Identify every span against every translation, one index at a time.
-
-    Translations are the outer loop on purpose: each is loaded, indexed, matched
-    against all spans, then released, so peak memory is one index no matter how
-    many translations a language has.
-    """
-    loose = {s.key: normalize(s.text, "loose") for s in spans}
-    best: dict[str, Identification] = {}
-    for n, vid in enumerate(version_ids, 1):
-        verses = await load_verses(client, vid)
-        if not verses:
-            continue
-        index = VersionIndex(vid, verses, unspaced=unspaced)
-        for s in spans:
-            usfm, sim = index.best(loose[s.key])
-            if usfm and sim >= IDENTIFY_FLOOR:
-                cur = best.get(s.key)
-                if cur is None or sim > cur.similarity:
-                    best[s.key] = Identification(usfm=usfm, version_id=vid, similarity=sim)
-        del index, verses
-        if progress:
-            progress({"phase": "identify", "completed": n, "total": len(version_ids)})
-    return best
+            progress({"phase": "identify", "completed": n, "total": len(editions)})
+    return detections

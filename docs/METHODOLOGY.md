@@ -23,15 +23,21 @@ Every prompt that asks for a quote names a specific Bible version, and every
 result record carries its language and version, so all tracks — and the headline
 — can be sliced by both.
 
-Headline = 100 × (0.50 · simple + 0.25 · topical + 0.25 · hallucination
-resistance).
+Headline = 100 × (⅔ · Direct Quotation + ⅓ · Hallucination Resistance).
+
+Scripture in Answers is reported separately, as the Extended Benchmark, and is not
+part of the headline.
 
 Full methodology is being written alongside the implementation. It will cover:
 
-- The three tracks (simple / topical / hallucination) and the headline score formula
+- The two headline dimensions, the extended one, and the score formula
 - The public sampling specification and per-refresh seeding (anti-gaming design)
 - Text normalization and the deterministic Quote Error Rate (QER) metric
 - The severity taxonomy (perfect → fabricated) and refusal handling
+- Provenance: how "the translation asked for", "another translation of the same
+  language", "a translation in another language" and "no translation we searched"
+  are distinguished, and why the last of those is deliberately not called
+  "invented"
 - The hallucination track: generating impossible references; any presented quote fails
 - Topical version preference: which translation a model quotes when unprompted (L2)
 - Topical uncited-quote verification via an in-memory reverse phrase index
