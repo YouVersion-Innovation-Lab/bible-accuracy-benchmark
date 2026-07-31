@@ -201,40 +201,51 @@ async def scan(
     therefore how strong a claim it is entitled to make.
 
     Memory is bounded to one index at a time regardless of how many editions are
-    passed (see :func:`quotefind.scan_editions`), which is why the best-so-far is
-    accumulated here rather than every candidate being kept.
+    passed (see :func:`quotefind.scan_editions`), so candidates cannot all be kept
+    to the end. They are narrowed to the strongest per provenance class instead —
+    which is enough for :func:`judge` to make the choice, so the choice is still
+    made in exactly one place.
     """
     loose = {s.key: normalize(s.text, "loose") for s in spans}
-    winners: dict[str, tuple[provenance.Match, float]] = {}
     default = provenance.Source(version_id=None, language_tag="")
+    # span key -> provenance class -> the strongest Candidate seen in that class.
+    #
+    # Bucketing by class rather than keeping every candidate is what lets the
+    # SELECTION happen in one place — `judge`, below — without holding a candidate
+    # per edition per span in memory. There are only four classes, and within a
+    # class fidelity alone decides, so one entry each is all `judge` can use.
+    best_per_class: dict[str, dict[str, tuple[float, Candidate]]] = {}
 
     def on_edition(edition: provenance.Source, index: quotefind.VersionIndex) -> None:
         for s in spans:
-            usfm, _sim = index.best(loose[s.key])
-            if not usfm:
+            usfm, fidelity = index.best(loose[s.key])
+            if not usfm or fidelity < floor:
                 continue
-            fidelity, coverage = fidelity_and_coverage(loose[s.key], index.verses[usfm])
-            if fidelity < floor:
-                continue
-            match = provenance.classify(
+            candidate = Candidate(
+                source=edition, usfm=usfm, verse_loose=index.verses[usfm]
+            )
+            klass = provenance.classify(
                 requested=requested.get(s.key, default),
                 matched_version_id=edition.version_id,
                 matched_language_tag=edition.language_tag,
-                similarity=fidelity,
-                usfm=usfm,
-                version_abbrev=edition.version_abbrev,
-            )
-            current = winners.get(s.key)
-            # Incumbent first, so an exact tie keeps it and the result cannot
-            # depend on the order editions happen to be walked in.
-            if current is None or provenance.best([current[0], match]) is match:
-                winners[s.key] = (match, coverage)
+            ).provenance
+            bucket = best_per_class.setdefault(s.key, {})
+            incumbent = bucket.get(klass)
+            # Strictly greater, so an exact tie keeps the incumbent and the result
+            # cannot depend on the order editions happen to be walked in.
+            if incumbent is None or fidelity > incumbent[0]:
+                bucket[klass] = (fidelity, candidate)
 
     detections = await quotefind.scan_editions(
         client, editions, texts, spans, floor=floor,
         on_edition=on_edition, progress=progress,
     )
     return detections, {
-        key: Judgement(match=m, fidelity=m.similarity, coverage=cov)
-        for key, (m, cov) in winners.items()
+        key: judge(
+            loose[key],
+            [c for _fid, c in bucket.values()],
+            requested=requested.get(key, default),
+            floor=floor,
+        )
+        for key, bucket in best_per_class.items()
     }

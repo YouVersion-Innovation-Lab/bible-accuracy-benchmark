@@ -9,6 +9,7 @@ a diacritic, an agglutinated verb ending — using the fake "1 Testium" corpus.
 import asyncio
 
 from bible_bench import provenance, quoted
+from bible_bench.normalize import normalize
 from bible_bench.quotefind import (
     MIN_SHARED_FRACTION,
     Span,
@@ -236,3 +237,31 @@ def test_scan_prefers_the_right_bible_over_a_better_match_elsewhere():
     # edition ASKED FOR wins even though the other matches better.
     assert got["q"].match.version_id == 2
     assert got["q"].match.provenance == provenance.REQUESTED
+
+
+def test_the_batched_search_and_the_pure_judgement_agree():
+    """`scan` is the batched form of `judge`, not a second implementation of it.
+
+    They must not be able to disagree: one is what production calls and the other
+    is what the unit tests pin, so a divergence would mean the tested behaviour is
+    not the shipped behaviour. `scan` narrows candidates to the strongest per
+    provenance class and hands the actual choice to `judge`; this asserts the
+    result is what `judge` alone would have said.
+    """
+    reworded = "at the first the creator formed the heavens and the earth by his word"
+    spans = [Span(key="a", item_id="i", text=reworded, quoted=True)]
+    asked_for_v1 = {"a": provenance.Source(version_id=1, language_tag="eng")}
+    _det, got = _scan([ENG1, ENG2, ZHO], spans, asked_for_v1)
+
+    direct = quoted.judge(
+        normalize(reworded, "loose"),
+        [
+            quoted.Candidate(ENG1, "TES.1.1", normalize(V1["TES.1.1"], "loose")),
+            quoted.Candidate(ENG2, "TES.1.1", normalize(V2["TES.1.1"], "loose")),
+        ],
+        requested=asked_for_v1["a"],
+    )
+    assert got["a"].match.version_id == direct.match.version_id
+    assert got["a"].match.provenance == direct.match.provenance
+    assert abs(got["a"].fidelity - direct.fidelity) < 1e-9
+    assert abs(got["a"].coverage - direct.coverage) < 1e-9
