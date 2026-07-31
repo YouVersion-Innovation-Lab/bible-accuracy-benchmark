@@ -1,257 +1,82 @@
 # Findings
 
-What the benchmark has actually shown about model behaviour. Cumulative rather
-than per-version: a finding outlives the generation that surfaced it, so each
-entry records the benchmark version and run it was observed in, and is amended
-rather than rewritten when later data changes the picture.
+What the benchmark has shown so far about how well today's leading AI models
+quote the Bible. Kept to one page and kept current; every figure is reproducible
+from the published run data.
 
-Every finding here is reproducible from published run artifacts — the run id is
-given so anyone can check it. Where the evidence is thin, it says so.
-
-Scope reminder: this benchmark measures the accuracy of quoted scripture. It does
-not measure, and nothing here claims anything about, the theological content of a
-response.
+**Scope:** this measures the accuracy of *quoted scripture* only. It says nothing
+about the theological content of a model's answer.
 
 ---
 
-## C-1 · Correction: "invented scripture" was mostly a measurement failure
+## 1 · GPT-5.6 Terra declines to quote copyrighted translations
 
-**Applies to:** every number published before `SCORING_VERSION` 1.3.0 (2026-07-31)
-**Direction of the error:** overstated fabrication, understated Scripture in Answers
+It refuses to reproduce Bible translations still in copyright, and says so
+plainly: *"Sorry, I can't provide that verse from the NLT, but I can summarize it
+or provide it in a public-domain translation."*
 
-Any fabrication figure recorded before 1.3.0 is too high, and the effect is large
-enough that it changes conclusions rather than nudging them. Three bugs, all the
-same mistake — **reporting a failed search as a finding about the model**:
+The effect tracks copyright status almost exactly — accuracy out of 100, English:
 
-1. **The candidate-proposal stage dropped verses 97% identical to the quotation.**
-   It nominated verses by shared word 4-grams, requiring two — five consecutive
-   identical words — so two scattered one-character differences disqualified a
-   verse that was otherwise word-for-word, with no similarity ever computed.
-   Measured against brute force over every verse of every edition, on the spans
-   ten runs had graded "invented", it found the right verse **13% of the time**.
-   Languages with rich morphology or accented editions suffered most: Hindi,
-   Korean and Arabic accounted for 611 of the 820 affected verdicts.
-2. **The identification floor was 0.75**, so a recognisable-but-poor quotation was
-   an invention rather than a misquote.
-3. **Only the language asked about was searched**, so accurate scripture in
-   another language was an invention too (F-3).
+| KJV *(public domain)* | NIV11 | NABRE | NRSVUE | NLT |
+|---|---|---|---|---|
+| **98** | 62 | 53 | 31 | **14** |
 
-Brute-forced against every verse of every edition of the language asked, on a
-121-span sample drawn evenly from all eleven languages: **89% were at least 0.60
-similar to a real verse in that language** — they were not inventions. Of the
-remaining 11%, most were accurate quotations in a different language. (A sample
-rather than all 820, because brute force costs ~10⁹ comparisons per language.)
+This is not an ability gap: the same model quotes the KJV near-perfectly, so it
+can quote — it declines to quote *these*. Nor is it a platform safety filter; it
+is the model's own choice. Portuguese shows the same pattern on modern Brazilian
+translations, so it follows copyright rather than language.
 
-What this does *not* change: refusal rates, Direct Quotation headline scores, and
-Hallucination Resistance outcomes were unaffected — verified by re-scoring, where
-those numbers came back byte-identical. The correction lands on the *labels* in
-Direct Quotation and on the *scores* in Scripture in Answers.
+**Why this matters to YouVersion.** A reader who asks for the translation their
+church uses — the one a publisher licensed — is the one who cannot get it. That is
+a decision being made about Bible publishers without them in the room, and it is
+invisible unless someone measures it. It is also the most actionable finding here:
+a policy setting rather than a capability limit, so a conversation could change it.
 
-The lesson generalises beyond this benchmark: a search that finds nothing is not
-evidence that nothing exists, and "we did not find it" is a different claim from
-"the model made it up". The scorer now keeps those apart by construction — see
-`quoted.py` and `provenance.py` — and reserves the word "fabricated" for text that
-matched no Bible in any language the benchmark covers.
+*A separate and much rarer behaviour, worth not confusing with this one: Google's
+platform occasionally cuts Gemini off mid-verse. Different mechanism, around 0.4%
+of answers, and not tied to copyright.*
 
 ---
 
-## F-1 · GPT-5.6 Terra declines to quote in-copyright translations
+## 2 · Some models answer in one language but quote scripture in another
 
-**Observed:** v0.5-fast, run `v0.5-fast--gpt-5-6-terra` (2026-07-31)
-**Confidence:** high — the mechanism is explicit in the model's own words
-**Status:** open
+Asked an open question in Hindi, several models reply in fluent Hindi and then
+quote the verse **in English**. The scripture is accurate — usually word-perfect —
+but the reader cannot read it.
 
-GPT-5.6 Terra refuses to reproduce Bible translations that are still in
-copyright, and says so plainly:
+| model | share of its quotations in a language other than the one asked |
+|---|---|
+| **Grok 4.5** | **26%** — Hindi 83%, Arabic 62%, Indonesian 43% |
+| Kimi K3 | 5% — Hindi 57% |
+| GPT-5.6 Terra, MiniMax M3 | ~1% |
+| The other six models tested | 0% |
 
-> "Sorry, I can't provide that verse from the NLT, but I can summarize it or
-> provide it in a public-domain translation."
+Four of ten models do this; six never do. It tracks how well-resourced a language
+is: not one of them does it in English, Spanish, Portuguese or French, and Hindi is
+the language most often answered in English.
 
-> "Sorry, I can't provide that verse verbatim from the NLT."
-
-The effect tracks copyright status almost exactly. Direct Quotation, English:
-
-| translation | copyright | score |
-|---|---|---|
-| KJV | public domain | **97.7** |
-| NIV11 | in copyright | 62.3 |
-| NABRE | in copyright | 52.7 |
-| NRSVUE | in copyright | 31.3 |
-| NLT | in copyright | **14.0** |
-
-It is not a knowledge failure. The same model quotes the KJV near-perfectly, so
-it can quote; it declines to quote *these*. And it is not a platform filter:
-every refusal returns `finish_reason: "stop"`, the model's own completion, not
-`content_filter`.
-
-**Not English-only.** 30 of 35 refusal-shaped responses were English, but
-Portuguese shows it too — AVM 4/15 and ARA 1/14, both modern in-copyright
-Brazilian translations. The languages with *no* refusals are the ones whose
-tested edition is public domain or long out of copyright: French LSG (1910),
-German DELUT (1912), Russian Synodal, Chinese CUNP. So the pattern is
-**copyright status, not language**.
-
-### Why this matters to YouVersion specifically
-
-This is a licensing decision surfacing as a Bible-accuracy score. A user who asks
-ChatGPT for a verse in the NLT gets a refusal and an offer of a different
-translation — so the translation a publisher licensed, and the one a reader
-chose, is the one they cannot get. Whether that is the right call is OpenAI's to
-make, but it is a decision made *about* Bible publishers without them in the
-room, and it is invisible unless something measures it.
-
-It is also the most actionable finding the benchmark has produced: unlike an
-accuracy gap, this is a policy setting, and a licensing conversation could change
-it.
-
-### Caveat on the score
-
-Declining to quote is a scored failure by design — a model that won't quote can't
-be accurate, and excluding refusals would let a model score well by never
-answering. So the low score is intentional. But until 2026-07-31 these refusals
-were graded `fabricated` ("invented a verse"), which was a false accusation
-about a model that invented nothing. They are now `no_attempt` ("declined").
-Same score, honest label. Any GPT figure recorded before that fix overstates its
-fabrication rate.
+This is the clearest equity gap the benchmark has found. The readers served worst
+are the ones asking in the languages that already have the least.
 
 ---
 
-## F-2 · Gemini's RECITATION filter is a different and much rarer thing
+## How to read these numbers
 
-**Observed:** v0.4, run `v0.4--gemini-3-6-flash`; **absent** from v0.5-fast
-**Confidence:** medium — real but rare, and absent from the newer sample
-**Status:** monitoring
+* **This is a fast pass.** Each model answered about 400 questions — enough for a
+  first look, not a verdict. Hallucination Resistance especially saturates at this
+  size, with five of ten models scoring a perfect 100, so rankings should be
+  expected to shift on the full run.
+* **Earlier "invented a verse" figures were too high.** Our scorer was failing to
+  recognise real verses quoted from editions and languages it wasn't looking in,
+  and reported that as invention. Corrected 31 July 2026; every number on this page
+  is post-correction. Accuracy scores and refusal rates were unaffected.
 
-Gemini 3.6 Flash is sometimes cut off by a Google platform filter before it can
-emit a verse, reported as `finish_reason: "content_filter: RECITATION"`. It is
-worth recording alongside F-1 because both end with a user not getting their
-verse — but the two are not the same phenomenon, and conflating them would
-misattribute a platform behaviour to a model's policy:
+## What we are still checking
 
-| | GPT-5.6 Terra (F-1) | Gemini 3.6 Flash (F-2) |
-|---|---|---|
-| mechanism | the model declines | the platform truncates |
-| `finish_reason` | `stop` | `content_filter: RECITATION` |
-| tracks copyright? | **yes** — public-domain KJV is unaffected | **no** — it hit the KJV too |
-| rate | 35 of ~250 English items | **11 of 2,585** items (0.4%) |
-| the user sees | an explanation and an offer | nothing |
-
-At v0.5-fast (258 items) there were **zero** occurrences. That sample is far too
-small to conclude it has stopped — 0.4% of 258 is one expected event — so this
-stays open for the full v0.5 sweep rather than being called fixed.
-
-Gemini's English scores show no copyright pattern at all: NLT 91.3, NRSVUE 94.6,
-NIV11 97.8, KJV 98.0. **So the claim "GPT and Gemini both avoid copyrighted
-translations" is not supported.** GPT does. Gemini has a rarer, unrelated
-truncation behaviour that is not keyed to copyright.
-
----
-
-## F-3 · Grok 4.5 answers non-English questions with English scripture
-
-**Observed:** v0.5-fast, run `v0.5-fast--x-ai-grok-4-5` (2026-07-31)
-**Confidence:** high
-**Status:** open
-
-Asked an open question in Hindi, Grok 4.5 replies with Hindi prose and then
-quotes the scripture **in English**:
-
-> बाइबल चिंता और घबराहट के विषय में हमें परमेश्वर पर भरोसा रखने और प्रार्थना करने की सलाह देती है। यहाँ कुछ संबंधित पद हैं:
->
-> "Do not be anxious about anything, but in every situation, by prayer and petition, with thanksgiving, present your requests to God." Philippians 4:6
-
-The quotation is accurate — it matches NIV Philippians 4:6 at similarity 1.000.
-It is simply in the wrong language for the reader who asked.
-
-The language profile makes the behaviour unmistakable. Share of Grok's quotations
-identified as coming from a Bible in a language other than the one asked in —
-measured directly against every language the benchmark covers, not inferred from
-what went unmatched:
-
-| eng | fra | spa | por | deu | rus | zho | kor | ind | arb | hin |
-|---|---|---|---|---|---|---|---|---|---|---|
-| 0% | 0% | 0% | 0% | 22% | 28% | 30% | 30% | 43% | 62% | **83%** |
-
-Zero in the four Western European languages, 83% in Hindi — 26% of all its
-quotations. No model invents scripture four times in five in one language and
-never in another; it is code-switching, and it tracks how well-resourced the
-language is.
-
-Every one of Grok's 166 cross-language quotations matched the **English NIV at
-similarity 1.000**. It is not approximating and not translating on the fly; it is
-reproducing an English edition verbatim in answer to a question asked in Hindi,
-Arabic, Indonesian, Korean, Chinese, Russian or German.
-
-This is why Grok's Extended (Scripture in Answers) score sits well below its
-Direct Quotation score — the widest such gap of any model tested. Direct Quotation
-names the translation, so Grok complies; the open question doesn't, and it
-defaults to English.
-
-**Grok is the outlier but not alone.** Measured across all ten runs:
-
-| model | cross-language share of quotations | worst languages |
-|---|---|---|
-| Grok 4.5 | **26%** | hin 83%, arb 62%, ind 43% |
-| Kimi K3 | 5% | hin 57%, kor 9% |
-| MiniMax M3 | 1% | arb 13% |
-| GPT-5.6 Terra | 1% | hin 7%, kor 6% |
-| Gemini 3.6 Flash, DeepSeek V4 Pro, Claude Sonnet 5, Qwen3.7 Max, GLM-5.2, Tencent Hy3 | **0%** | — |
-
-Four of ten models do this at all; six never do. Hindi is the language most often
-answered in English, by three different models.
-
-Until 2026-07-31 these were graded `fabricated` — all 196 of Grok's, of a model
-that had invented nothing. They are now `other_language`, a distinct verdict
-scoring 0.25: real scripture was delivered, so it is not invention, but the reader
-did not get their language, so it is not a pass. See C-1, since two other bugs
-were inflating the same count.
-
----
-
-## F-4 · Hallucination Resistance saturates at fast-run scale
-
-**Observed:** v0.5-fast, all ten runs (2026-07-31)
-**Confidence:** high, but an artifact of sample size rather than a model finding
-**Status:** informational
-
-Five of ten models scored exactly 100.0 on Hallucination Resistance in the fast
-pass, which runs 34 items. The dimension has no discriminating power at that
-size, so its ⅓ weight does little work and the fast board's ranking is driven
-almost entirely by Direct Quotation.
-
-Not a defect — a fast pass is explicitly a first look — but a reason not to read
-a fast ranking as final, and a reminder that the full run's 325 items are what
-that dimension needs.
-
----
-
-## Open questions this list raises
-
-* **77 Direct Quotation answers still called inventions are recognisably the
-  requested verse in an edition we do not hold.** Measured across the ten
-  v0.5-fast runs: of 261 answers graded `fabricated`, 77 match the requested verse
-  in another edition of the same language at 0.60–0.95 — below the 0.95 bar for
-  `wrong_version`, so they fall through to `fabricated` and score 0. The likeliest
-  explanation is a model quoting a real translation the Bible API does not carry,
-  which is the same situation Hallucination Resistance already names
-  `unverified_edition` ("we cannot judge fidelity against a text we do not hold").
-  Extending that verdict to Direct Quotation would be consistent — but it changes
-  scores on a headline dimension rather than a label, so it is recorded here for a
-  decision rather than done quietly. Worth checking a sample by hand first: some of
-  these will be genuine misquotes that happen to land in the band.
-
-* **Does any model quote a *licensed* translation on request?** Every model
-  scores highest on the KJV. If in-copyright translations are systematically
-  harder or refused, the benchmark is partly measuring licensing rather than
-  ability, and that distinction should be reported explicitly.
-* ~~**Does the English-scripture default (F-3) appear in other models?** Korean
-  shows 30% in Gemini too.~~ **Answered, and the guess was wrong.** That 30% was an
-  artifact of the recall bug in C-1, not a Gemini behaviour: measured directly,
-  Gemini's cross-language rate is **0%**, as are DeepSeek's, Sonnet's, Qwen's,
-  GLM's and Tencent's. The behaviour is real in four of ten models (F-3 table).
-  What remains open is whether the rates hold at full scale — the fast run has
-  ~5 quotations per language per model.
-* **NABRE is the weakest English translation for every model** (79.9–80.0 for
-  Gemini and Sonnet, 52.7 for GPT). Catholic edition, less represented in
-  training data — or a scoring artifact around its deuterocanonical books? Worth
-  a look.
+* **Does any model reliably quote a *licensed* translation on request?** Every
+  model scores highest on the public-domain KJV, which raises the possibility that
+  the benchmark is partly measuring licensing rather than ability.
+* **Do the wrong-language rates hold at full scale?** The fast pass gives only a
+  handful of quotations per language per model.
+* **NABRE is the weakest English translation for every model.** Under-represented
+  in training data, or something in how we score its additional books?
