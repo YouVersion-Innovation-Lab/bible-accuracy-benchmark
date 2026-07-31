@@ -90,6 +90,11 @@ const FACTOR_COPY: Record<string, FactorCopy> = {
     detail:
       "Volunteered scripture that either misquotes a verse we can name, or matches no verse at all. The dimension breakdown below separates the two.",
   },
+  wrong_language: {
+    label: "Quoted accurately, in the wrong language",
+    detail:
+      "Answered in the language asked but quoted the scripture from a Bible in another language — most often English. The verses are accurate; the reader simply cannot read them. Listed separately because it is not an accuracy problem and would be fixed differently.",
+  },
 
   // Hallucination Resistance outcomes
   fabricated_text: {

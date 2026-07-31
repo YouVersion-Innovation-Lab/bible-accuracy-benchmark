@@ -221,6 +221,34 @@ def summarize_simple(items: list[dict]) -> dict:
     }
 
 
+def _topical_cause(it: dict) -> str:
+    """Why this answer fell short of full marks — the label a lab reads to decide
+    what to fix, so it has to name the real behaviour.
+
+    "Quoted, but not accurately" was doing duty for everything that scored below
+    1.0, which put Grok 4.5's single biggest problem under the one heading that
+    misdescribes it: its scripture IS accurate — 166 quotations matching the
+    English NIV at similarity 1.000 — and the failure is that the reader asked in
+    Hindi (docs/FINDINGS.md F-3). A lab told "your quotations are inaccurate"
+    would go looking for a retrieval or memorisation problem it does not have.
+
+    So a wrong-language answer is attributed as such whenever that is what
+    predominantly happened, and only genuine misquotes keep the accuracy label.
+    """
+    if not (it.get("response_text") or "").strip() and _was_blocked(it):
+        return _BLOCKED
+    if not it["topical_score"]["emission"]:
+        return "no_quote"
+    quotes = it.get("quotes") or []
+    if quotes:
+        elsewhere = sum(
+            1 for q in quotes if q.get("provenance") == provenance.OTHER_LANGUAGE
+        )
+        if elsewhere * 2 > len(quotes):
+            return "wrong_language"
+    return "inaccurate_quotes"
+
+
 def summarize_topical(items: list[dict]) -> dict:
     """Per-language macro-average of A×E item scores, plus emission/fabrication
     rates by elicitation level and a sensitive-topic slice."""
@@ -270,17 +298,11 @@ def summarize_topical(items: list[dict]) -> dict:
 
     lang_means = {lang: _mean(v) for lang, v in by_lang.items()}
     macro = _mean(list(lang_means.values()))
-    # Emission is binary (a verifiable quotation, or none), so item_score = A x E
-    # splits cleanly into two causes: never quoted, or quoted inaccurately.
     factors = _macro_loss(
         items,
         lang_of=lambda it: it["language_tag"],
         score_of=lambda it: it["topical_score"]["item_score"],
-        cause_of=lambda it: (
-            _BLOCKED if not (it.get("response_text") or "").strip() and _was_blocked(it)
-            else "no_quote" if not it["topical_score"]["emission"]
-            else "inaccurate_quotes"
-        ),
+        cause_of=_topical_cause,
     )
     versions = [
         {**version_meta[vid], "score": round(_mean(scores), 4), "n": len(scores)}
