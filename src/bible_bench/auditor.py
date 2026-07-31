@@ -129,7 +129,29 @@ def extract_quotes(text: str) -> list[QuoteSpan]:
     """Paired-delimiter quote spans, plus markdown blockquote paragraphs.
 
     Blockquotes count as presented quotations too (a model rendering a verse
-    as `> …` is claiming it as scripture)."""
+    as `> …` is claiming it as scripture).
+
+    KNOWN LIMITATION — pairing is greedy left-to-right, so a STRAY delimiter
+    shifts every pair after it by one. MiniMax M3 wrote
+
+        " "The sayings of King Lemuel…" —Proverbs 31:1 (NIV 2011) "
+
+    with an extra outer pair; greedy pairing takes (q1,q2) and (q3,q4), which
+    skips the verse sitting between q2 and q3 and captures the CITATION instead.
+    The captured citation then matched an unrelated verse by window alignment and
+    turned an otherwise ideal answer into "invented scripture" — the failure this
+    scorer exists to avoid.
+
+    Left unfixed deliberately, and measured before deciding: 6 of 8,014 extracted
+    spans across ten published runs are citation-shaped, 5 of those legitimately
+    contain a verse with its reference glued on, so the defect costs exactly ONE
+    misjudged item. Every candidate fix considered — a coverage/fidelity guard, a
+    resolver-based citation filter — had a wider expected error rate than the bug,
+    because genuine faithful fragments in compact scripts are indistinguishable
+    from coincidental window matches on fidelity alone (a real Portuguese Matthew
+    6:25 fragment sits at 0.868; a false match at 0.864). Balanced-delimiter
+    pairing is the real fix and belongs here, not in the fidelity rules.
+    """
     out: list[QuoteSpan] = []
     for open_q, close_q in _QUOTE_PAIRS:
         idx = 0

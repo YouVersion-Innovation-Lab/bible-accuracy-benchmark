@@ -163,27 +163,42 @@ quotes the scripture **in English**:
 The quotation is accurate — it matches NIV Philippians 4:6 at similarity 1.000.
 It is simply in the wrong language for the reader who asked.
 
-The language profile makes the behaviour unmistakable. Share of quotations
-identified as coming from a Bible in a language other than the one asked in — now
-measured directly rather than inferred from what went unmatched:
+The language profile makes the behaviour unmistakable. Share of Grok's quotations
+identified as coming from a Bible in a language other than the one asked in —
+measured directly against every language the benchmark covers, not inferred from
+what went unmatched:
 
 | eng | fra | spa | por | deu | rus | zho | kor | ind | arb | hin |
 |---|---|---|---|---|---|---|---|---|---|---|
-| 0% | 0% | 0% | 0% | 22% | 28% | 30% | 30% | 43% | 81% | **100%** |
+| 0% | 0% | 0% | 0% | 22% | 28% | 30% | 30% | 43% | 62% | **83%** |
 
-Zero in the four Western European languages, 100% in Hindi. No model invents
-scripture every single time in one language and never in another; it is
-code-switching, and it correlates with how well-resourced the language is.
+Zero in the four Western European languages, 83% in Hindi — 26% of all its
+quotations. No model invents scripture four times in five in one language and
+never in another; it is code-switching, and it tracks how well-resourced the
+language is.
 
-Every one of Grok's 186 cross-language quotations matched the **English NIV at
+Every one of Grok's 166 cross-language quotations matched the **English NIV at
 similarity 1.000**. It is not approximating and not translating on the fly; it is
 reproducing an English edition verbatim in answer to a question asked in Hindi,
-Arabic, Korean, Indonesian, Chinese, Russian or German.
+Arabic, Indonesian, Korean, Chinese, Russian or German.
 
 This is why Grok's Extended (Scripture in Answers) score sits well below its
 Direct Quotation score — the widest such gap of any model tested. Direct Quotation
 names the translation, so Grok complies; the open question doesn't, and it
 defaults to English.
+
+**Grok is the outlier but not alone.** Measured across all ten runs:
+
+| model | cross-language share of quotations | worst languages |
+|---|---|---|
+| Grok 4.5 | **26%** | hin 83%, arb 62%, ind 43% |
+| Kimi K3 | 5% | hin 57%, kor 9% |
+| MiniMax M3 | 1% | arb 13% |
+| GPT-5.6 Terra | 1% | hin 7%, kor 6% |
+| Gemini 3.6 Flash, DeepSeek V4 Pro, Claude Sonnet 5, Qwen3.7 Max, GLM-5.2, Tencent Hy3 | **0%** | — |
+
+Four of ten models do this at all; six never do. Hindi is the language most often
+answered in English, by three different models.
 
 Until 2026-07-31 these were graded `fabricated` — all 196 of Grok's, of a model
 that had invented nothing. They are now `other_language`, a distinct verdict
@@ -212,13 +227,30 @@ that dimension needs.
 
 ## Open questions this list raises
 
+* **77 Direct Quotation answers still called inventions are recognisably the
+  requested verse in an edition we do not hold.** Measured across the ten
+  v0.5-fast runs: of 261 answers graded `fabricated`, 77 match the requested verse
+  in another edition of the same language at 0.60–0.95 — below the 0.95 bar for
+  `wrong_version`, so they fall through to `fabricated` and score 0. The likeliest
+  explanation is a model quoting a real translation the Bible API does not carry,
+  which is the same situation Hallucination Resistance already names
+  `unverified_edition` ("we cannot judge fidelity against a text we do not hold").
+  Extending that verdict to Direct Quotation would be consistent — but it changes
+  scores on a headline dimension rather than a label, so it is recorded here for a
+  decision rather than done quietly. Worth checking a sample by hand first: some of
+  these will be genuine misquotes that happen to land in the band.
+
 * **Does any model quote a *licensed* translation on request?** Every model
   scores highest on the KJV. If in-copyright translations are systematically
   harder or refused, the benchmark is partly measuring licensing rather than
   ability, and that distinction should be reported explicitly.
-* **Does the English-scripture default (F-3) appear in other models at full
-  scale?** The fast run has ~5 quotations per language per model. Grok is the
-  clear outlier, but Korean shows 30% in Gemini too.
+* ~~**Does the English-scripture default (F-3) appear in other models?** Korean
+  shows 30% in Gemini too.~~ **Answered, and the guess was wrong.** That 30% was an
+  artifact of the recall bug in C-1, not a Gemini behaviour: measured directly,
+  Gemini's cross-language rate is **0%**, as are DeepSeek's, Sonnet's, Qwen's,
+  GLM's and Tencent's. The behaviour is real in four of ten models (F-3 table).
+  What remains open is whether the rates hold at full scale — the fast run has
+  ~5 quotations per language per model.
 * **NABRE is the weakest English translation for every model** (79.9–80.0 for
   Gemini and Sonnet, 52.7 for GPT). Catholic edition, less represented in
   training data — or a scoring artifact around its deuterocanonical books? Worth
