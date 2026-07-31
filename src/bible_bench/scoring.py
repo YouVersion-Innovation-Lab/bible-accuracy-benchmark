@@ -74,6 +74,11 @@ _REFUSAL_MARKERS = (
     "i cannot", "i can't", "i can not", "i'm unable", "i am unable", "i'm not able",
     "i am not able", "i'm sorry", "i am sorry", "i apologize", "cannot provide",
     "can't provide", "unable to provide", "as an ai", "i don't have",
+    # No marker for "verbatim" or "copyright": a model may quote correctly AND
+    # mention either ("here it is verbatim: ..."), so those would grade a real
+    # quotation as a refusal — the same error in the opposite direction. The
+    # markers below plus strict normalization catch every copyright decline
+    # observed (see docs/FINDINGS.md F-1) without that risk.
     "no puedo", "lo siento", "je ne peux", "désolé", "ich kann nicht",
     "не могу", "извините", "죄송", "제공할 수 없", "申し訳", "できません",
     "抱歉", "无法", "無法", "ขออภัย", "ไม่สามารถ", "لا أستطيع", "عذرا", "عذراً",
@@ -81,9 +86,23 @@ _REFUSAL_MARKERS = (
 )
 
 
-def _looks_like_refusal(text: str) -> bool:
-    low = text.lower()
+def looks_like_refusal(text: str) -> bool:
+    """Did the model decline rather than attempt a quotation?
+
+    Matches against STRICT-normalized text, which folds typographic variants. Not
+    a nicety: the markers are written with an ASCII apostrophe, and GPT-5.6 Terra
+    writes "I can't provide that verse verbatim from the NLT" with U+2019. The
+    substring match failed, so 25 plain-English refusals were graded as invented
+    scripture — a false accusation produced entirely by punctuation.
+
+    Public because every dimension needs the same answer to the same question.
+    """
+    low = normalize(text, "strict").lower()
     return any(marker in low for marker in _REFUSAL_MARKERS)
+
+
+# Kept for the internal call sites; one definition, one behaviour.
+_looks_like_refusal = looks_like_refusal
 
 
 def _nonspace_len(text: str) -> int:
@@ -290,8 +309,9 @@ def score_item(
     attempt_chars = _nonspace_len(ex.trivial_loose or "")
     truth_chars = _nonspace_len(truth_loose)
     substantial = attempt_chars >= max(10, 0.4 * truth_chars)
+    refused = looks_like_refusal(response)
     attempted = (
-        not _looks_like_refusal(response)
+        not refused
         and (substantial or bool(_QUOTED_SPAN.search(normalize(response, "strict"))))
     )
 
@@ -315,9 +335,19 @@ def score_item(
         grade = "wrong_verse"
     elif sim_t >= SEVERE_SIM:
         grade = "severe"
-    elif attempted or max(sim_t, d_sim, n_sim) >= ATTEMPT_SIM_FLOOR:
+    elif not refused and (attempted or max(sim_t, d_sim, n_sim) >= ATTEMPT_SIM_FLOOR):
         # Matches neither the requested verse in ANY translation nor a neighbouring
         # verse. This is the only case that earns the word "fabricated".
+        #
+        # An explicit refusal is decisive here. The similarity floor is a safety
+        # net for text that IS an attempt but didn't look substantial, and it was
+        # overriding detected refusals on coincidence: "Sorry, I can't provide that
+        # verse verbatim from the NLT" shares ~30% of its characters with some
+        # neighbouring verse, which cleared the floor and got 25 plain declines
+        # labelled as invented scripture. Nothing is lost by trusting the refusal:
+        # a response that both declines the requested edition AND quotes another
+        # one ("I can't give you the NIV, but the KJV reads...") matches a real
+        # verse and is classified above, before this branch is reached.
         grade = "fabricated"
     else:
         grade = "no_attempt"

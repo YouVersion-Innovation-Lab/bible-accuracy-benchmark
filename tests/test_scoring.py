@@ -218,3 +218,50 @@ def test_no_cliff_across_the_severe_boundary():
     assert all(b >= a for a, b in steps), "score must be monotonic"
     assert scores[0] > 0.0, "the bottom of the severe band still earns credit"
     assert all(abs(b - a) < 0.10 for a, b in steps), "no step changes"
+
+
+def test_a_polite_copyright_decline_is_a_decline_not_an_invention():
+    """GPT-5.6 Terra declines in-copyright translations by name (FINDINGS F-1).
+    Two compounding defects graded 25 of those as invented scripture:
+
+    * the markers are written with an ASCII apostrophe and the model writes
+      U+2019, so the refusal wasn't recognised at all; and
+    * the attempt floor then fired on ~30% coincidental character overlap with a
+      neighbouring verse, overriding the refusal even once it WAS recognised.
+
+    The score is 0 either way — declining is a scored failure by design — but
+    "invented a verse" is a false accusation about a model that invented nothing.
+    """
+    verse = ("And if the bugler doesn't sound a clear call, how will the soldiers "
+             "know they are being called to battle?")
+    for text in (
+        "Sorry, I can’t provide that verse verbatim from the NLT.",          # curly
+        "Sorry, I can't provide that verse verbatim from the NLT.",               # ascii
+        "Sorry, I can’t provide that verse from the NLT, but I can summarize "
+        "it or provide it in a public-domain translation.",
+    ):
+        s = score_item(text, verse, {}, {})
+        assert s.grade == "no_attempt", f"{text[:40]!r} graded {s.grade}"
+        assert s.item_score == 0.0
+
+
+def test_declining_one_edition_while_quoting_another_is_still_wrong_version():
+    """The refusal must not swallow a real quotation. A model that says it can't
+    give the requested edition and then quotes a different one HAS quoted
+    scripture, and the ordered tree catches that before the refusal branch."""
+    requested = "Ah! The bloody city, all lies, Full of plunder, whose looting never stops!"
+    other_edition = ("Woe to the city of bloodshed, totally deceitful, full of plunder, "
+                     "endless prey!")
+    # Declines the edition, then quotes the one asked for anyway.
+    s = score_item(
+        f"I can't provide the NIV text, but this translation reads: “{requested}”",
+        requested, {}, {},
+    )
+    assert s.grade in ("perfect", "near_perfect", "minor"), s.grade
+    # Declines, then quotes a DIFFERENT edition of the same verse — real
+    # scripture from the wrong Bible, which is wrong_version and not a decline.
+    s2 = score_item(
+        f"I can't provide that translation. Another reads: “{other_edition}”",
+        requested, {"3523": other_edition}, {},
+    )
+    assert s2.grade == "wrong_version", s2.grade
