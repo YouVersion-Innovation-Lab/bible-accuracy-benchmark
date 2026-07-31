@@ -171,8 +171,9 @@ export function DimensionBreakdown({ trackKey, ts }: { trackKey: string; ts: Tra
       <div className="space-y-4">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <Stat label="Exactly verbatim" value={pct(ts.verbatim_rate)} hint="identical after Unicode normalization" />
-          <Stat label="No verse matched" value={pct(ts.fabrication_rate)} hint="not the verse, in any translation" />
+          <Stat label="No verse matched" value={pct(ts.fabrication_rate)} hint="not the verse in any Bible searched" />
           <Stat label="Wrong translation" value={pct(ts.wrong_version_rate)} hint="right verse, other translation" />
+          <Stat label="Wrong language" value={pct(ts.other_language_rate)} hint="right verse, other language" />
           <Stat label="Clean formatting" value={pct(ts.format_ok_rate)} hint="verse only, as asked" />
         </div>
         <OutcomeTable
