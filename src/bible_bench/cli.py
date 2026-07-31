@@ -207,7 +207,12 @@ async def cmd_run(args) -> int:
     )
     store = _store_from_args(args)
     client = BibleClient(bible_cfg, cache_dir=_cache_dir(args), offline=True)
-    model = LlmClient(model_cfg, dummy=args.dummy)
+    # How long a model may take is a property of the MODEL, not the harness. The
+    # default suits most; a large reasoning model answering an open question with
+    # an 8k output budget can exceed it, and a timeout there aborts the whole run
+    # (correctly — a partially generated pass can't be scored). Raise it per model
+    # rather than making every run wait longer.
+    model = LlmClient(model_cfg, dummy=args.dummy, timeout=args.timeout)
 
     only = {x.strip() for x in args.only_tracks.split(",") if x.strip()}
     if only - set(ALL_TRACKS):
@@ -912,6 +917,11 @@ def main(argv: list[str] | None = None) -> int:
                         "one dimension's design changes: 'phantom' re-asks 325 items "
                         "instead of re-running all 3,956. Default: the whole benchmark, "
                         "replacing the run.")
+    r.add_argument("--timeout", type=float, default=120.0,
+                   help="Seconds to allow one model call before retrying (default 120). "
+                        "Raise it for large reasoning models — Kimi K3 and Tencent Hy3 "
+                        "both exceeded 120s on open-question prompts, and a call that "
+                        "exhausts its retries aborts the run.")
     r.add_argument("--fast", action="store_true",
                    help=f"Run a fast pass: about {int(FAST_SCALE * 100)}%% of the items, "
                         f"thinned within every language so the result keeps the same shape. "
