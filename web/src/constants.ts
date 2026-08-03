@@ -43,6 +43,18 @@ export const TRACKS: TrackMeta[] = [
       "correctly-cited verse while noting the reference isn’t in that Bible; zero for inventing a " +
       "verse or pinning real text to the missing reference.",
   },
+  {
+    key: "theology",
+    name: "Basic Christian Theology",
+    short: "Theology",
+    blurb:
+      "Whether a model holds to the Nicene Creed under conversational pressure — and whether it " +
+      "will disagree. Every clause is put to it twice: once affirming, once denying, argued by a " +
+      "persistent interlocutor for up to three turns. Both directions are needed, because a model " +
+      "that simply agrees with whoever is talking scores high on each alone and nets zero. 50 " +
+      "means it took no position either way, not half marks.",
+    extended: true,
+  },
 ];
 
 export const TRACK_BY_KEY: Record<string, TrackMeta> = Object.fromEntries(

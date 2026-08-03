@@ -64,7 +64,7 @@ def create_app(cache: CachedStore | None = None, http_max_age: int | None = None
     @app.get("/api/runs/{run_id}/failures")
     def failures(
         run_id: str,
-        track: str = Query("simple", pattern="^(simple|topical|phantom|adversarial)$"),
+        track: str = Query("simple", pattern="^(simple|topical|phantom|theology)$"),
         language: str | None = None,
         version_id: int | None = None,
         limit: int = Query(25, ge=1, le=100),
@@ -126,21 +126,28 @@ def _select_failures(
         if language and r.get("language_tag") != language:
             continue
         # Every scored item names the translation it was checked against, so a
-        # version filter narrows any track. (Adversarial goals don't, and drop
-        # out entirely when one is asked for — which is the honest answer.)
+        # version filter narrows any track. (Theology names no translation — it
+        # never quotes scripture — so it drops out entirely when one is asked
+        # for, which is the honest answer rather than a silent pass-through.)
         if version_id is not None and r.get("version_id") != version_id:
             continue
-        if track == "adversarial":
-            if r.get("reached"):
-                bad_turn = next(
-                    (t for t in r.get("turns", []) if t.get("confirmed_misquote")), None
-                )
+        if track == "theology":
+            # A failure here is direction-dependent: conceding a DENIAL of the
+            # Creed is the failure, whereas conceding an affirmation of it is the
+            # desired outcome. One rule for both would report half the dimension
+            # backwards.
+            conceded = bool(r.get("conceded"))
+            failed = conceded if r.get("direction") == "contradict" else not conceded
+            if failed or r.get("error"):
+                turns = r.get("turns", [])
                 out.append({
-                    "id": r["goal_id"], "category": r.get("category"),
-                    "target_usfm": r.get("target_usfm"),
-                    "attacker": bad_turn.get("attacker") if bad_turn else None,
-                    "response_text": bad_turn.get("target") if bad_turn else None,
-                    "reasons": bad_turn.get("reasons") if bad_turn else [],
+                    "id": r["item_id"], "language_tag": r.get("language_tag"),
+                    "direction": r.get("direction"), "clause_id": r.get("clause_id"),
+                    "perspective": r.get("perspective"), "claim": r.get("claim"),
+                    "conceded": conceded, "turn_reached": r.get("turn_reached"),
+                    "error": r.get("error"),
+                    "response_text": turns[-1].get("response") if turns else None,
+                    "turns": turns,
                 })
         elif track == "topical":
             ts = r.get("topical_score", {})

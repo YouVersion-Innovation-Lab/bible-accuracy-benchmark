@@ -29,8 +29,7 @@ from rich.console import Console
 from rich.progress import BarColumn, Progress, TextColumn, TimeRemainingColumn
 from rich.table import Table
 
-from .adversarial.encounter import summarize_encounters
-from .adversarial.goals import Goal, load_goals
+from . import theology
 from .config import (
     ConfigError,
     LlmEndpointConfig,
@@ -60,7 +59,7 @@ from .runner import (
     generate_simple,
     generate_topical,
     prefetch_versions,
-    run_adversarial,
+    run_theology,
     score_phantom_items,
     score_simple,
     score_topical_items,
@@ -70,11 +69,9 @@ from .topical import TopicalItem, build_topical_items, load_topics
 from .version import BENCHMARK_VERSION
 from .yv_client import BibleClient
 
-# The benchmark always runs all tracks — there is no track selection.
-# Adversarial (misquote-resistance) is paused this round; the phantom
-# (hallucination-resistance) track takes its place. The adversarial code path
-# stays wired but dormant (never in ALL_TRACKS).
-ALL_TRACKS = ("simple", "topical", "phantom")
+# The benchmark always runs all tracks — there is no track selection. Use
+# --only-tracks to patch a single dimension into an existing run.
+ALL_TRACKS = ("simple", "topical", "phantom", "theology")
 
 # A fast pass is a separate generation with the same questions — see cmd_run.
 FAST_SUFFIX = "-fast"
@@ -154,10 +151,6 @@ def _topical_items_from_json(rows: list[dict]) -> list[TopicalItem]:
 
 def _phantom_items_from_json(rows: list[dict]) -> list[PhantomItem]:
     return [PhantomItem(**r) for r in rows]
-
-
-def _goals_from_json(rows: list[dict]) -> list[Goal]:
-    return [Goal(**r) for r in rows]
 
 
 def _build_attacker(args) -> LlmClient:
@@ -271,15 +264,19 @@ async def cmd_run(args) -> int:
             topical_items = _thin_per_language(
                 build_topical_items(cfg, languages=topical_langs), args.scale)
             console.print(f"Built [bold]{len(topical_items)}[/bold] topical items.")
-        adv_goals = []
-        adv_cfg = None
-        if "adversarial" in tracks:
-            adv_cfg = load_goals(args.goals)
-            adv_goals = adv_cfg.goals
-            if args.scale < 1.0:
-                keep = max(1, int(len(adv_goals) * args.scale))
-                adv_goals = adv_goals[:keep]
-            console.print(f"Loaded [bold]{len(adv_goals)}[/bold] adversarial goals.")
+        theology_items = []
+        if "theology" in tracks:
+            creed = theology.load_spec()
+            # Thinned by CLAUSE, not globally: a fast pass that dropped whole
+            # creed clauses would be a different benchmark, not a smaller one.
+            theology_items = theology.build_items(
+                creed, seed=run_version,
+                per_clause=1 if args.scale < 1.0 else None,
+            )
+            console.print(
+                f"Built [bold]{len(theology_items)}[/bold] theology encounters "
+                f"({creed.creed} {creed.spec_version}, {len(creed.language_tags)} languages)."
+            )
         phantom_items = []
         if "phantom" in tracks:
             pcfg = load_phantom_config(args.phantom)
@@ -320,12 +317,13 @@ async def cmd_run(args) -> int:
                 "base_url_host": urlparse(model_cfg.base_url).hostname or "",
                 "provider_routing": model_cfg.provider_routing,
             },
-            "adversarial": {
-                "version_id": adv_cfg.version_id,
-                "accepted_version_ids": adv_cfg.accepted_version_ids,
-                "turn_depth": adv_cfg.turn_depth,
-                "goals": [g.to_json() for g in adv_goals],
-            } if adv_cfg else None,
+            "theology": {
+                "creed": "nicene",
+                "spec_version": "v1",
+                "turn_depth": args.turn_depth,
+                "referee": os.environ.get("HARNESS_MODEL", ""),
+                "items": [i.to_json() for i in theology_items],
+            } if theology_items else None,
             "started_at": _now(),
             "finished_at": None,
             "published": False,
@@ -372,17 +370,16 @@ async def cmd_run(args) -> int:
                     phantom_items, model, already_done=done, checkpoint=cp, progress=tick,
                     concurrency=args.concurrency),
             )
-        if adv_goals:
-            adv_meta = manifest["adversarial"]
-            attacker = _build_attacker(args)
+        if theology_items:
+            theo_meta = manifest["theology"]
             await _generate_track(
-                store, run_dir, "adversarial.jsonl", "Adversarial encounters",
-                lambda done, cp, tick: run_adversarial(
-                    adv_goals, attacker, model, client,
-                    adv_meta["version_id"], adv_meta["accepted_version_ids"],
-                    turn_depth=adv_meta["turn_depth"],
-                    already_done=done, checkpoint=cp, progress=tick),
-                id_key="goal_id",
+                store, run_dir, "theology.jsonl", "Theology encounters",
+                lambda done, cp, tick: run_theology(
+                    theology_items, _build_attacker(args), model,
+                    turn_depth=theo_meta["turn_depth"],
+                    already_done=done, checkpoint=cp, progress=tick,
+                    concurrency=args.concurrency),
+                id_key="item_id",
             )
 
         manifest["finished_at"] = _now()
@@ -518,21 +515,27 @@ async def _score_and_summarize(
             console.print(f"  kept stored {track}: {len(rows)} items "
                           f"-> {track_summaries[track]['track_score']}")
 
-    adv_records = store.read_jsonl(f"{run_dir}/adversarial.jsonl")
-    if adv_records:
-        from .adversarial.encounter import EncounterResult, Turn
+    theo_records = store.read_jsonl(f"{run_dir}/theology.jsonl")
+    if theo_records:
+        from .theology import EncounterResult, Turn
 
+        # Theology cannot be re-scored the way the other tracks can: the judge's
+        # verdict feeds the tutor, which changes the next turn, so the verdicts are
+        # part of the generated record. Re-summarising re-aggregates them.
         results = [
             EncounterResult(
-                goal_id=r["goal_id"], category=r["category"], target_usfm=r.get("target_usfm"),
-                reached=r["reached"], reached_turn=r.get("reached_turn"),
-                corrected_ever=r.get("corrected_ever", False),
-                errored=r.get("errored", False), error=r.get("error"),
+                item_id=r["item_id"], language_tag=r["language_tag"],
+                direction=r["direction"], clause_id=r["clause_id"],
+                perspective=r.get("perspective", ""), claim=r.get("claim", ""),
+                conceded=r["conceded"], turn_reached=r.get("turn_reached"),
                 turns=[Turn(**t) for t in r.get("turns", [])],
+                error=r.get("error"),
             )
-            for r in adv_records
+            for r in theo_records
         ]
-        track_summaries["adversarial"] = summarize_encounters(results)
+        track_summaries["theology"] = theology.summarize(results)
+        console.print(f"  theology: {len(results)} encounters "
+                      f"-> {track_summaries['theology']['track_score']}")
 
     summary = build_summary(
         track_summaries,
@@ -705,10 +708,8 @@ def _prefetch_version_ids(args, tracks: set[str]) -> list[int]:
         for block in cfg.languages.values():
             ids.add(block["version_id"])
             ids.update(block.get("accepted_version_ids", []))
-    if "adversarial" in tracks:
-        adv = load_goals(args.goals)
-        ids.add(adv.version_id)
-        ids.update(adv.accepted_version_ids)
+    # Theology needs no entry here: it never quotes scripture, so it needs no
+    # verse text prefetched.
     if "phantom" in tracks:
         pcfg = load_phantom_config(args.phantom)
         for block in pcfg.languages.values():
@@ -841,12 +842,13 @@ def _print_summary(summary: dict) -> None:
         t.add_row("Misattributed a real verse",
                   f"{100 * phantom.get('misattribution_rate', 0):.1f}%")
         t.add_row("Quoted real verse, uncited", f"{100 * phantom.get('unreferenced_rate', 0):.1f}%")
-    adv = summary.get("tracks", {}).get("adversarial")
-    if adv:
-        t.add_row("Adversarial resistance@1", f"{100 * adv.get('resistance_at_1', 0):.1f}%")
-        t.add_row("Adversarial resistance@3", f"{100 * adv.get('resistance_at_3', 0):.1f}%")
-        t.add_row("Misquotes induced", f"{adv.get('misquotes_confirmed', 0)}/{adv.get('n', 0)}")
-        t.add_row("Correction rate", f"{100 * adv.get('correction_rate', 0):.1f}%")
+    theo = summary.get("tracks", {}).get("theology")
+    if theo:
+        t.add_row("Affirms the Creed (turn 1)", f"{100 * theo.get('affirm_rate', 0):.1f}%")
+        t.add_row("Talked into denying it (by 3)", f"{100 * theo.get('contradict_rate', 0):.1f}%")
+        t.add_row("Conviction (affirm − contradict)", f"{100 * theo.get('conviction', 0):+.1f}")
+        if theo.get("n_errors"):
+            t.add_row("Referee errors", f"{theo['n_errors']} of {theo.get('n', 0)}")
     console.print(t)
     console.print(f"[dim]{summary['scoring_scope_note']}[/dim]")
 
@@ -906,7 +908,6 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--topical-languages", default="",
                    help="Comma-separated language tags to limit the topical track to "
                         "(e.g. 'eng'); default all languages in the topics file")
-    r.add_argument("--goals", default="dataset/adversarial-goals-v1.json")
     r.add_argument("--phantom", default="dataset/phantom-v1.json")
     r.add_argument("--phantom-languages", default="",
                    help="Comma-separated language tags to limit the hallucination track "
@@ -981,7 +982,6 @@ def main(argv: list[str] | None = None) -> int:
                              "local cache (run once; reused across runs)")
     pf.add_argument("--spec", default="dataset/spec-v1.json")
     pf.add_argument("--topics", default="dataset/topics-v1.json")
-    pf.add_argument("--goals", default="dataset/adversarial-goals-v1.json")
     pf.add_argument("--phantom", default="dataset/phantom-v1.json")
     _add_cache_arg(pf)
 

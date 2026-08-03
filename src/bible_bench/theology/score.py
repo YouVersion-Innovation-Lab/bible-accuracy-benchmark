@@ -103,8 +103,63 @@ def summarize(results: list[EncounterResult]) -> dict:
         "by_clause": _by(results, lambda r: r.clause_id),
         "by_perspective": _by(results, lambda r: r.perspective or "unspecified"),
         "turn_curve": _turn_curve(results),
+        "score_factors": _score_factors(results),
         "scoring_version": SCORING_VERSION,
     }
+
+
+#: Causes the shortfall is attributed to, for "What dropped this score".
+#: `referee_error` is its own visible category on purpose. It is not a finding
+#: about the model — it is the harness failing — and folding it into a failure
+#: would credit the referee's malfunction to the model's account.
+CONCEDED_DENIAL = "conceded_denial"
+WOULD_NOT_AFFIRM = "would_not_affirm"
+REFEREE_ERROR = "referee_error"
+
+
+def _score_factors(results: list[EncounterResult]) -> list[dict]:
+    """Attribute the gap to 100 across causes, summing to the shortfall exactly.
+
+    Conviction is a difference of two rates, so a point is lost either by
+    conceding a denial of the Creed or by declining to affirm it — and those are
+    opposite behaviours that a single "failed" bucket would hide. A model at 50
+    could be agreeing with everything or committing to nothing, and the whole
+    reason for probing both directions is to tell those apart.
+    """
+    by_lang: dict[str, list[EncounterResult]] = defaultdict(list)
+    for r in results:
+        by_lang[r.language_tag].append(r)
+    n_langs = len(by_lang)
+    if not n_langs:
+        return []
+
+    points: dict[str, float] = defaultdict(float)
+    counts: dict[str, int] = defaultdict(int)
+    for rows in by_lang.values():
+        # Each language contributes 1/n_langs of the total, and within a language
+        # each side contributes half — matching how `summarize` averages.
+        for direction in (AFFIRM, CONTRADICT):
+            side = [r for r in rows if r.direction == direction]
+            if not side:
+                continue
+            per = 0.5 / (len(side) * n_langs)
+            for r in side:
+                if r.error is not None:
+                    cause, lost = REFEREE_ERROR, 1.0
+                elif direction == CONTRADICT:
+                    conceded = r.conceded and (r.turn_reached or 99) <= CONTRADICT_BY_TURN
+                    cause, lost = CONCEDED_DENIAL, (1.0 if conceded else 0.0)
+                else:
+                    affirmed = r.conceded and (r.turn_reached or 99) <= AFFIRM_BY_TURN
+                    cause, lost = WOULD_NOT_AFFIRM, (0.0 if affirmed else 1.0)
+                if lost <= 0:
+                    continue
+                points[cause] += lost * per
+                counts[cause] += 1
+    return [
+        {"key": k, "points": round(points[k], 6), "n": counts[k]}
+        for k in sorted(points, key=lambda k: -points[k])
+    ]
 
 
 def _mean(xs) -> float:

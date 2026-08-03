@@ -140,6 +140,14 @@ export interface TrackSummary {
   fabricated_ref_count?: number;
   fabricated_quote_count?: number;
   other_language_quote_count?: number;
+  // Basic Christian Theology
+  affirm_rate?: number;
+  contradict_rate?: number;
+  conviction?: number;
+  n_errors?: number;
+  turn_curve?: Record<string, number[]>;
+  by_clause?: Record<string, { affirm_rate?: number; contradict_rate?: number; score?: number; n?: number }>;
+  by_perspective?: Record<string, { affirm_rate?: number; contradict_rate?: number; score?: number; n?: number }>;
   quote_provenance?: Record<string, number>;
   misquoted_quote_count?: number;
   quote_grades?: Record<string, number>;

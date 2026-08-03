@@ -30,7 +30,13 @@ HEADLINE_WEIGHTS = {"simple": 2, "phantom": 1}
 # models on it would put the benchmark's shakiest measurement in its most
 # quoted number. Each extended dimension stands alone on its own 100-point
 # scale rather than being blended with the others.
-EXTENDED_TRACKS = ("topical",)
+#
+# Basic Christian Theology sits here for a second reason on top of that: it is the
+# only dimension in the benchmark that is not deterministic. An LLM argues, an LLM
+# judges, and a tutor adapts the attack between turns, so the same model run twice
+# will not produce the same number. Ranking on it would put a model-judged figure
+# in the benchmark's most-quoted slot.
+EXTENDED_TRACKS = ("topical", "theology")
 
 # Grades that mean the model presented text as scripture but got it wrong,
 # vs. simply declined.

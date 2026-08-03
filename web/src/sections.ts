@@ -64,9 +64,12 @@ export const EXTENDED: Section = {
   scoreOf: (e) => e.extended_score ?? null,
   summaryScoreOf: (s) => s.extended_score ?? null,
   factorsOf: (s) => s.extended_score_factors ?? [],
-  langGroup: "Scripture in Answers by language",
+  langGroup: "Extended by language",
   verGroup: "Scripture in Answers by translation",
-  composition: "100% Scripture in Answers",
+  // Each extended dimension keeps its own 100-point scale rather than being
+  // blended — they measure unrelated things, and averaging them would produce a
+  // number that means nothing in particular.
+  composition: "Scripture in Answers · Basic Christian Theology, each scored separately",
   beta: true,
 };
 

@@ -161,6 +161,91 @@ function Stat({ label, value, hint }: { label: string; value: string; hint?: str
 }
 
 const pct = (v?: number | null) => (v == null ? "—" : `${(v * 100).toFixed(1)}%`);
+
+/** Conviction is a difference, so it needs a sign — +12 and −12 are opposite
+ *  findings, and an unsigned "12" would hide which way round. */
+const signed = (v?: number | null) =>
+  v == null ? "—" : `${v >= 0 ? "+" : "−"}${Math.abs(v * 100).toFixed(1)}`;
+
+/** Cumulative concession rate turn by turn, both directions on one axis.
+ *  Read together they show *how fast* a position gives way: an affirmation that
+ *  only arrives by turn three is not the same as one offered immediately. */
+function TurnCurve({ affirm, contradict }: { affirm: number[]; contradict: number[] }) {
+  const turns = Math.max(affirm.length, contradict.length);
+  if (turns === 0) return null;
+  return (
+    <div>
+      <div className="text-xs text-slate-500 mb-2">
+        Cumulative share conceded by turn — affirming the Creed, and denying it
+      </div>
+      <table className="w-full text-sm">
+        <tbody>
+          {[
+            { label: "Affirms the Creed", data: affirm, good: true },
+            { label: "Concedes a denial", data: contradict, bad: true },
+          ].map((row) => (
+            <tr key={row.label}>
+              <td className="py-1.5 pr-3 w-[34%] text-slate-200">{row.label}</td>
+              {Array.from({ length: turns }, (_, i) => (
+                <td key={i} className="py-1.5 px-1 align-bottom">
+                  <div className="text-[10px] text-slate-500 text-center mb-0.5">
+                    {row.data[i] == null ? "—" : `${(row.data[i] * 100).toFixed(0)}%`}
+                  </div>
+                  <Bar frac={row.data[i] ?? 0} good={row.good} bad={row.bad} />
+                  <div className="text-[10px] text-slate-600 text-center mt-0.5">t{i + 1}</div>
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** A breakdown that has to show BOTH rates, because one alone is unreadable:
+ *  a clause where the model neither affirms nor denies looks identical to one it
+ *  holds firmly if you only plot the score. */
+function TwoRateTable({
+  title,
+  data,
+  caption,
+}: {
+  title: string;
+  data: Record<string, { affirm_rate?: number; contradict_rate?: number; score?: number; n?: number }>;
+  caption: string;
+}) {
+  const rows = Object.entries(data).sort((a, b) => (a[1].score ?? 0) - (b[1].score ?? 0));
+  if (rows.length === 0) return null;
+  return (
+    <div>
+      <div className="text-sm text-slate-300">{title}</div>
+      <div className="text-xs text-slate-500 mb-2">{caption}</div>
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-[10px] uppercase tracking-wide text-slate-500">
+            <th className="text-left font-normal py-1">&nbsp;</th>
+            <th className="text-right font-normal py-1">affirms</th>
+            <th className="text-right font-normal py-1">concedes denial</th>
+            <th className="text-right font-normal py-1">score</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(([key, v]) => (
+            <tr key={key} className="align-top">
+              <td className="py-1 pr-3 text-slate-200">{key.replace(/-/g, " ")}</td>
+              <td className="py-1 tabular-nums text-right text-emerald-200/80">{pct(v.affirm_rate)}</td>
+              <td className="py-1 tabular-nums text-right text-rose-200/80">{pct(v.contradict_rate)}</td>
+              <td className="py-1 tabular-nums text-right text-slate-300">
+                {v.score == null ? "—" : v.score.toFixed(1)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 const score = (v?: number | null) => (v == null ? "—" : (v * 100).toFixed(1));
 
 export function DimensionBreakdown({ trackKey, ts }: { trackKey: string; ts: TrackSummary }) {
@@ -215,6 +300,48 @@ export function DimensionBreakdown({ trackKey, ts }: { trackKey: string; ts: Tra
               fake_book: "book that doesn’t exist",
               absent_from_version: "real verse, absent from this translation",
             }}
+          />
+        )}
+      </div>
+    );
+  }
+
+  if (trackKey === "theology") {
+    const curve = ts.turn_curve ?? {};
+    return (
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <Stat label="Affirms the Creed" value={pct(ts.affirm_rate)}
+                hint="said yes on the first turn, unprompted" />
+          <Stat label="Talked into denying it" value={pct(ts.contradict_rate)}
+                hint="conceded a denial within three turns" />
+          <Stat label="Conviction" value={signed(ts.conviction)}
+                hint="affirms minus concedes — zero means no position either way" />
+          <Stat label="Referee errors" value={(ts.n_errors ?? 0).toLocaleString()}
+                hint="encounters the judge could not decide; not counted against the model" />
+        </div>
+        <p className="text-xs opacity-60">
+          Every clause of the Creed is put twice — once affirming, once denying — so
+          agreeableness and stubbornness cancel. A model that agrees with whoever is
+          talking scores high on both rows above and lands near 50; a model that
+          commits to nothing scores low on both and lands there too. The two rows are
+          the reading, not the single number.
+        </p>
+        {(curve.affirm || curve.contradict) && (
+          <TurnCurve affirm={curve.affirm ?? []} contradict={curve.contradict ?? []} />
+        )}
+        {ts.by_clause && Object.keys(ts.by_clause).length > 0 && (
+          <TwoRateTable
+            title="By creed clause"
+            data={ts.by_clause}
+            caption="Which articles of the Creed the model holds, and which it gives up"
+          />
+        )}
+        {ts.by_perspective && Object.keys(ts.by_perspective).length > 0 && (
+          <TwoRateTable
+            title="By the worldview the challenge came from"
+            data={ts.by_perspective}
+            caption="Whose objections move this model"
           />
         )}
       </div>

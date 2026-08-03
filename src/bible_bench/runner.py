@@ -23,9 +23,6 @@ from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass
 
 from . import provenance, quoted, quotefind, versification
-from .adversarial.encounter import run_encounter
-from .adversarial.goals import Goal
-from .adversarial.judge import AdversarialJudge
 from .auditor import ACCURATE_SIM, QuoteAuditor, extract_quotes
 from .dataset import REFERENCE_SCHEME, BenchmarkItem
 from .llm import LlmClient
@@ -33,6 +30,7 @@ from .normalize import normalize
 from .phantom import PhantomItem, score_phantom_verdicts
 from .prompts import BENCHMARK_SYSTEM_PROMPT, render_simple_prompt
 from .scoring import score_item
+from .theology import TheologyItem, run_encounter
 from .topical import TopicalItem, score_topical_verdicts
 from .versification import VersificationError
 from .yv_client import BibleClient
@@ -1103,13 +1101,47 @@ async def score_phantom_items(
     return results
 
 
-async def run_adversarial(
-    goals: list[Goal],
+#: The language each probe's conversation is held in. The attacker is told this
+#: explicitly, because a probe's own text does not reliably carry it and an
+#: attacker that drifts into English would make each language measure something
+#: different. Mirrors dataset/creed/nicene-v1/.
+LANGUAGE_NAMES = {
+    "eng": "English", "spa": "Spanish", "por": "Portuguese", "fra": "French",
+    "deu": "German", "rus": "Russian", "arb": "Arabic", "hin": "Hindi",
+    "ind": "Indonesian", "kor": "Korean", "zho": "Chinese (Simplified)",
+}
+
+
+def _referee_callers(attacker: LlmClient):
+    """(argue, judge) over one referee model at two temperatures.
+
+    The attacker needs warmth — a coached retry at temperature 0 argues
+    identically to the attempt that just failed, so the extra turns buy nothing.
+    The judge needs to be cold, because it is the scorer. Same model, two
+    settings, which is why the encounter takes them as separate callables.
+
+    Both go through LlmClient.complete, so they inherit its retries, its
+    token-usage accounting, and — importantly here — its refusal to accept an
+    empty reply that was truncated at the output cap. A referee silently cut off
+    mid-thought is exactly how a mechanical failure becomes a verdict.
+    """
+    async def argue(messages, *, max_tokens=1200, json_mode=False):
+        resp = await attacker.complete(messages, max_tokens=max_tokens,
+                                       temperature=0.8, return_json=json_mode)
+        return resp.text
+
+    async def judge(messages, *, max_tokens=3000, json_mode=True):
+        resp = await attacker.complete(messages, max_tokens=max_tokens,
+                                       temperature=0.0, return_json=json_mode)
+        return resp.text
+
+    return argue, judge
+
+
+async def run_theology(
+    items: list[TheologyItem],
     attacker: LlmClient,
     target: LlmClient,
-    client: BibleClient,
-    version_id: int,
-    accepted: list[int],
     *,
     turn_depth: int = 3,
     concurrency: int = 6,
@@ -1117,31 +1149,43 @@ async def run_adversarial(
     checkpoint: CheckpointCb | None = None,
     progress: ProgressCb | None = None,
 ) -> list[dict]:
-    """Run each goal as an encounter (attacker vs. target, deterministic judge).
+    """Run every probe as a conversation. Resumable by item_id.
 
-    Encounters are independent and resumable by goal_id. One shared auditor
-    caches per-version resolvers/indexes across goals."""
-    judge = AdversarialJudge(QuoteAuditor(client), version_id, accepted)
+    Unlike the other tracks this both generates AND judges in one pass, because
+    the judge's verdict feeds the tutor which shapes the next turn — the verdict
+    is part of the record, not something recoverable from it afterwards. Scoring
+    later re-aggregates those stored verdicts.
+    """
+    argue, judge = _referee_callers(attacker)
+
+    async def defend(messages, *, max_tokens=1600, json_mode=False):
+        # No system prompt, no temperature: we are measuring what the model does
+        # unprompted, at its own default sampling.
+        resp = await target.complete(messages, max_tokens=max_tokens)
+        return resp.text
+
     done = already_done or set()
-    todo = [g for g in goals if g.id not in done]
+    todo = [i for i in items if i.id not in done]
     sem = asyncio.Semaphore(concurrency)
     lock = asyncio.Lock()
     collected: list[dict] = []
 
-    async def one(goal: Goal) -> None:
+    async def one(item: TheologyItem) -> None:
         async with sem:
             result = await run_encounter(
-                goal, attacker, target, judge, turn_depth=turn_depth
+                item, attacker=argue, defender=defend, judge=judge,
+                language_name=LANGUAGE_NAMES.get(item.language_tag, item.language_tag),
+                turn_depth=turn_depth,
             )
         async with lock:
             collected.append(result.to_json())
             if progress:
                 progress({"phase": "generate", "completed": len(collected),
-                          "total": len(todo), "error": result.errored})
-            if checkpoint and len(collected) % 10 == 0:
+                          "total": len(todo), "error": bool(result.error)})
+            if checkpoint and len(collected) % _CHECKPOINT_EVERY == 0:
                 await _maybe_await(checkpoint(list(collected)))
 
-    await asyncio.gather(*(one(g) for g in todo))
+    await asyncio.gather(*(one(i) for i in todo))
     if checkpoint:
         await _maybe_await(checkpoint(list(collected)))
     return collected

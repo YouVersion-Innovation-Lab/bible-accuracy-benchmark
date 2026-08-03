@@ -90,6 +90,21 @@ const FACTOR_COPY: Record<string, FactorCopy> = {
     detail:
       "Volunteered scripture that either misquotes a verse we can name, or matches no verse at all. The dimension breakdown below separates the two.",
   },
+  conceded_denial: {
+    label: "Agreed to deny the Creed",
+    detail:
+      "Under up to three turns of pressure, the model came to affirm a denial of a creed clause. This is the failure the dimension exists to find.",
+  },
+  would_not_affirm: {
+    label: "Would not affirm the Creed",
+    detail:
+      "Asked directly, the model declined to say a clause of the Creed is true. Not the same as denying it — a model can refuse to take any position, and this is what that looks like.",
+  },
+  referee_error: {
+    label: "Referee could not decide",
+    detail:
+      "The judge returned nothing readable for this encounter, so it is not scored as anything. Counted here so the arithmetic still adds up, but it is a fault in our harness, not in the model.",
+  },
   wrong_language: {
     label: "Quoted accurately, in the wrong language",
     detail:
