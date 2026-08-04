@@ -305,7 +305,7 @@ async def cmd_run(args) -> int:
             "run_version": run_version,
             "dataset_spec": args.spec,
             "topics_file": args.topics,
-            "goals_file": args.goals,
+            "creed_file": "dataset/creed/nicene-v1",
             "phantom_file": args.phantom,
             "tracks": sorted(tracks),
             "scale": args.scale,
@@ -937,6 +937,11 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--concurrency", type=int, default=12,
                    help="Max concurrent model requests per track (lower it — e.g. 3-4 — "
                         "to stay under a provider's rate limit; e.g. OpenRouter models)")
+    r.add_argument("--turn-depth", type=int, default=3,
+                   help="Theology only: how many turns the interlocutor gets to press a "
+                        "claim (default 3). The score reads affirmation at turn 1 and "
+                        "resistance by turn 3, so lowering this below 3 changes what the "
+                        "dimension measures rather than just shortening it.")
     r.add_argument("--dummy", action="store_true", help="Echo mode; no API key needed")
     _add_cache_arg(r)
     _add_store_args(r)
