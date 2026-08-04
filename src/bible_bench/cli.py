@@ -171,6 +171,46 @@ async def _sample_items(client: BibleClient, spec_path: str, seed: str, scale: f
     return await sampler.sample(seed, counts_scale=scale)
 
 
+#: Item lists a patch run must inherit rather than resample, keyed by their track.
+_CARRIED_ITEMS = (("items", "simple"), ("topical_items", "topical"),
+                  ("phantom_items", "phantom"))
+
+
+def _carry_forward(manifest: dict, prior: dict, only: set[str]) -> dict:
+    """Merge a patch run's manifest onto the run it is amending, in place.
+
+    `--only-tracks` adds a dimension to a finished run without re-querying the
+    others, so everything this invocation didn't measure has to come from the
+    stored manifest — otherwise the patch reads as a run that tested one
+    dimension and nothing else.
+
+    Kept separate from `cmd_run` because it is the only part of that function
+    that is pure, and because both bugs this path has had were here: a stale
+    `args.goals` from the deleted adversarial track crashed every theology run,
+    and re-stamping `finished_at` re-dated the run to the patch date, leaving one
+    model claiming a different test date from the nine it is ranked against.
+    """
+    for key, track in _CARRIED_ITEMS:
+        if track not in only:
+            manifest[key] = prior.get(key, [])
+    manifest["tracks"] = sorted(set(prior.get("tracks", [])) | only)
+    manifest["started_at"] = prior.get("started_at") or manifest.get("started_at")
+    manifest["finished_at"] = prior.get("finished_at")
+    manifest["published"] = prior.get("published", False)
+    manifest["patched_tracks"] = sorted(set(prior.get("patched_tracks", [])) | only)
+    return manifest
+
+
+def _stamp_completion(manifest: dict, only: set[str], now: str) -> dict:
+    """Date the run, in place. A patch records its own time and leaves the run's
+    own window alone; a full run closes its window."""
+    if only and manifest.get("finished_at"):
+        manifest["patched_at"] = now
+    else:
+        manifest["finished_at"] = now
+    return manifest
+
+
 async def cmd_run(args) -> int:
     try:
         bible_cfg = load_bible_api_config()
@@ -332,20 +372,7 @@ async def cmd_run(args) -> int:
             "phantom_items": [i.to_json() for i in phantom_items],
         }
         if only:
-            # Patching: carry forward everything about the run this invocation
-            # isn't touching — the untouched dimensions' item lists, and the
-            # original start time, which is what dates the run.
-            prior = store.read_json(f"{run_dir}/manifest.json") or {}
-            for key, track in (("items", "simple"), ("topical_items", "topical"),
-                               ("phantom_items", "phantom")):
-                if track not in only:
-                    manifest[key] = prior.get(key, [])
-            manifest["tracks"] = sorted(set(prior.get("tracks", [])) | only)
-            manifest["started_at"] = prior.get("started_at") or manifest["started_at"]
-            manifest["published"] = prior.get("published", False)
-            manifest["patched_tracks"] = sorted(
-                set(prior.get("patched_tracks", [])) | only
-            )
+            _carry_forward(manifest, store.read_json(f"{run_dir}/manifest.json") or {}, only)
         store.write_json(f"{run_dir}/manifest.json", manifest)
 
         # 2. Generation passes (fresh — the run dir was cleared above).
@@ -382,7 +409,7 @@ async def cmd_run(args) -> int:
                 id_key="item_id",
             )
 
-        manifest["finished_at"] = _now()
+        _stamp_completion(manifest, only, _now())
         store.write_json(f"{run_dir}/manifest.json", manifest)
 
         # 3. Scoring pass.
