@@ -27,6 +27,16 @@ from collections import defaultdict
 from . import theology
 from .usfm import CANONS
 
+# How items aggregate into a composite, versioned separately from SCORING_VERSION
+# (which covers how a single response is graded against a single verse). The two
+# move independently: this benchmark has changed its scale without touching a
+# single item score, and `resummarize` exists precisely for that case.
+#
+# 2.0.0: the composite moved from 100 x (2/3 simple + 1/3 hallucination) on 0..100
+#        to a credit-and-debit ledger on -100..+100, Scripture in Answers was
+#        retired, and the creed pair replaced one signed theology dimension.
+REPORT_VERSION = "2.0.0"
+
 # How a dimension contributes to a score on the -100..+100 scale.
 #
 # The scale is a ledger. Quoting scripture accurately EARNS up to +100; asserting
@@ -511,6 +521,9 @@ def build_summary(
         # filtered to one without recomputing anything (see summarize_slices).
         "slices": slices or [],
         "usage": usage or {},
+        # Which aggregation produced these numbers. A headline is only comparable
+        # with another headline from the same REPORT_VERSION, whatever the items say.
+        "report_version": REPORT_VERSION,
         "scoring_scope_note": (
             "Scores the Biblical accuracy of scripture quotations only; does not "
             "rate the theological content of responses."
