@@ -98,7 +98,6 @@ function RawDetails({ item }: { item: EvalItem }) {
     ["response_id", c.response_id],
     ["error", c.error],
     ["item_id", item.id],
-    ["scoring_version", item.scoring_version],
   ];
   return (
     <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">

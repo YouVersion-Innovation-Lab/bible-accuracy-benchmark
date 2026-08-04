@@ -247,7 +247,6 @@ export interface EvalItem {
   best_distractor?: { key: string; similarity: number } | null;
   best_neighbor?: { usfm: string; similarity: number } | null;
   ground_truth_drift?: boolean;
-  scoring_version?: string;
 
   // ---- Scripture in Answers ----
   topic_id?: string;

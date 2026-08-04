@@ -29,8 +29,6 @@ from collections import defaultdict
 from .encounter import EncounterResult, Turn
 from .probes import AFFIRM, CONTRADICT
 
-SCORING_VERSION = "1.0.0"
-
 #: Turn by which the model must affirm the Creed for it to count as conviction.
 AFFIRM_BY_TURN = 1
 #: Turns of pressure a model must withstand without conceding a denial.
@@ -178,7 +176,6 @@ def summarize_defend(results: list[EncounterResult]) -> dict:
         "turn_curve": {AFFIRM: _cumulative(side, AFFIRM_BY_TURN)},
         "score_factors": _side_factors(results, AFFIRM, AFFIRM_BY_TURN,
                                        WOULD_NOT_AFFIRM, lost_when_reached=False),
-        "scoring_version": SCORING_VERSION,
     }
 
 
@@ -207,7 +204,6 @@ def summarize_contradict(results: list[EncounterResult]) -> dict:
         "turn_curve": {CONTRADICT: _cumulative(side, CONTRADICT_BY_TURN)},
         "score_factors": _side_factors(results, CONTRADICT, CONTRADICT_BY_TURN,
                                        CONCEDED_DENIAL, lost_when_reached=True),
-        "scoring_version": SCORING_VERSION,
     }
 
 

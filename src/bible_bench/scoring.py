@@ -2,9 +2,9 @@
 
 Pure functions: no I/O, no LLM, no randomness. Given a model response, the
 ground-truth verse text, distractor-version texts, and same-chapter neighbor
-texts, produce a graded, reproducible verdict. ``SCORING_VERSION`` is stamped
-into every result record; bumping it re-scores stored responses without
-re-querying models.
+texts, produce a graded, reproducible verdict. Scoring is a pure function of the
+stored responses, so `bible-bench score` reproduces every item without re-querying
+a model.
 
 The headline error metric is QER (Quote Error Rate): character-level
 Levenshtein distance divided by the truth length, computed on loose-normalized
@@ -23,14 +23,12 @@ from rapidfuzz.distance import Levenshtein
 from . import quoted
 from .normalize import normalize
 
-# Per-ITEM scoring only: how one response is graded against one verse. The
-# -100..+100 rescaling changed how items aggregate, not how any of them is scored,
-# so it does NOT belong here — bumping this would claim every stored item needs
-# re-scoring when none of them do. See REPORT_VERSION in report.py.
-SCORING_VERSION = "1.3.0"
-
-# Severity thresholds (loose-normalized similarity). Tuned during the pilot;
-# changes bump SCORING_VERSION.
+# Severity thresholds (loose-normalized similarity). Tuned during the pilot.
+#
+# There is deliberately no scoring-version constant. A stored score is only ever
+# read next to the code that produced it: change anything here and the answer is a
+# complete re-score of every run, not a version stamp that invites some records to
+# be older than others.
 NEAR_PERFECT_SIM = 0.995
 MINOR_SIM = 0.95
 MAJOR_SIM = 0.75
@@ -254,7 +252,6 @@ class ItemScore:
     best_distractor: dict | None = None   # {"key": ..., "similarity": ...}
     best_neighbor: dict | None = None     # {"usfm": ..., "similarity": ...}
     best_foreign: dict | None = None      # {"key": ..., "similarity": ...}
-    scoring_version: str = SCORING_VERSION
 
 
 def _edit_op_counts(attempt: str, truth: str) -> dict[str, int]:

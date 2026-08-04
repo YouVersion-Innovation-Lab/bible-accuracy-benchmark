@@ -21,7 +21,6 @@ from .probes import AFFIRM, CONTRADICT, CreedSpec, TheologyItem, build_items, lo
 from .score import (
     CONTRADICT_TRACK,
     DEFEND,
-    SCORING_VERSION,
     from_records,
     summarize_contradict,
     summarize_defend,
@@ -30,7 +29,7 @@ from .score import (
 
 __all__ = [
     "AFFIRM", "CONTRADICT", "CONTRADICT_TRACK", "DEFEND", "MAX_TOKENS",
-    "SCORING_VERSION", "CreedSpec", "EncounterResult", "TheologyItem", "Turn",
+    "CreedSpec", "EncounterResult", "TheologyItem", "Turn",
     "VerdictError", "build_items", "from_records", "is_failure", "load_spec",
     "run_encounter", "summarize_contradict", "summarize_defend", "summarize_records",
 ]

@@ -1,7 +1,7 @@
 """Track orchestration: generate model responses, then score them.
 
 Generation and scoring are separate passes sharing one run directory, so a
-run can be re-scored under a new SCORING_VERSION without re-querying the model.
+run can be re-scored from its stored responses without re-querying the model.
 Both passes are resumable — re-running skips items already present.
 
 Generation FAILS FAST. A model call that exhausts its retries aborts the whole

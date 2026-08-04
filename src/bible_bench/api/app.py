@@ -239,7 +239,6 @@ def _eval_row(track: str, r: dict, sent: dict, passed: bool) -> dict:
             "best_distractor": s.get("best_distractor"),
             "best_neighbor": s.get("best_neighbor"),
             "ground_truth_drift": r.get("ground_truth_drift"),
-            "scoring_version": s.get("scoring_version"),
         })
     elif track == "hallucination":
         ps = r.get("hallucination_score", {})

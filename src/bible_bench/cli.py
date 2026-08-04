@@ -1,8 +1,7 @@
 """bible-bench command-line runner.
 
     bible-bench run       run the benchmark against a model, write + score results
-    bible-bench score     re-score an existing run under the current SCORING_VERSION
-    bible-bench resummarize  rebuild summary.json from scored items (report-only changes)
+    bible-bench score     re-score an existing run from its stored responses
     bible-bench publish   mark a run published (appears on the leaderboard)
     bible-bench unpublish
     bible-bench build-dataset   draw a fresh item set from the spec (audit/preview)
@@ -61,7 +60,6 @@ from .runner import (
     score_hallucination_items,
     score_simple,
 )
-from .scoring import SCORING_VERSION
 from .version import BENCHMARK_VERSION
 from .yv_client import BibleClient
 
@@ -72,9 +70,6 @@ ALL_TRACKS = ("simple", "hallucination", "theology")
 # A fast pass is a separate generation with the same questions — see cmd_run.
 FAST_SUFFIX = "-fast"
 FAST_SCALE = 0.1
-# Both are "current": re-summarizing either applies today's reporting rules to
-# results today's code produced, which is the case --allow-older exists to block.
-_CURRENT_VERSIONS = (BENCHMARK_VERSION, BENCHMARK_VERSION + FAST_SUFFIX)
 
 console = Console()
 
@@ -331,7 +326,6 @@ async def cmd_run(args) -> int:
             "hallucination_file": args.hallucination,
             "tracks": sorted(tracks),
             "scale": args.scale,
-            "scoring_version": SCORING_VERSION,
             "system_prompt": BENCHMARK_SYSTEM_PROMPT,
             "model": {
                 "label": model_cfg.label,
@@ -550,91 +544,6 @@ async def cmd_score(args) -> int:
         )
     finally:
         await client.aclose()
-    return 0
-
-
-def cmd_resummarize(args) -> int:
-    """Rebuild summary.json from the already-scored items. No model calls, no
-    Bible text, no re-scoring.
-
-    Aggregation (report.py) is a pure function of the scored item records, so a
-    change that only adds a reported metric shouldn't cost a full re-score — that
-    re-runs quote detection over every translation of every language and takes
-    tens of minutes per run. This makes report-only changes a seconds-long step,
-    which is the difference between adding a metric and not bothering.
-
-    Per-item scores are untouched, so this can never change a score. If the
-    SCORING_VERSION changed, use `score` instead.
-    """
-    store = _store_from_args(args)
-    run_key = _run_key(args.run_version, args.model)
-    run_dir = f"runs/{run_key}"
-    manifest = store.read_json(f"{run_dir}/manifest.json")
-    if not manifest:
-        console.print(f"[red]No run found for {run_key}.[/red]")
-        return 2
-    # Applying today's aggregation to an older generation's items silently
-    # rewrites history: reporting rules change between versions (v0.4 moved the
-    # deuterocanon out of the headline, which shifts every v0.3 simple score).
-    # Older results are meant to stay frozen at the version that produced them.
-    if args.run_version not in _CURRENT_VERSIONS and not args.allow_older:
-        console.print(
-            f"[red]{run_key} was scored at {args.run_version}, but this codebase is "
-            f"{BENCHMARK_VERSION}.[/red] Re-summarizing would apply {BENCHMARK_VERSION} "
-            f"reporting rules to {args.run_version} results and change its published "
-            f"numbers. Pass [bold]--allow-older[/bold] if that is genuinely what you want."
-        )
-        return 2
-
-    tracks: dict[str, dict] = {}
-    summarizers = {
-        "simple": ("items.jsonl", "responses.jsonl", summarize_simple),
-        "hallucination": ("items_hallucination.jsonl",
-                          "responses_hallucination.jsonl", summarize_hallucination),
-    }
-    rows_by_track: dict[str, list[dict]] = {}
-    for track, (items_file, resp_file, summarize) in summarizers.items():
-        rows = store.read_jsonl(f"{run_dir}/{items_file}")
-        if not rows:
-            continue
-        rows_by_track[track] = rows
-        # Runs scored before finish_reason was recorded on items still have it on
-        # the generation record, so join it in — it's what separates a provider
-        # blocking its own output from the model declining.
-        reasons = {
-            r.get("item_id"): r.get("finish_reason")
-            for r in store.read_jsonl(f"{run_dir}/{resp_file}")
-        }
-        for r in rows:
-            r.setdefault("finish_reason", reasons.get(r.get("item_id")))
-        tracks[track] = summarize(rows)
-        console.print(f"  {track}: {len(rows)} items -> {tracks[track]['track_score']}")
-
-    # The creed dimensions keep encounters rather than scored items, so they are
-    # not in the loop above — but they still have to be re-aggregated here.
-    # Omitting them made this command delete them from summary.json outright, from
-    # a command documented as unable to change a score.
-    theo_records = store.read_jsonl(f"{run_dir}/theology.jsonl")
-    if theo_records:
-        for key, ts in theology.summarize_records(theo_records).items():
-            rows_by_track[key] = theo_records
-            tracks[key] = ts
-            console.print(f"  {key}: {len(theo_records)} encounters "
-                          f"-> {ts['track_score']}")
-
-    if not tracks:
-        console.print(f"[red]{run_key} has no scored items to summarize.[/red]")
-        return 2
-
-    summary = build_summary(
-        tracks, _usage_from_run(store, run_dir), slices=summarize_slices(rows_by_track)
-    )
-    store.write_json(f"{run_dir}/summary.json", summary)
-    console.print(f"[green]Re-summarized[/green] {run_key}: "
-                  f"headline [bold]{summary['headline_score']}[/bold]")
-    if manifest.get("published"):
-        rebuild_leaderboard(store)
-        console.print("  Leaderboard rebuilt (this run is published).")
     return 0
 
 
@@ -948,17 +857,6 @@ def main(argv: list[str] | None = None) -> int:
     _add_cache_arg(s)
     _add_store_args(s)
 
-    rs = sub.add_parser("resummarize",
-                        help="Rebuild summary.json from already-scored items "
-                             "(report-only changes; no model calls, no re-scoring)")
-    rs.add_argument("--run-version", default=BENCHMARK_VERSION,
-                    help="Benchmark version of the run (default: current codebase)")
-    rs.add_argument("--model", required=True, help="Model id used for the run")
-    rs.add_argument("--allow-older", action="store_true",
-                    help="Permit re-summarizing a run from an older benchmark version, "
-                         "even though today's reporting rules will change its numbers")
-    _add_store_args(rs)
-
     for name in ("publish", "unpublish"):
         p = sub.add_parser(name)
         p.add_argument("--run-version", default=BENCHMARK_VERSION,
@@ -979,7 +877,6 @@ def main(argv: list[str] | None = None) -> int:
                         help="Download Bible text for all benchmark versions into a "
                              "local cache (run once; reused across runs)")
     pf.add_argument("--spec", default="dataset/spec-v1.json")
-    pf.add_argument("--topics", default="dataset/topics-v1.json")
     pf.add_argument("--hallucination", default="dataset/hallucination-v1.json")
     _add_cache_arg(pf)
 
@@ -988,8 +885,6 @@ def main(argv: list[str] | None = None) -> int:
         return asyncio.run(cmd_run(args))
     if args.cmd == "score":
         return asyncio.run(cmd_score(args))
-    if args.cmd == "resummarize":
-        return cmd_resummarize(args)
     if args.cmd == "publish":
         return cmd_publish(args, True)
     if args.cmd == "unpublish":
