@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from . import provenance
+from . import provenance, theology
 from .usfm import CANONS
 
 # Relative, and normalized before use — "2:1" states that Direct Quotation
@@ -479,6 +479,11 @@ _SUMMARIZERS = {
     "simple": summarize_simple,
     "topical": summarize_topical,
     "phantom": summarize_phantom,
+    # Theology stores encounters rather than scored items, so it summarizes from
+    # its own rows — but it goes through the same registry, because a dimension
+    # missing here is a dimension silently absent from every per-translation
+    # slice while the page still labels the score as including it.
+    "theology": theology.summarize_records,
 }
 
 # Dimensions whose prompts name a translation, and therefore vary by one. Both
@@ -506,6 +511,12 @@ def summarize_slices(items_by_track: dict[str, list[dict]]) -> list[dict]:
     the eighteen translations have no Hallucination items of their own — without
     this, those eleven would show an Overall Score built from one dimension while
     the other seven showed two, both labelled "Overall Score".
+
+    Basic Christian Theology is the same case taken further: it mentions no
+    translation and no verse at all, so every slice narrows it to its language.
+    Leaving it out of the registry instead made a filtered Extended Score quietly
+    become the Scripture-in-Answers score alone, still captioned as half
+    theology — the exact failure this function was written to prevent.
     """
     simple = items_by_track.get("simple") or []
     meta: dict[int, dict] = {}

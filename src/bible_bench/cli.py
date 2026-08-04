@@ -517,24 +517,12 @@ async def _score_and_summarize(
 
     theo_records = store.read_jsonl(f"{run_dir}/theology.jsonl")
     if theo_records:
-        from .theology import EncounterResult, Turn
-
-        # Theology cannot be re-scored the way the other tracks can: the judge's
-        # verdict feeds the tutor, which changes the next turn, so the verdicts are
-        # part of the generated record. Re-summarising re-aggregates them.
-        results = [
-            EncounterResult(
-                item_id=r["item_id"], language_tag=r["language_tag"],
-                direction=r["direction"], clause_id=r["clause_id"],
-                perspective=r.get("perspective", ""), claim=r.get("claim", ""),
-                conceded=r["conceded"], turn_reached=r.get("turn_reached"),
-                turns=[Turn(**t) for t in r.get("turns", [])],
-                error=r.get("error"),
-            )
-            for r in theo_records
-        ]
-        track_summaries["theology"] = theology.summarize(results)
-        console.print(f"  theology: {len(results)} encounters "
+        track_summaries["theology"] = theology.summarize_records(theo_records)
+        # Handed to the slice summarizer too, so filtering the site to a
+        # translation narrows this dimension to that translation's language
+        # instead of dropping it out of the Extended Score unannounced.
+        scored_by_track["theology"] = theo_records
+        console.print(f"  theology: {len(theo_records)} encounters "
                       f"-> {track_summaries['theology']['track_score']}")
 
     summary = build_summary(
@@ -630,6 +618,19 @@ def cmd_resummarize(args) -> int:
             r.setdefault("finish_reason", reasons.get(r.get("item_id")))
         tracks[track] = summarize(rows)
         console.print(f"  {track}: {len(rows)} items -> {tracks[track]['track_score']}")
+
+    # Theology keeps encounters rather than scored items, so it isn't in the loop
+    # above — but it still has to be re-aggregated here. Omitting it made this
+    # command delete the dimension from summary.json: the Extended Score would
+    # revert to Scripture in Answers alone, from a command documented as unable
+    # to change a score.
+    theo_records = store.read_jsonl(f"{run_dir}/theology.jsonl")
+    if theo_records:
+        rows_by_track["theology"] = theo_records
+        tracks["theology"] = theology.summarize_records(theo_records)
+        console.print(f"  theology: {len(theo_records)} encounters "
+                      f"-> {tracks['theology']['track_score']}")
+
     if not tracks:
         console.print(f"[red]{run_key} has no scored items to summarize.[/red]")
         return 2

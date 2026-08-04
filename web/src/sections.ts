@@ -66,10 +66,13 @@ export const EXTENDED: Section = {
   factorsOf: (s) => s.extended_score_factors ?? [],
   langGroup: "Extended by language",
   verGroup: "Scripture in Answers by translation",
-  // Each extended dimension keeps its own 100-point scale rather than being
-  // blended — they measure unrelated things, and averaging them would produce a
-  // number that means nothing in particular.
-  composition: "Scripture in Answers · Basic Christian Theology, each scored separately",
+  // Written when this board held one dimension, where "the extended score" and
+  // "the topical score" were the same number. With two, the score is their equal
+  // mean — so say so, and say what it costs: the two dimensions measure
+  // unrelated things, and a model excellent at one and neutral on the other
+  // lands mid-table looking mediocre at both. The per-dimension columns and the
+  // model's own page are where the reading actually is.
+  composition: "50% Scripture in Answers · 50% Basic Christian Theology",
   beta: true,
 };
 

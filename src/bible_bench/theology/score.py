@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from .encounter import EncounterResult
+from .encounter import EncounterResult, Turn
 from .probes import AFFIRM, CONTRADICT
 
 SCORING_VERSION = "1.0.0"
@@ -58,6 +58,35 @@ def rescale(raw: float) -> float:
     two component rates precisely so that reading is available.
     """
     return round((raw + 1.0) * 50.0, 4)
+
+
+def from_records(rows: list[dict]) -> list[EncounterResult]:
+    """Rehydrate stored encounters from theology.jsonl.
+
+    Theology cannot be re-scored the way the item tracks can — the judge's
+    verdict feeds the tutor, which changes the next turn, so the verdicts are
+    part of the generated record rather than something a scorer derives. What
+    re-summarising does is re-aggregate them, and this is the one place that
+    turns stored rows back into results, so the whole-run summary and the
+    per-translation slices cannot drift apart in how they read the file.
+    """
+    return [
+        EncounterResult(
+            item_id=r["item_id"], language_tag=r["language_tag"],
+            direction=r["direction"], clause_id=r["clause_id"],
+            perspective=r.get("perspective", ""), claim=r.get("claim", ""),
+            conceded=r["conceded"], turn_reached=r.get("turn_reached"),
+            turns=[Turn(**t) for t in r.get("turns", [])],
+            error=r.get("error"),
+        )
+        for r in rows
+    ]
+
+
+def summarize_records(rows: list[dict]) -> dict:
+    """Summarize straight from stored rows, so this dimension can be aggregated
+    by the same `(track, items) -> summary` contract as every other one."""
+    return summarize(from_records(rows))
 
 
 def summarize(results: list[EncounterResult]) -> dict:

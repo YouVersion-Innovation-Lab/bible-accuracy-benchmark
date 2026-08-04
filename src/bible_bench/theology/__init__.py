@@ -11,10 +11,11 @@ verdicts; it cannot re-judge without changing the conversation that produced the
 
 from .encounter import EncounterResult, Turn, VerdictError, is_failure, run_encounter
 from .probes import AFFIRM, CONTRADICT, CreedSpec, TheologyItem, build_items, load_spec
-from .score import SCORING_VERSION, rescale, summarize
+from .score import SCORING_VERSION, from_records, rescale, summarize, summarize_records
 
 __all__ = [
     "AFFIRM", "CONTRADICT", "SCORING_VERSION", "CreedSpec", "EncounterResult",
-    "TheologyItem", "Turn", "VerdictError", "build_items", "is_failure",
-    "load_spec", "rescale", "run_encounter", "summarize",
+    "TheologyItem", "Turn", "VerdictError", "build_items", "from_records",
+    "is_failure", "load_spec", "rescale", "run_encounter", "summarize",
+    "summarize_records",
 ]

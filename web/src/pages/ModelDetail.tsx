@@ -325,7 +325,8 @@ function TranslationFilter({
           <>
             Every figure below is for this translation.{" "}
             {langScoped.map((t) => t.name).join(" and ")}{" "}
-            {langScoped.length === 1 ? "names" : "name"} no translation in its prompts, so{" "}
+            {langScoped.length === 1 ? "names" : "name"} no translation in{" "}
+            {langScoped.length === 1 ? "its" : "their"} prompts, so{" "}
             {langScoped.length === 1 ? "it is" : "they are"} narrowed to{" "}
             {slice ? langName(slice.language_tag) : "the language"} instead — the same figure for
             every translation of that language.

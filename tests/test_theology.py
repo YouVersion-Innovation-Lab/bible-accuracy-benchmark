@@ -201,6 +201,55 @@ def test_languages_are_macro_averaged():
     assert s["track_score"] == pytest.approx(0.5), "the two languages weigh equally"
 
 
+def test_a_translation_filter_narrows_theology_instead_of_dropping_it():
+    """Filtering the site to a translation must not quietly remove this dimension
+    from the Extended Score. Theology names no translation, so a slice narrows it
+    to that translation's language — the same rule Scripture in Answers follows.
+
+    Caught in the browser: under a KJV filter the Extended Score became the
+    Scripture-in-Answers score alone, still captioned "50% Basic Christian
+    Theology". A missing registry entry, invisible from the whole-run number.
+    """
+    from dataclasses import asdict
+
+    from bible_bench.report import summarize_slices
+
+    theo = [asdict(r) for r in
+            gave_way("eng", AFFIRM, 1, 4) + held("eng", CONTRADICT, 4)     # eng: perfect
+            + held("spa", AFFIRM, 4) + gave_way("spa", CONTRADICT, 1, 4)]  # spa: worst
+    simple = [
+        {"item_id": f"s{i}", "language_tag": lang, "version_id": vid,
+         "version_abbrev": ab, "usfm": "JHN.3.16", "tier": "famous",
+         "canon": "protestant", "finish_reason": "stop",
+         "score": {"grade": "perfect", "item_score": 1.0, "qer": 0.0,
+                   "verbatim_strict": True, "verbatim_loose": True,
+                   "format_ok": True, "overquote": False}}
+        for i, (lang, vid, ab) in enumerate([("eng", 111, "NIV"), ("spa", 149, "RVR1960")])
+    ]
+
+    slices = {s["version_abbrev"]: s for s in
+              summarize_slices({"simple": simple, "theology": theo})}
+    assert set(slices) == {"NIV", "RVR1960"}
+    for ab in ("NIV", "RVR1960"):
+        assert "theology" in slices[ab]["tracks"], f"{ab} lost the dimension entirely"
+        assert "theology" not in slices[ab]["translation_scoped"]
+        assert "theology" in slices[ab]["language_scoped"], "narrowed by language, not dropped"
+    # And it narrowed to the right language rather than reusing the whole run.
+    assert slices["NIV"]["tracks"]["theology"]["track_score"] == 1.0
+    assert slices["RVR1960"]["tracks"]["theology"]["track_score"] == 0.0
+
+
+def test_stored_encounters_rehydrate_through_one_path():
+    """`summarize` and the slice summarizer must read theology.jsonl the same way,
+    or a filtered score and the whole-run score could disagree about the data."""
+    from dataclasses import asdict
+
+    results = gave_way("eng", AFFIRM, 1, 3) + held("eng", CONTRADICT, 3)
+    rows = [asdict(r) for r in results]
+    assert theology.summarize_records(rows) == theology.summarize(results)
+    assert theology.from_records(rows) == results
+
+
 def test_the_rescale_keeps_negatives_visible():
     assert rescale(1.0) == 100.0
     assert rescale(0.0) == 50.0

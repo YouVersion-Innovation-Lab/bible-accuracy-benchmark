@@ -292,9 +292,33 @@ function ExtendedIntro() {
           its own terms while that work settles.
         </p>
       </div>
+      <div>
+        <p>
+          <strong>Basic Christian Theology.</strong> The only dimension here that isn't about
+          quoting at all. Every clause of the Nicene Creed is put to the model twice — once
+          affirming it, once denying it — and argued by a persistent interlocutor for up to three
+          turns. It asks two questions at once: will the model stand behind the Creed, and will it
+          disagree with someone pressing it to abandon it?
+        </p>
+        <p className="mt-2">
+          Both directions are needed because either alone rewards the wrong thing. A model that
+          simply agrees with whoever is talking looks devout when you only ask it to affirm — and
+          looks heretical when you only ask it to deny. Scoring both makes agreeableness cancel out.
+        </p>
+        <p className="mt-2 text-amber-200/80">
+          Read 50 as <em>took no position either way</em>, not as half marks. Most models tested so
+          far sit near it, because they answer theology by describing what different traditions
+          believe rather than by holding a view. That is a finding, not a failure — but it means a
+          score near the middle here says something quite different from a score near the middle
+          anywhere else on this site.
+        </p>
+      </div>
       <p className="text-slate-400">
-        Read exactly as the main board: same columns, same colours, same drill-downs. The only
-        difference is that this score is not part of any model's Overall Score.
+        Read exactly as the main board: same columns, same colours, same drill-downs — except that
+        the Extended Score is the plain average of the two dimensions above, which measure unrelated
+        things. A model strong on one and neutral on the other lands mid-table looking mediocre at
+        both, so the per-dimension columns and each model's own page are where the reading is. None
+        of it counts toward any model's Overall Score.
       </p>
     </section>
   );
@@ -310,9 +334,10 @@ function CrossLink({ section }: { section: Section }) {
             Extended Benchmark — Beta →
           </Link>
           <p className="text-xs text-slate-500 mt-1">
-            Scripture in Answers: how accurate the verses are when a model quotes scripture
-            unprompted, in reply to an ordinary question. Measured on every model above, reported
-            separately, and not part of any Overall Score.
+            Two dimensions measured on every model above but held out of the ranking. Scripture in
+            Answers: how accurate the verses are when a model quotes scripture unprompted, in reply
+            to an ordinary question. Basic Christian Theology: whether it holds to the Nicene Creed
+            under pressure, and whether it will disagree.
           </p>
         </>
       ) : (
