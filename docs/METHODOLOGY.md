@@ -29,28 +29,33 @@ runs of the same model can differ slightly. Consequences we accept deliberately:
   should be both contestant and judge.
 - Generation and scoring **cannot be separated** the way they are elsewhere: the
   judge's verdict feeds the next turn, so re-scoring can only re-aggregate stored
-  verdicts, never re-judge them. `resummarize` re-aggregates; `score` cannot help.
+  verdicts, never re-judge them. Only a full `run` produces fresh ones.
 - Encounters the referee cannot decide are **excluded from the rates** and reported
   as a referee error — our fault, named as ours, never scored against the model.
 
-This round, no language model appears anywhere in the scored tracks — not even
-to generate prompts. (A paused adversarial track uses a pinned attacker model to
-generate *attack prompts*; even there the judge is deterministic.) Re-running the
-scorer on the same responses and the same Bible text always yields the same
-scores; the scoring version is stamped into every result record.
+No language model appears anywhere in the two ranked dimensions — not even to
+generate prompts. Re-running the scorer on the same responses and the same Bible
+text always yields the same scores.
+
+There is deliberately **no scoring-version stamp**. A stored score is only ever read
+next to the code that produced it: if scoring changes, the answer is a complete
+re-score of every run, not a version number that lets some records in a run be older
+than others while every figure is presented as one measurement. Two operations exist
+and the distinction between them is unambiguous — `run` does everything including the
+model calls, `score` does everything except them.
 
 Every prompt that asks for a quote names a specific Bible version, and every
 result record carries its language and version, so all tracks — and the headline
 — can be sliced by both.
 
-Headline = 100 × (⅔ · Direct Quotation + ⅓ · Hallucination Resistance).
+Overall Score = Quoting Accuracy (0…+100) + Hallucination (−100…0), on a −100…+100 scale.
 
-Scripture in Answers is reported separately, as the Extended Benchmark, and is not
+The creed pair is reported separately, as the Extended Benchmark, and is not
 part of the headline.
 
 Full methodology is being written alongside the implementation. It will cover:
 
-- The two headline dimensions, the extended one, and the score formula
+- The two ranked dimensions, the unranked creed pair, and the ledger scale
 - The public sampling specification and per-refresh seeding (anti-gaming design)
 - Text normalization and the deterministic Quote Error Rate (QER) metric
 - The severity taxonomy (perfect → fabricated) and refusal handling
@@ -61,5 +66,5 @@ Full methodology is being written alongside the implementation. It will cover:
 - The hallucination track: generating impossible references; any presented quote fails
 - Topical version preference: which translation a model quotes when unprompted (L2)
 - Topical uncited-quote verification via an in-memory reverse phrase index
-- The paused adversarial harness: pinned attacker model, deterministic judge, transcripts
+- The creed harness: pinned open-weight referee, published prompts, stored transcripts
 - How to audit published results

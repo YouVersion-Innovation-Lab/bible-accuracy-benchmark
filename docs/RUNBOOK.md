@@ -52,7 +52,7 @@ bible-bench run \
 - A run is identified by **(`--model` id, `--run-version`)** — no run-id. `--label` is a required display name, stored in the result for the website. The
   result is stored at `runs/{run-version}--{model-slug}/`; **re-running the same
   model + version overwrites it** (a fresh run, not a resume).
-- All three tracks (simple, topical, hallucination/phantom) always run — there is
+- All three dimensions (simple, hallucination, and the creed pair) always run — there is
   no track selection. The adversarial track is paused this round (code retained,
   not wired into a run).
 - `--run-version` also **seeds the verse sample**, so every model at a given
@@ -60,9 +60,13 @@ bible-bench run \
 - `--scale <0..1>` shrinks per-tier counts for a quick pilot. `--dummy` runs
   without any model API (echo mode) for plumbing tests. `--local-dir DIR` writes
   to a local folder instead of GCS.
-- Generation and scoring are separate passes. Re-score without re-querying:
-  `bible-bench score --run-version v0.1 --model gpt-5.2 --gcs-bucket …`
-  (picks up a new `SCORING_VERSION`).
+- Generation and scoring are separate passes, and there are exactly two operations:
+  `run` does everything including the model calls, `score` does everything except
+  them. Re-score without re-querying:
+  `bible-bench score --run-version v0.5 --model gpt-5.6-terra --gcs-bucket …`
+  (~5 minutes per run). There is no lighter path on purpose — a shortcut that
+  re-aggregates without re-scoring is how some records in a run end up older than
+  others while every figure is presented as one measurement.
 
 ## Review, then publish
 
@@ -101,7 +105,7 @@ so models can't memorize a fixed list. Run all models in a refresh with the
 - **`ConfigError: Missing required env var(s)`** — the Bible API values aren't in
   the environment; check `.env`.
 - **A run stalls on one language** — the Bible API politeness ceiling is 8
-  concurrent calls; large versions (reverse-index build for topical) are the
+  concurrent calls; large versions (whole-Bible reverse-index build) are the
   slowest step. Let it finish; it's cached in-memory for the rest of the run.
 - **Leaderboard didn't update after publish** — the site caches for 5 minutes.
 
@@ -133,9 +137,9 @@ English and Spanish and nothing else — and since track scores macro-average ov
 languages, that would report a two-language result as eleven. A fast run keeps
 all 11 languages and all 18 translations; it asks fewer questions of each.
 
-Roughly, per model: ~260 Direct Quotation + ~120 Scripture in Answers + ~35
+Roughly, per model: ~260 Quoting Accuracy + ~35
 Hallucination ≈ 415 calls, against ~4,240 for a full run.
 
 `--scale` still works and overrides what `--fast` would choose, e.g.
-`--fast --scale 0.25` for a bigger fast pass. `score` and `resummarize` address a
+`--fast --scale 0.25` for a bigger fast pass. `score` addresses a
 fast run with `--run-version v0.5-fast`.
