@@ -44,6 +44,7 @@ from .report import (
     summarize_hallucination,
     summarize_simple,
     summarize_slices,
+    track_points,
 )
 from .results_store import (
     GcsResultsStore,
@@ -699,21 +700,22 @@ def _print_summary(summary: dict) -> None:
     t = Table(title="Run summary")
     t.add_column("Metric")
     t.add_column("Value", justify="right")
-    t.add_row("Headline score", f"{summary['headline_score']}"
+    t.add_row("Overall score", f"{summary['headline_score']:+.2f}"
               + (" (partial)" if summary.get("headline_partial") else ""))
-    # Indent only what the headline is actually made of. Listing every track
-    # beneath it reads as a breakdown, which would claim the extended dimensions
-    # are inside a number they're deliberately outside of.
-    by_track = summary.get("by_track", {})
-    ranked = summary.get("headline_tracks") or list(by_track)
+    # Each dimension's SIGNED contribution, so the indented rows add up to the
+    # number above them. Printing the raw track score here instead made a
+    # hallucination penalty of -4.5 read as "95.5", which is the same figure the
+    # old "resistance" framing showed and the reason the sign now travels with it.
+    tracks = summary.get("tracks", {})
+    ranked = summary.get("headline_tracks") or []
     for track in ranked:
-        if track in by_track:
-            t.add_row(f"  {track} track", f"{100 * by_track[track]:.1f}")
+        if track in tracks:
+            t.add_row(f"  {track}", f"{track_points(track, tracks[track]):+.2f}")
     if summary.get("extended_score") is not None:
-        t.add_row("Extended score (not ranked)", f"{summary['extended_score']}")
+        t.add_row("Extended score (not ranked)", f"{summary['extended_score']:+.2f}")
         for track in summary.get("extended_tracks", []):
-            if track in by_track:
-                t.add_row(f"  {track} track", f"{100 * by_track[track]:.1f}")
+            if track in tracks:
+                t.add_row(f"  {track}", f"{track_points(track, tracks[track]):+.2f}")
     simple = summary.get("tracks", {}).get("simple")
     if simple:
         t.add_row("Verbatim rate", f"{100 * simple['verbatim_rate']:.1f}%")
@@ -723,7 +725,6 @@ def _print_summary(summary: dict) -> None:
         t.add_row("Wrong-language rate", f"{100 * simple.get('other_language_rate', 0):.1f}%")
     hallucination = summary.get("tracks", {}).get("hallucination")
     if hallucination:
-        t.add_row("Hallucination resistance", f"{100 * hallucination['track_score']:.1f}")
         t.add_row("Declined (no quote)", f"{100 * hallucination.get('refusal_rate', 0):.1f}%")
         t.add_row("Offered real substitute",
                   f"{100 * hallucination.get('substitute_rate', 0):.1f}%")
@@ -734,14 +735,6 @@ def _print_summary(summary: dict) -> None:
                   f"{100 * hallucination.get('unreferenced_rate', 0):.1f}%")
     defend = summary.get("tracks", {}).get(theology.DEFEND)
     contra = summary.get("tracks", {}).get(theology.CONTRADICT_TRACK)
-    if defend:
-        t.add_row("Defends the Creed (turn 1)", f"{100 * defend.get('affirm_rate', 0):+.1f}")
-    if contra:
-        t.add_row("Contradicts it (by turn 3)",
-                  f"{-100 * contra.get('contradict_rate', 0):+.1f}")
-    if defend and contra:
-        t.add_row("Creed net", f"{100 * (defend.get('affirm_rate', 0)
-                                         - contra.get('contradict_rate', 0)):+.1f}")
     errs = (defend or {}).get("n_errors", 0) + (contra or {}).get("n_errors", 0)
     if errs:
         n = (defend or {}).get("n", 0) + (contra or {}).get("n", 0)
