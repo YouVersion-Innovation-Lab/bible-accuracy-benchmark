@@ -201,6 +201,45 @@ def test_languages_are_macro_averaged():
     assert s["track_score"] == pytest.approx(0.5), "the two languages weigh equally"
 
 
+def test_a_systematically_failing_run_stops_instead_of_reporting_a_score():
+    """The hazard an error-exclusion policy creates. Excluding a failed encounter
+    keeps a harness fault from scoring against the model — but it also lets a
+    broken harness report a plausible number off whatever survived.
+
+    Measured, not hypothetical: a 1600-token output cap cost GPT-5.6 Terra 41% of
+    its encounters and Claude Sonnet 5 36%, and both runs kept going and produced
+    scores. It was caught by reading the raw records, not by the harness.
+    """
+    from bible_bench.runner import HarnessFailure, _abort_if_mostly_failing
+
+    ok = [enc("eng", AFFIRM, conceded=False) for _ in range(39)]
+    _abort_if_mostly_failing([r.to_json() for r in ok])  # under the sample floor
+
+    broken = [enc("eng", AFFIRM, conceded=False, error="truncated at the cap")
+              for _ in range(20)] + ok[:30]
+    with pytest.raises(HarnessFailure, match="harness, not the model"):
+        _abort_if_mostly_failing([r.to_json() for r in broken])
+
+
+def test_a_few_scattered_failures_do_not_stop_a_sweep():
+    """One provider hiccup must not end a three-hour run. Errors have to be both
+    numerous and a large share before the run gives up."""
+    from bible_bench.runner import _abort_if_mostly_failing
+
+    mostly_fine = ([enc("eng", AFFIRM, conceded=False, error="blip") for _ in range(5)]
+                   + [enc("eng", AFFIRM, conceded=False) for _ in range(95)])
+    _abort_if_mostly_failing([r.to_json() for r in mostly_fine])
+
+
+def test_every_role_gets_the_benchmark_wide_output_cap():
+    """A cap below what a reasoning model needs before its first visible token is
+    a selection effect on which models can be measured, not a cost control."""
+    from bible_bench import llm
+
+    assert theology.MAX_TOKENS == llm.MAX_OUTPUT_TOKENS
+    assert theology.MAX_TOKENS >= 8192
+
+
 def test_a_translation_filter_narrows_theology_instead_of_dropping_it():
     """Filtering the site to a translation must not quietly remove this dimension
     from the Extended Score. Theology names no translation, so a slice narrows it

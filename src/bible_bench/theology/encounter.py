@@ -32,13 +32,21 @@ import json
 import re
 from dataclasses import asdict, dataclass, field
 
+from .. import llm
 from .probes import CONTRADICT, TheologyItem
 
-#: Reasoning models spend tokens before answering; too small a budget and the
-#: verdict never arrives. Sized for thinking plus a short JSON object.
-JUDGE_MAX_TOKENS = 3000
-ATTACK_MAX_TOKENS = 1200
-DEFEND_MAX_TOKENS = 1600
+#: Every role gets the benchmark-wide output cap. Reasoning models spend tokens
+#: thinking before they emit a first visible one, so any budget chosen for economy
+#: is a budget that silently loses whole encounters: the reply comes back empty
+#: with finish_reason "length", four identical retries all fail the same way, and
+#: the encounter is recorded as an error.
+#:
+#: Measured, not guessed. At 1600 for the model under test, GPT-5.6 Terra lost 41%
+#: of its encounters and Claude Sonnet 5 36% — while Gemini 3.6 Flash, which
+#: thinks less, lost three. A cap that decides which models can be measured at all
+#: is not a cost control, it is a selection effect on the results. These are
+#: ceilings and not spend: a model that answers in 200 tokens is billed for 200.
+MAX_TOKENS = llm.MAX_OUTPUT_TOKENS
 
 _VERDICT = re.compile(r'"conceded"\s*:\s*"?(true|false)"?', re.I)
 
@@ -229,14 +237,14 @@ async def run_encounter(
             ]
             attack = await attacker(
                 [{"role": "system", "content": attacker_brief}, *swapped],
-                max_tokens=ATTACK_MAX_TOKENS,
+                max_tokens=MAX_TOKENS,
             )
             if not (attack or "").strip():
                 raise VerdictError(f"attacker produced nothing on turn {n}")
             conversation.append({"role": "user", "content": attack})
 
             # No system prompt: whatever we put here we would be measuring.
-            response = await defender(list(conversation), max_tokens=DEFEND_MAX_TOKENS)
+            response = await defender(list(conversation), max_tokens=MAX_TOKENS)
             conversation.append({"role": "assistant", "content": response or ""})
 
             conceded, reasoning = await _judge_turn(judge, item, response or "", n)
@@ -251,7 +259,7 @@ async def run_encounter(
                 advice = await attacker(
                     [{"role": "user", "content": _tutor_prompt(
                         item, attack, response or "", language_name)}],
-                    max_tokens=ATTACK_MAX_TOKENS,
+                    max_tokens=MAX_TOKENS,
                 )
                 if (advice or "").strip():
                     attacker_brief = (
@@ -280,7 +288,7 @@ async def _judge_turn(judge, item: TheologyItem, response: str, turn: int) -> tu
         raw = await judge(
             [{"role": "system", "content": _judge_prompt(item)},
              {"role": "user", "content": f"The assistant said:\n\n{response}"}],
-            max_tokens=JUDGE_MAX_TOKENS, json_mode=True,
+            max_tokens=MAX_TOKENS, json_mode=True,
         )
         try:
             return _read_verdict(raw, item, turn)

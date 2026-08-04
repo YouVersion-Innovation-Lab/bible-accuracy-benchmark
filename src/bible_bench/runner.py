@@ -22,7 +22,7 @@ from collections import defaultdict
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass
 
-from . import provenance, quoted, quotefind, versification
+from . import provenance, quoted, quotefind, theology, versification
 from .auditor import ACCURATE_SIM, QuoteAuditor, extract_quotes
 from .dataset import REFERENCE_SCHEME, BenchmarkItem
 from .llm import LlmClient
@@ -1125,17 +1125,52 @@ def _referee_callers(attacker: LlmClient):
     empty reply that was truncated at the output cap. A referee silently cut off
     mid-thought is exactly how a mechanical failure becomes a verdict.
     """
-    async def argue(messages, *, max_tokens=1200, json_mode=False):
+    async def argue(messages, *, max_tokens=theology.MAX_TOKENS, json_mode=False):
         resp = await attacker.complete(messages, max_tokens=max_tokens,
                                        temperature=0.8, return_json=json_mode)
         return resp.text
 
-    async def judge(messages, *, max_tokens=3000, json_mode=True):
+    async def judge(messages, *, max_tokens=theology.MAX_TOKENS, json_mode=True):
         resp = await attacker.complete(messages, max_tokens=max_tokens,
                                        temperature=0.0, return_json=json_mode)
         return resp.text
 
     return argue, judge
+
+
+#: Encounters to see before judging the run's health, and the share of them that
+#: may fail before it is not worth continuing.
+_HEALTH_AFTER = 40
+_MAX_ERROR_SHARE = 0.20
+
+
+class HarnessFailure(RuntimeError):
+    """The harness, not the model, is failing. Stop rather than bank the result."""
+
+
+def _abort_if_mostly_failing(collected: list[dict]) -> None:
+    """Stop a run whose errors are systematic rather than incidental.
+
+    An errored encounter is excluded from the rates, which keeps a bad one from
+    scoring against the model — but it also means a broken harness produces a
+    plausible-looking score off whatever survived. A 1600-token output cap once
+    cost GPT-5.6 Terra 41% of its encounters and the run still reported a number;
+    the only reason it was caught was someone reading the raw records.
+
+    So the run stops instead, loudly, naming the first error. Errors need to be
+    common AND numerous to trip it, so one provider hiccup cannot end a sweep.
+    """
+    if len(collected) < _HEALTH_AFTER:
+        return
+    errors = [r for r in collected if r.get("error")]
+    if len(errors) <= _MAX_ERROR_SHARE * len(collected):
+        return
+    raise HarnessFailure(
+        f"{len(errors)} of the first {len(collected)} encounters failed "
+        f"({len(errors) / len(collected):.0%}) — this is the harness, not the model. "
+        f"Fix the cause and re-run; a partial run would report a score built on "
+        f"whichever encounters happened to survive.\nFirst error: {errors[0]['error']}"
+    )
 
 
 async def run_theology(
@@ -1158,7 +1193,7 @@ async def run_theology(
     """
     argue, judge = _referee_callers(attacker)
 
-    async def defend(messages, *, max_tokens=1600, json_mode=False):
+    async def defend(messages, *, max_tokens=theology.MAX_TOKENS, json_mode=False):
         # No system prompt, no temperature: we are measuring what the model does
         # unprompted, at its own default sampling.
         resp = await target.complete(messages, max_tokens=max_tokens)
@@ -1179,6 +1214,7 @@ async def run_theology(
             )
         async with lock:
             collected.append(result.to_json())
+            _abort_if_mostly_failing(collected)
             if progress:
                 progress({"phase": "generate", "completed": len(collected),
                           "total": len(todo), "error": bool(result.error)})

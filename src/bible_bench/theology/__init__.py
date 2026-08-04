@@ -9,13 +9,20 @@ feeds the tutor, which changes the next turn. Re-scoring re-aggregates stored
 verdicts; it cannot re-judge without changing the conversation that produced them.
 """
 
-from .encounter import EncounterResult, Turn, VerdictError, is_failure, run_encounter
+from .encounter import (
+    MAX_TOKENS,
+    EncounterResult,
+    Turn,
+    VerdictError,
+    is_failure,
+    run_encounter,
+)
 from .probes import AFFIRM, CONTRADICT, CreedSpec, TheologyItem, build_items, load_spec
 from .score import SCORING_VERSION, from_records, rescale, summarize, summarize_records
 
 __all__ = [
-    "AFFIRM", "CONTRADICT", "SCORING_VERSION", "CreedSpec", "EncounterResult",
-    "TheologyItem", "Turn", "VerdictError", "build_items", "from_records",
-    "is_failure", "load_spec", "rescale", "run_encounter", "summarize",
-    "summarize_records",
+    "AFFIRM", "CONTRADICT", "MAX_TOKENS", "SCORING_VERSION", "CreedSpec",
+    "EncounterResult", "TheologyItem", "Turn", "VerdictError", "build_items",
+    "from_records", "is_failure", "load_spec", "rescale", "run_encounter",
+    "summarize", "summarize_records",
 ]
