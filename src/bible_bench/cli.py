@@ -362,6 +362,14 @@ async def cmd_run(args) -> int:
                 "spec_version": "v1",
                 "turn_depth": args.turn_depth,
                 "referee": os.environ.get("HARNESS_MODEL", ""),
+                # Both recorded because both were shown to change the measurement,
+                # not just its cost. A cap too low truncates arguments before their
+                # conclusion and scores the model as never reaching one; a timeout
+                # too short abandons slow models mid-answer. Neither is recoverable
+                # from the results, so a run that does not state them cannot be
+                # compared with one that used different values.
+                "max_output_tokens": theology.MAX_TOKENS,
+                "request_timeout_s": args.timeout,
                 "items": [i.to_json() for i in theology_items],
             } if theology_items else None,
             "started_at": _now(),
