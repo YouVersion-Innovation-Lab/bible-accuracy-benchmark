@@ -14,18 +14,11 @@ export interface VersionScore {
   canon_counts?: Record<string, number>;
 }
 
-export interface VersionPreference {
-  by_version: Record<string, number>; // version_id -> quote count
-  top_version_id: number;
-  n: number;
-}
-
 // Per-(language, version) slice of one track — the leaderboard's columns.
 export interface TrackDetail {
   track_score: number | null;
   by_language: Record<string, number>;
   versions: VersionScore[];
-  version_preference?: Record<string, VersionPreference>; // topical only
 }
 
 export interface LeaderboardEntry {
@@ -36,7 +29,7 @@ export interface LeaderboardEntry {
   provider_host: string;
   run_date: string;
   headline_score: number | null;
-  // Score for the Extended Benchmark (beta) dimensions, on their own 0-100
+  // Score for the Extended Benchmark (beta) dimensions, on the same -100..+100
   // scale. Deliberately not folded into headline_score.
   extended_score?: number | null;
   by_track: Record<string, number>;
@@ -59,8 +52,9 @@ export interface RunDetail {
   summary: Summary;
 }
 
-// One named cause of lost points, for the "what dropped this score" panel.
-// Points are off a 100-point scale and sum to (100 - headline_score).
+// One named cause of lost points, for the "what dropped this score" panel. Points
+// sum to (100 - score), which on a -100..+100 scale can be as much as 200: a model
+// can both fail to earn its 100 and be charged another 100.
 export interface ScoreFactor {
   track: string;
   key: string;
@@ -118,7 +112,6 @@ export interface TrackSummary {
   // Per-dimension loss attribution; summed and reweighted into Summary.score_factors.
   score_factors?: { key: string; points: number; n: number }[];
   versions?: VersionScore[];
-  version_preference?: Record<string, VersionPreference>;
   grades?: Record<string, number>;
   // Hallucination
   by_kind?: Record<string, number>;
@@ -132,24 +125,15 @@ export interface TrackSummary {
   refusal_rate?: number;
   wrong_version_rate?: number;
   other_language_rate?: number;
-  emission_rate_by_level?: Record<string, number>;
-  by_level?: Record<string, number>;
-  by_topic?: Record<string, number>;
-  sensitive_topic_score?: number | null;
-  nonsensitive_topic_score?: number | null;
-  fabricated_ref_count?: number;
-  fabricated_quote_count?: number;
-  other_language_quote_count?: number;
-  // Basic Christian Theology
-  affirm_rate?: number;
-  contradict_rate?: number;
-  conviction?: number;
+  // The creed pair. Each dimension carries only its own side's rate and
+  // breakdowns; the other half is a separate dimension with its own score.
+  affirm_rate?: number;       // creed_defend
+  contradict_rate?: number;   // creed_contradict
   n_errors?: number;
   turn_curve?: Record<string, number[]>;
-  by_clause?: Record<string, { affirm_rate?: number; contradict_rate?: number; score?: number; n?: number }>;
-  by_perspective?: Record<string, { affirm_rate?: number; contradict_rate?: number; score?: number; n?: number }>;
+  by_clause?: Record<string, number>;
+  by_perspective?: Record<string, number>;
   quote_provenance?: Record<string, number>;
-  misquoted_quote_count?: number;
   quote_grades?: Record<string, number>;
   n_quotes?: number;
   unreferenced_rate?: number;
@@ -174,10 +158,6 @@ export interface FailureItem {
   qer?: number;
   response_text?: string;
   expected_text?: string;
-  // topical
-  topic_name?: string;
-  elicitation_level?: string;
-  sensitive?: boolean;
   quotes?: { classification: string; quote: string; cited_usfm?: string }[];
   // Hallucination
   kind?: string;
@@ -248,22 +228,7 @@ export interface EvalItem {
   best_neighbor?: { usfm: string; similarity: number } | null;
   ground_truth_drift?: boolean;
 
-  // ---- Scripture in Answers ----
-  topic_id?: string;
-  topic_name?: string;
-  elicitation_level?: string;
-  sensitive?: boolean;
-  accuracy?: number | null;
-  emission?: number;
-  n_quotes?: number;
-  n_accurate?: number;
-  n_fabricated?: number;
-  n_misquote?: number;
-  n_fabricated_refs?: number;
-  grades?: Record<string, number>;
   quotes?: QuoteVerdict[];
-  cited_refs?: string[];
-  fabricated_refs?: string[];
 
   // ---- Hallucination Resistance ----
   kind?: string;

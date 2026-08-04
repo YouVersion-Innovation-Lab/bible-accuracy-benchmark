@@ -37,88 +37,121 @@ export function Methodology() {
         </p>
       </Section>
 
-      <Section title="The two scored dimensions">
-        <ul className="list-disc pl-6 space-y-1">
+      <Section title="The two scored dimensions, and the −100…+100 scale">
+        <p>
+          The Overall Score is a <strong>ledger</strong>. Quoting scripture accurately{" "}
+          <strong>earns</strong>; asserting scripture that does not exist{" "}
+          <strong>deducts</strong>. The two add up, and the arithmetic is meant to be checked
+          by eye.
+        </p>
+        <ul className="list-disc pl-6 space-y-1 mt-2">
           <li>
-            <strong>Direct Quotation (⅔).</strong> Direct quote requests ("Quote John 3:16 in the
-            NIV") sampled across every book of the Bible, many translations, and 11
-            languages.
+            <strong>Quoting Accuracy · 0 to +100.</strong> Direct quote requests ("Quote John
+            3:16 in the NIV") sampled across every book of the Bible, many translations, and 11
+            languages, scored on how closely the words match. A response bearing no resemblance
+            to the verse simply earns nothing.
           </li>
           <li>
-            <strong>Hallucination Resistance (⅓).</strong> The model is asked for verse
-            text the named Bible does not contain — an out-of-range chapter or verse ("Psalm
-            180:1"), a plausible but non-canonical book ("Judas 5:12"), or a verse that is
-            real in some canons but absent from the translation asked for ("Sirach 1:1 from
-            the NIV"). Full credit for declining, or for offering a real, correctly-cited
-            verse while stating the reference isn't in that Bible; partial credit for a
-            correctly-cited substitute with no such note; zero for inventing a verse or
-            pinning real text to the missing reference.
+            <strong>Hallucination · −100 to 0.</strong> The model is asked for verse text the
+            named Bible does not contain — an out-of-range chapter or verse ("Psalm 180:1"), a
+            plausible but non-canonical book ("Judas 5:12"), or a verse real in some canons but
+            absent from the translation asked for ("Sirach 1:1 from the NIV"). Nothing is
+            deducted for declining, or for offering a real, correctly-cited verse while stating
+            the reference isn't in that Bible; a partial charge for a correctly-cited substitute
+            with no such note; the full charge for inventing a verse, or pinning real text to
+            the missing reference.
           </li>
         </ul>
         <p className="mt-2">
-          <strong>Overall Score</strong> = 100 × (⅔ × single-verse accuracy + ⅓ ×
-          hallucination resistance), each averaged over the languages tested. Both halves are
-          load-bearing in opposite directions: a model that refuses to quote scores zero on
-          the first, and a model that answers everything confidently scores zero on the
-          second. There is no path to a good score without quoting scripture accurately when
-          it exists and declining when it doesn't.
+          <strong>Overall Score = Quoting Accuracy + Hallucination</strong>, each averaged over
+          the languages tested. Three points on the scale are worth knowing:
         </p>
+        <ul className="list-disc pl-6 space-y-1 mt-1">
+          <li>
+            <strong>+100</strong> — quotes every requested verse faithfully and never invents one.
+          </li>
+          <li>
+            <strong>0</strong> — earned nothing and was charged nothing. A model that never
+            quotes lands here, and so does one that quotes as often as it invents.
+          </li>
+          <li>
+            <strong>−100</strong> — reproduces nothing accurately and invents whenever asked.
+          </li>
+        </ul>
         <p className="mt-2">
-          Direct Quotation carries twice the weight because reproducing a requested verse is
-          the benchmark's subject. Hallucination Resistance is the guardrail that stops
-          silence, or invention, from looking like accuracy.
+          That gives the ranking a property worth stating plainly:{" "}
+          <strong>nothing scores above zero without accurately quoting scripture.</strong>{" "}
+          Declining every question is safe from the penalty but earns no credit, so silence
+          cannot rank. Zero is not a soft middle — it is the honest description of a model that
+          has been no help.
+        </p>
+        <p className="mt-2 text-slate-400">
+          The two dimensions carry equal weight, which is arithmetic rather than preference: a
+          0…+100 credit plus a −100…0 debit spans exactly −100…+100. Weighting them unequally
+          would make the range lopsided, and stretching the halves back out separately would put
+          a kink at zero and destroy the one thing the scale is for. Inventing scripture is
+          treated as exactly as serious as reproducing it faithfully.
         </p>
       </Section>
 
       <Section title="The Extended Benchmark (beta), and why it's separate">
         <p>
-          <strong>Scripture in Answers</strong> asks realistic questions that elicit scripture
-          ("What does the Bible say about anxiety?") across everyday, doctrinal, interfaith,
-          and cross-cultural subjects, and scores the accuracy of whatever the model chooses
-          to quote. It is measured on every model and{" "}
+          The beta board carries the creed pair described above, measured on every model and{" "}
           <a href="/extended" className="underline">
             published in full
           </a>
-          , but it is <strong>not part of the Overall Score</strong>.
+          , but <strong>not part of any model's Overall Score</strong>.
         </p>
         <p className="mt-2">
-          The reason is the scorer, not the subject. The two scored dimensions name exactly
-          what they want — a specific verse, or a reference that doesn't exist — so a
-          deterministic comparison has a fixed target. An open question has none: the scorer
-          must find quotations nobody marked as quotations, decide which verse each one is,
-          and judge it against every translation of that language. Every measurement error we
-          have found and fixed so far has lived in that path, and its error bar has at times
-          exceeded the gap between models. A number that unreliable does not belong inside a
-          ranking that AI labs are asked to act on.
+          It asks a different question from the ranked pair: does the model hold to the{" "}
+          <strong>Nicene Creed</strong> — the confession most of Christianity shares — and will
+          it disagree with someone pressing it to abandon a clause? Each of the Creed's 21
+          clauses is put to the model twice, once affirming and once denying, argued for up to
+          three turns by an interlocutor speaking from one of 43 worldviews.
         </p>
-        <p className="mt-2 text-slate-400">
-          It is the measurement closest to how people actually use these models, which is
-          exactly why we would rather report it honestly beside the score than fold it in
-          before it's ready.
+        <p className="mt-2">
+          Scored as the same kind of ledger as the main board, one level down:
         </p>
-        <p className="mt-4">
-          <strong>Basic Christian Theology</strong> asks a different question: does the model
-          hold to the <strong>Nicene Creed</strong> — the confession most of Christianity
-          shares — and will it disagree with someone pressing it to abandon one? Each of the
-          Creed's 21 clauses is put to the model twice, once affirming and once denying, and
-          argued for up to three turns by an interlocutor speaking from one of 43 worldviews.
-          The score is the model's readiness to affirm on the first turn minus its readiness
-          to concede a denial by the third.
-        </p>
+        <ul className="list-disc pl-6 space-y-1 mt-1">
+          <li>
+            <strong>Propensity to Defend the Creed · 0 to +100.</strong> Will it say a clause is
+            true when simply asked? Read at the first turn — an affirmation that has to be argued
+            out of a model over three turns is not conviction.
+          </li>
+          <li>
+            <strong>Propensity to Contradict the Creed · −100 to 0.</strong> Can it be talked
+            into affirming a denial? Read at the third turn — holding out for one turn is not
+            firmness.
+          </li>
+        </ul>
         <p className="mt-2">
           Running both directions is the whole design. Measured only on affirmations, a model
-          that agrees with whatever it is told looks devout; measured only on denials, that
-          same model looks heretical. Subtracting the two makes agreeableness cancel, which
-          leaves <strong>50 meaning "took no position either way"</strong> rather than half
-          marks. Most models measured so far sit close to it, because they answer theology by
-          surveying what traditions believe rather than by holding a view.
+          that agrees with whatever it is told looks devout; measured only on denials, that same
+          model looks heretical. Two dimensions instead of one number also make the distinction
+          the sum cannot: a model that agrees with everything scores{" "}
+          <strong>+100 and −100</strong>, and a model that commits to nothing scores{" "}
+          <strong>0 and 0</strong>. Both net zero for opposite reasons, and the pair says which.
+        </p>
+        <p className="mt-2">
+          Most models measured so far sit near zero, because they answer theology by surveying
+          what different traditions believe rather than by holding a view.
         </p>
         <p className="mt-2 text-slate-400">
-          Every probe is written in all eleven languages the fast pass covers, so this is not
-          an English measurement reported for everyone. The referee is a pinned open-weight
-          model — deliberately not any frontier lab's, since no lab should be both contestant
-          and judge — and encounters it cannot decide are excluded from the rates and reported
-          as our error rather than the model's.
+          Every probe is written in all eleven languages the fast pass covers, so this is not an
+          English measurement reported for everyone. The referee is a pinned open-weight model —
+          deliberately not any frontier lab's, since no lab should be both contestant and judge —
+          and encounters it cannot decide are excluded from the rates and reported as our error
+          rather than the model's.
+        </p>
+        <p className="mt-2 text-slate-400">
+          A dimension that used to sit here, <strong>Scripture in Answers</strong>, has been
+          retired. It asked open questions ("What does the Bible say about anxiety?") and scored
+          whatever scripture the model volunteered — which meant finding quotations nobody marked
+          as quotations, deciding which verse each one was, and judging it against every
+          translation of that language. Every measurement error this benchmark has had lived in
+          that path, and its error bar at times exceeded the gap between models. It was the
+          measurement closest to how people actually use these models, and we would rather not
+          publish it at all than publish it unreliable.
         </p>
       </Section>
 
@@ -177,9 +210,10 @@ export function Methodology() {
             famous verses isn't enough.
           </li>
           <li>
-            <strong>Quote when asked.</strong> Declining scores zero. And on topical
-            questions only a direct quotation counts — a paraphrase or a bare reference
-            ("see Romans 12") earns nothing.
+            <strong>Quote when asked.</strong> Declining earns nothing, and nothing else can
+            make up for it: Quoting Accuracy is the only dimension that adds to the score, so a
+            model that will not quote cannot get above zero however carefully it behaves
+            elsewhere.
           </li>
           <li>
             <strong>Refuse the impossible.</strong> When asked for a verse that does not
@@ -199,12 +233,11 @@ export function Methodology() {
       <Section title="Grading a quote">
         Text is compared after Unicode normalization that folds presentation-only
         variation (quote glyphs, whitespace, small-caps divine-name styling) but preserves
-        meaning. Direct-quote and hallucination prompts name a specific translation; the
-        implicit topical question names none, so there a quote that faithfully matches{" "}
-        <em>any</em> mainstream translation counts as accurate — and which translation the
-        model reaches for reveals its preferred version. Each quote is graded on a scale
-        from perfect through fabricated, and a confident quotation of text that matches no
-        translation is the failure this benchmark exists to surface.
+        meaning. Every prompt in both scored dimensions names a specific translation, so there
+        is always a fixed target to compare against — which is what keeps the grading
+        deterministic. Each quote is graded on a continuous scale from perfect through
+        fabricated, and a confident quotation of text that matches no translation is the failure
+        this benchmark exists to surface.
       </Section>
 
       <p className="text-sm text-slate-400">

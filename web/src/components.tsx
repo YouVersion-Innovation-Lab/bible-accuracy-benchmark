@@ -1,35 +1,50 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { heatColor } from "./constants";
+import { type Polarity, scoreColor, signed } from "./constants";
 
-export function ScoreBadge({ score }: { score: number | null | undefined }) {
+/**
+ * A score in display points. `polarity` says what zero means, which differs by
+ * dimension — worst possible for a credit one, a clean sheet for a debit one, the
+ * neutral middle for a signed one — so it drives both the colour and whether a
+ * plus sign is worth showing.
+ */
+export function ScoreBadge({
+  score,
+  polarity = "signed",
+}: {
+  score: number | null | undefined;
+  polarity?: Polarity;
+}) {
   if (score == null) return <span className="text-slate-500">—</span>;
-  const hue = Math.round((score / 100) * 120); // red→green
+  const { bg, fg } = scoreColor(score, polarity);
   return (
     <span
       className="inline-block rounded-md px-2 py-0.5 font-mono font-semibold tabular-nums"
-      style={{ background: `hsl(${hue} 60% 22%)`, color: `hsl(${hue} 85% 78%)` }}
+      style={{ background: bg, color: fg }}
     >
-      {score.toFixed(1)}
+      {polarity === "credit" ? score.toFixed(1) : signed(score)}
     </span>
   );
 }
 
-// Heat-map matrix cell for a 0..1 score (leaderboard + model-detail tables).
-// Given `href`, the whole cell links to the test cases behind the number.
-// `divider` marks the first cell of a column group.
+// Heat-map matrix cell for a score in DISPLAY POINTS (-100..+100), not a 0..1
+// fraction — the cells carry ledger sums now, and a sum of a credit and a debit
+// has no natural 0..1 form. Given `href`, the whole cell links to the test cases
+// behind the number. `divider` marks the first cell of a column group.
 export function HeatCell({
   value,
   title,
   href,
   divider,
+  polarity = "signed",
 }: {
   value: number | undefined;
   title?: string;
   href?: string;
   divider?: boolean;
+  polarity?: Polarity;
 }) {
-  const { bg, fg } = heatColor(value);
+  const { bg, fg } = scoreColor(value, polarity);
   const linked = href != null && value != null;
   return (
     <td
@@ -43,10 +58,10 @@ export function HeatCell({
           className="block px-3 py-3 no-underline hover:brightness-125"
           style={{ color: fg }}
         >
-          {(value * 100).toFixed(0)}
+          {value.toFixed(0)}
         </Link>
       ) : (
-        <span className="block px-3 py-3">{value == null ? "—" : (value * 100).toFixed(0)}</span>
+        <span className="block px-3 py-3">{value == null ? "—" : value.toFixed(0)}</span>
       )}
     </td>
   );

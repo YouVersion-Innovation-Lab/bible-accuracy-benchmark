@@ -65,8 +65,8 @@ export function Board({ section }: { section: Section }) {
       })),
       // Both ranked dimensions name a translation in their prompts, so a
       // translation column is the same blend as a language column — just at a
-      // finer grain. It used to be Direct Quotation alone, because Hallucination
-      // Resistance named no translation and had nothing to contribute here.
+      // finer grain. It used to be Quoting Accuracy alone, because the hallucination
+      // prompts named no translation and had nothing to contribute here.
       ...versions.map((s, i) => ({
         key: s.key,
         label: s.label,
@@ -82,8 +82,13 @@ export function Board({ section }: { section: Section }) {
 
   const rows = useMemo(() => {
     const col = cols.find((c) => c.key === sortKey);
+    // Both are display points now, so neither needs scaling; -Infinity rather
+    // than -1 for "no data", because a real score can legitimately be negative
+    // and -1 would sort a genuinely bad model above a missing one.
     const val = (e: LeaderboardEntry) =>
-      sortKey !== OVERALL && col ? (col.get(e) ?? -1) * 100 : (section.scoreOf(e) ?? -1);
+      sortKey !== OVERALL && col
+        ? (col.get(e) ?? -Infinity)
+        : (section.scoreOf(e) ?? -Infinity);
     return [...entries].sort((a, b) => val(b) - val(a));
   }, [entries, cols, sortKey, section]);
 
@@ -247,22 +252,25 @@ function MainIntro() {
       <h1 className="text-3xl font-bold text-white">How accurately do LLMs quote the Bible?</h1>
       <div>
         <p>
-          A public, deterministic benchmark of how faithfully LLMs quote the Bible. Two scored
-          dimensions:
+          A public, deterministic benchmark of how faithfully LLMs quote the Bible. Scores run{" "}
+          <strong>−100 to +100</strong>, and are a ledger of two dimensions:
         </p>
         <ul className="list-disc pl-5 mt-1 space-y-0.5">
           <li>
-            <strong>Direct Quotation</strong> — asked for a specific verse, does it reproduce the
-            exact text?
+            <strong>Quoting Accuracy</strong> <span className="text-emerald-300/80">(earns up to
+            +100)</span> — asked for a specific verse, does it reproduce the exact text?
           </li>
           <li>
-            <strong>Hallucination Resistance</strong> — asked for a verse that doesn't exist, does
-            it decline or invent one?
+            <strong>Hallucination</strong> <span className="text-rose-300/80">(deducts up to
+            −100)</span> — asked for a verse that doesn't exist, does it decline or invent one?
           </li>
         </ul>
         <p className="mt-1">
-          Accurate, willing quotation scores high; misquotes, invented verses, and refusing to quote
-          when a quote is warranted score low.
+          The two add up, so every score on this board can be checked by eye. A model that quotes
+          faithfully and never invents approaches <strong>+100</strong>; one that invents as often
+          as it quotes lands near <strong>zero</strong> — and so does one that simply never quotes,
+          because declining earns nothing.{" "}
+          <strong>Nothing scores above zero without accurately quoting scripture.</strong>
         </p>
       </div>
       <p className="text-slate-400">
@@ -285,45 +293,42 @@ function ExtendedIntro() {
       <BetaNotice />
       <div>
         <p>
-          <strong>Scripture in Answers.</strong> The benchmark's two scored dimensions both name
-          exactly what they want: a verse, or a reference that doesn't exist. This one doesn't. It
-          asks an open question — “What does the Bible say about anxiety?” — and scores the accuracy
-          of whatever scripture the model volunteers, if any.
+          The same kind of ledger as the main board, applied to a different question: does a model
+          hold to the <strong>Nicene Creed</strong> — the confession most of Christianity shares —
+          and will it disagree with someone pressing it to abandon a clause?
         </p>
         <p className="mt-2">
-          That makes it the measurement closest to how people actually use these models, and the
-          hardest to score: the scorer has to find quotations nobody marked, decide which verse each
-          one is, and judge it against every translation of that language. It is reported here on
-          its own terms while that work settles.
+          Every clause of the Creed is put to the model twice — once affirming it, once denying it —
+          and argued by a persistent interlocutor for up to three turns, in eleven languages.
         </p>
-      </div>
-      <div>
-        <p>
-          <strong>Basic Christian Theology.</strong> The only dimension here that isn't about
-          quoting at all. Every clause of the Nicene Creed is put to the model twice — once
-          affirming it, once denying it — and argued by a persistent interlocutor for up to three
-          turns. It asks two questions at once: will the model stand behind the Creed, and will it
-          disagree with someone pressing it to abandon it?
-        </p>
+        <ul className="list-disc pl-5 mt-2 space-y-0.5">
+          <li>
+            <strong>Propensity to Defend the Creed</strong>{" "}
+            <span className="text-emerald-300/80">(earns up to +100)</span> — will it say a clause
+            is true when simply asked?
+          </li>
+          <li>
+            <strong>Propensity to Contradict the Creed</strong>{" "}
+            <span className="text-rose-300/80">(deducts up to −100)</span> — can it be talked into
+            affirming a denial?
+          </li>
+        </ul>
         <p className="mt-2">
           Both directions are needed because either alone rewards the wrong thing. A model that
           simply agrees with whoever is talking looks devout when you only ask it to affirm — and
-          looks heretical when you only ask it to deny. Scoring both makes agreeableness cancel out.
-        </p>
-        <p className="mt-2 text-amber-200/80">
-          Read 50 as <em>took no position either way</em>, not as half marks. Most models tested so
-          far sit near it, because they answer theology by describing what different traditions
-          believe rather than by holding a view. That is a finding, not a failure — but it means a
-          score near the middle here says something quite different from a score near the middle
-          anywhere else on this site.
+          looks heretical when you only ask it to deny. Running both makes agreeableness cancel.
         </p>
       </div>
+      <p className="text-amber-200/80">
+        Read <strong>zero</strong> here as <em>took no position either way</em>. Most models tested
+        so far sit near it, because they answer theology by describing what different traditions
+        believe rather than by holding a view — and the two dimensions tell you which kind of zero
+        you are looking at. A model at <strong>+100 / −100</strong> agrees with everything put to
+        it; one at <strong>0 / 0</strong> commits to nothing. Same net, opposite behaviour.
+      </p>
       <p className="text-slate-400">
-        Read exactly as the main board: same columns, same colours, same drill-downs — except that
-        the Extended Score is the plain average of the two dimensions above, which measure unrelated
-        things. A model strong on one and neutral on the other lands mid-table looking mediocre at
-        both, so the per-dimension columns and each model's own page are where the reading is. None
-        of it counts toward any model's Overall Score.
+        Read exactly as the main board: same columns, same colours, same drill-downs, and the two
+        dimensions add up the same way. None of it counts toward any model's Overall Score.
       </p>
     </section>
   );
@@ -339,10 +344,9 @@ function CrossLink({ section }: { section: Section }) {
             Extended Benchmark — Beta →
           </Link>
           <p className="text-xs text-slate-500 mt-1">
-            Two dimensions measured on every model above but held out of the ranking. Scripture in
-            Answers: how accurate the verses are when a model quotes scripture unprompted, in reply
-            to an ordinary question. Basic Christian Theology: whether it holds to the Nicene Creed
-            under pressure, and whether it will disagree.
+            Whether a model holds to the Nicene Creed under pressure, and whether it will disagree —
+            scored as the same credit-and-debit ledger as this board, and counting toward no model's
+            Overall Score.
           </p>
         </>
       ) : (
@@ -351,7 +355,7 @@ function CrossLink({ section }: { section: Section }) {
             ← Back to the Bible Accuracy Benchmark
           </Link>
           <p className="text-xs text-slate-500 mt-1">
-            The scored board: Direct Quotation and Hallucination Resistance, {MAIN.composition}.
+            The scored board: {MAIN.composition}.
           </p>
         </>
       )}

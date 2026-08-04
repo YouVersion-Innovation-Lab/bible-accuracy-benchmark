@@ -79,17 +79,6 @@ const FACTOR_COPY: Record<string, FactorCopy> = {
       "Offered no gradeable quotation when directly asked for one. Declining is a scored failure, not an exclusion — a model that won't quote can't be accurate.",
   },
 
-  // Scripture in Answers
-  no_quote: {
-    label: "Answered without quoting scripture",
-    detail:
-      "Discussed the topic but never quoted a verse, so there was nothing to check. Paraphrase and bare references (“see Romans 12”) don't count.",
-  },
-  inaccurate_quotes: {
-    label: "Quoted, but not accurately",
-    detail:
-      "Volunteered scripture that either misquotes a verse we can name, or matches no verse at all. The dimension breakdown below separates the two.",
-  },
   conceded_denial: {
     label: "Agreed to deny the Creed",
     detail:
@@ -173,13 +162,15 @@ export function ScoreFactors({ factors, score }: { factors: ScoreFactor[]; score
       <div className="flex items-baseline justify-between gap-3 flex-wrap">
         <h2 className="text-lg font-semibold">What dropped this score</h2>
         <div className="text-xs text-slate-500 tabular-nums">
-          {total.toFixed(1)} points lost of 100
+          {total.toFixed(1)} points short of +100
         </div>
       </div>
       <p className="text-xs text-slate-500 mt-1 mb-4 leading-relaxed">
-        Every point between this model's score and 100, attributed to the behaviour that
-        cost it and ranked by impact. The figures add up to the shortfall exactly, so the
-        biggest entry is genuinely the biggest thing to fix.
+        Every point between this model's score and <strong>+100</strong>, attributed to the
+        behaviour that cost it and ranked by impact. The figures add up to the shortfall
+        exactly, so the biggest entry is genuinely the biggest thing to fix. Two kinds of
+        entry sit here together: points a model failed to <em>earn</em>, and points it was{" "}
+        <em>charged</em> — which is why the total can exceed 100 for a model that did both.
       </p>
 
       <ol className="space-y-2.5">

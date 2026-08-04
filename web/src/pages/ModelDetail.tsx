@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, type SummarySlice, type SummaryView, type TrackSummary } from "../api";
 import { BetaNotice, HeatCell, Loading, ScoreBadge } from "../components";
-import { langName, orderLanguages } from "../constants";
+import { langName, orderLanguages, trackPoints } from "../constants";
 import { DimensionBreakdown } from "../dimensionDetail";
 import { useAsync } from "../hooks";
 import {
@@ -140,14 +140,16 @@ export function Report({ section }: { section: Section }) {
             <div key={meta.key} className="rounded-xl border border-white/10 bg-white/[0.03] p-5">
               <div className="flex items-baseline justify-between gap-2">
                 <h3 className="font-semibold">{meta.name}</h3>
-                <span className="text-2xl font-bold tabular-nums">
-                  {ts.track_score != null ? (ts.track_score * 100).toFixed(1) : "—"}
-                </span>
+                {/* The dimension's SIGNED contribution, not its raw track score.
+                    Printing the raw figure showed a -47.1 penalty as "52.9", which
+                    is the same mistake the "resistance" framing used to make. */}
+                <ScoreBadge score={trackPoints(meta.key, ts.track_score)}
+                            polarity={meta.polarity} />
               </div>
               <div className="text-xs text-slate-500">
                 {ts.n != null ? `${ts.n.toLocaleString()} test cases` : "all languages"}
-                {section.weights[meta.key] != null && present.length > 1 && (
-                  <> · {weightPct(section, meta.key)} of the score</>
+                {present.length > 1 && (
+                  <> · {meta.polarity === "debit" ? "deducts from" : "earns toward"} the score</>
                 )}
                 {slice && !slice.translation_scoped.includes(meta.key) && (
                   <> · all {langName(slice.language_tag)} translations</>
@@ -339,10 +341,6 @@ function TranslationFilter({
   );
 }
 
-function weightPct(section: Section, key: string): string {
-  const total = Object.values(section.weights).reduce((a, b) => a + b, 0);
-  return `${Math.round((100 * (section.weights[key] ?? 0)) / total)}%`;
-}
 
 // One dimension × slice heat matrix. Every populated cell links to the raw test
 // cases for exactly that (dimension, slice) subset.

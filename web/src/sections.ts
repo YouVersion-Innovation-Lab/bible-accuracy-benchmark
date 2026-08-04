@@ -9,7 +9,13 @@
  * a dimension is an edit here rather than a second copy of the UI.
  */
 import type { LeaderboardEntry, ScoreFactor, SummaryView, TrackSummary } from "./api";
-import { EXTENDED_TRACKS, HEADLINE_TRACKS, TRACK_WEIGHTS, type TrackMeta } from "./constants";
+import {
+  EXTENDED_TRACKS,
+  HEADLINE_TRACKS,
+  TRACK_WEIGHTS,
+  type TrackMeta,
+  trackPoints,
+} from "./constants";
 
 export interface Section {
   key: "main" | "extended";
@@ -50,7 +56,7 @@ export const MAIN: Section = {
   factorsOf: (s) => s.score_factors ?? [],
   langGroup: "Overall by language",
   verGroup: "Overall by translation",
-  composition: "67% Direct Quotation · 33% Hallucination Resistance",
+  composition: "Quoting Accuracy (0…+100) plus Hallucination (−100…0)",
 };
 
 export const EXTENDED: Section = {
@@ -60,19 +66,22 @@ export const EXTENDED: Section = {
   title: "Extended Benchmark — Beta",
   tracks: EXTENDED_TRACKS,
   weights: Object.fromEntries(EXTENDED_TRACKS.map((t) => [t.key, 1])),
-  versionTrack: "topical",
+  // Neither creed dimension mentions a translation — they quote no scripture at
+  // all — so this names one of them deliberately: it carries no version slices,
+  // which suppresses the per-translation block rather than borrowing a quoting
+  // dimension's translations onto a board they have nothing to do with.
+  versionTrack: "creed_defend",
   scoreOf: (e) => e.extended_score ?? null,
   summaryScoreOf: (s) => s.extended_score ?? null,
   factorsOf: (s) => s.extended_score_factors ?? [],
   langGroup: "Extended by language",
-  verGroup: "Scripture in Answers by translation",
-  // Written when this board held one dimension, where "the extended score" and
-  // "the topical score" were the same number. With two, the score is their equal
-  // mean — so say so, and say what it costs: the two dimensions measure
-  // unrelated things, and a model excellent at one and neutral on the other
-  // lands mid-table looking mediocre at both. The per-dimension columns and the
-  // model's own page are where the reading actually is.
-  composition: "50% Scripture in Answers · 50% Basic Christian Theology",
+  verGroup: "Extended by translation",
+  // The same ledger as the main board, one level down: defending the Creed earns,
+  // being talked into contradicting it deducts, and the two sum to the score. Their
+  // sum is the conviction figure a single signed dimension used to report — what the
+  // split adds is that a reader can see WHICH half a model is failing, since a
+  // sycophant and a model that commits to nothing both land on zero.
+  composition: "Defend the Creed (0…+100) plus Contradict it (−100…0)",
   beta: true,
 };
 
@@ -98,17 +107,13 @@ export function blendForSlice(
   section: Section,
   scoreAt: (trackKey: string) => number | undefined,
 ): number | undefined {
-  let num = 0;
-  let den = 0;
+  let total: number | undefined;
   for (const t of section.tracks) {
-    const v = scoreAt(t.key);
-    const w = section.weights[t.key] ?? 0;
-    if (v != null) {
-      num += w * v;
-      den += w;
-    }
+    const raw = scoreAt(t.key);
+    if (raw == null) continue;
+    total = (total ?? 0) + (trackPoints(t.key, raw) ?? 0);
   }
-  return den > 0 ? num / den : undefined;
+  return total;
 }
 
 /**

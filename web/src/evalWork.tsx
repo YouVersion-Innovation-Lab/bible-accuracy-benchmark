@@ -9,7 +9,6 @@
  */
 import type { ReactNode } from "react";
 import type { CallMeta, EvalItem, QuoteVerdict } from "./api";
-import { SensitiveTag } from "./components";
 import { wordDiff, type DiffPart } from "./diff";
 
 // Mirrors of the Python constants, for explaining a branch (not for computing).
@@ -343,7 +342,10 @@ function Side({ title, parts }: { title: string; parts: DiffPart[] }) {
   );
 }
 
-/* ----------------------------------------- Scripture in Answers (topical) */
+/* --------------------------- shared: one audited quotation span --------- */
+/* Used by the Hallucination renderer. It lived in the retired Scripture in
+   Answers block, which is where quote-by-quote verdicts were first shown; the
+   hallucination dimension audits spans the same way, so the row is shared. */
 
 const QUOTE_LABELS: Record<string, string> = {
   accurate: "matches the cited verse",
@@ -390,113 +392,6 @@ function QuoteRow({ q, i }: { q: QuoteVerdict; i: number }) {
         )}
       </div>
     </div>
-  );
-}
-
-export function TopicalWork({ item }: { item: EvalItem }) {
-  const quotes = item.quotes ?? [];
-  const scores = quotes.map((q) => q.score);
-  const mean = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : null;
-  return (
-    <Shell
-      item={item}
-      head={
-        <div>
-          <div className="text-sm text-white">
-            <span className="font-medium">{item.topic_name}</span>
-            <span className="text-slate-500">
-              {" "}
-              · {item.elicitation_level === "L1" ? "L1 · asked to quote" : "L2 · quoting optional"} ·{" "}
-              {item.language_tag}
-            </span>
-            {item.sensitive && <SensitiveTag />}
-          </div>
-          <div className="text-xs text-slate-500 mt-0.5">
-            Scored on the accuracy of whatever scripture the model chose to quote.
-          </div>
-        </div>
-      }
-    >
-      {quotes.length > 0 ? (
-        <div>
-          <div className="text-xs text-slate-500 mb-1.5">
-            Scripture detected in the response ({quotes.length}
-            {item.n_accurate != null ? `, ${item.n_accurate} accurate` : ""})
-          </div>
-          <div className="space-y-1.5">
-            {quotes.map((q, i) => (
-              <QuoteRow key={i} q={q} i={i} />
-            ))}
-          </div>
-        </div>
-      ) : (
-        <div className="text-sm text-slate-400 rounded-lg bg-black/20 border border-white/5 p-3">
-          No quoted scripture was detected in this response.
-        </div>
-      )}
-
-      <Work>
-        <Step n={1} label="Find every span presented as scripture">
-          {quotes.length === 0 ? (
-            <>
-              Nothing quoted — no quotation marks, no blockquote, and no sentence matching a real
-              verse closely enough (≥ {QUOTE_SIM.minor}) to count as an unmarked quote.
-            </>
-          ) : (
-            <>
-              Found <Num>{quotes.length}</Num> verifiable quotation
-              {quotes.length === 1 ? "" : "s"}, each checked against the verse it cites — or, when
-              uncited, against every verse of the translation.
-            </>
-          )}
-        </Step>
-        <Step n={2} label="Accuracy — mean of the per-quote scores">
-          {mean == null ? (
-            <span className="text-slate-400">Not applicable: nothing was quoted.</span>
-          ) : (
-            <>
-              <Num>
-                ({scores.map((s) => s.toFixed(2)).join(" + ")}) ÷ {scores.length} ={" "}
-                {(item.accuracy ?? mean).toFixed(4)}
-              </Num>
-              {item.grades && Object.keys(item.grades).length > 0 && (
-                <div className="text-xs text-slate-500 mt-1">
-                  {Object.entries(item.grades)
-                    .map(([g, n]) => `${n} ${g}`)
-                    .join(" · ")}
-                </div>
-              )}
-            </>
-          )}
-        </Step>
-        <Step n={3} label="Emission — did it quote at all?">
-          {item.emission ? (
-            <>
-              <Num>1.0</Num> — at least one verifiable quotation.
-            </>
-          ) : (
-            <>
-              <Num>0.0</Num> — quoting nothing scores zero, at both levels. Paraphrase and bare
-              references don’t count; only a quotation can be checked for accuracy.
-            </>
-          )}
-        </Step>
-        {(item.n_fabricated_refs ?? 0) > 0 && (
-          <Step n={4} label="Fabricated references">
-            <Num>{item.n_fabricated_refs}</Num> cited reference
-            {item.n_fabricated_refs === 1 ? "" : "s"} resolved to no real verse
-            {item.fabricated_refs && item.fabricated_refs.length > 0 && (
-              <span className="text-slate-500"> ({item.fabricated_refs.join(", ")})</span>
-            )}
-            .
-          </Step>
-        )}
-        <Result
-          formula={`accuracy ${item.accuracy == null ? "—" : item.accuracy.toFixed(4)} × emission ${(item.emission ?? 0).toFixed(1)}`}
-          value={item.score}
-        />
-      </Work>
-    </Shell>
   );
 }
 

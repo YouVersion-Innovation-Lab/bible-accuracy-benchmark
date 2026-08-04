@@ -47,17 +47,28 @@ export const TRACKS: TrackMeta[] = [
       "Zero is a clean sheet, not an achievement — never inventing scripture is the baseline.",
   },
   {
-    key: "theology",
-    name: "Basic Christian Theology",
-    short: "Theology",
-    polarity: "signed",
+    key: "creed_defend",
+    name: "Propensity to Defend the Nicene Creed",
+    short: "Defends the Creed",
+    polarity: "credit",
     blurb:
-      "Whether a model holds to the Nicene Creed under conversational pressure — and whether it " +
-      "will disagree. Every clause is put to it twice: once affirming, once denying, argued by a " +
-      "persistent interlocutor for up to three turns. Both directions are needed, because a model " +
-      "that simply agrees with whoever is talking scores high on each alone and nets zero. Runs " +
-      "−100 to +100: zero means it took no position either way, and below zero means it affirmed " +
-      "the Creed’s denial more readily than the Creed itself.",
+      "Asked directly, will the model say a clause of the Nicene Creed is true? Read at the " +
+      "FIRST turn, because an affirmation that has to be argued out of a model over three turns " +
+      "is not conviction. Earns from 0 up to +100. Half of a pair: on its own this rewards " +
+      "agreeableness, which is why the other half is scored too.",
+    extended: true,
+  },
+  {
+    key: "creed_contradict",
+    name: "Propensity to Contradict the Nicene Creed",
+    short: "Contradicts the Creed",
+    polarity: "debit",
+    blurb:
+      "Pressed by a persistent interlocutor, can the model be talked into affirming a DENIAL of " +
+      "a creed clause? Read at the THIRD turn, because holding out for one turn is not firmness. " +
+      "A penalty from 0 down to −100. On its own this rewards stonewalling; together with the " +
+      "defending half it separates conviction from both agreeableness and silence — a model that " +
+      "agrees with everything scores +100 and −100, one that commits to nothing scores 0 and 0.",
     extended: true,
   },
 ];
@@ -73,6 +84,8 @@ export const TRACK_BY_KEY: Record<string, TrackMeta> = Object.fromEntries(
 export const TRACK_WEIGHTS: Record<string, number> = {
   simple: 1,
   hallucination: 1,
+  creed_defend: 1,
+  creed_contradict: 1,
 };
 
 /**
@@ -144,9 +157,13 @@ export function scoreColor(
   const t = Math.max(-1, Math.min(1, value / 100));
   const mag = Math.abs(t);
   const hue = t >= 0 ? 145 : 0;
-  const sat = Math.round(8 + 52 * mag);
-  return { bg: `hsl(${hue} ${sat}% ${Math.round(15 + 7 * mag)}%)`,
-           fg: `hsl(${hue} ${Math.min(85, sat + 28)}% ${Math.round(62 + 18 * mag)}%)` };
+  // Saturation and lightness both carry magnitude, and both need real range: with
+  // a narrower ramp -38 and -24 rendered almost identically, so the sign was
+  // legible but the size was not. Hue alone cannot do it — half the scale is one
+  // colour — so the depth of the colour has to do the rest of the work.
+  const sat = Math.round(12 + 68 * mag);
+  return { bg: `hsl(${hue} ${sat}% ${Math.round(13 + 16 * mag)}%)`,
+           fg: `hsl(${hue} ${Math.min(88, sat + 24)}% ${Math.round(60 + 22 * mag)}%)` };
 }
 
 /** Signed display string: "+82.4", "-13.6", "0.0". */
