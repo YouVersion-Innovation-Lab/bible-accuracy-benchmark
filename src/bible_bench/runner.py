@@ -25,9 +25,9 @@ from dataclasses import asdict, dataclass
 from . import provenance, quoted, quotefind, theology, versification
 from .auditor import ACCURATE_SIM, QuoteAuditor, extract_quotes
 from .dataset import REFERENCE_SCHEME, BenchmarkItem
+from .hallucination import HallucinationItem, score_hallucination_verdicts
 from .llm import LlmClient
 from .normalize import normalize
-from .phantom import PhantomItem, score_phantom_verdicts
 from .prompts import BENCHMARK_SYSTEM_PROMPT, render_simple_prompt
 from .scoring import score_item
 from .theology import TheologyItem, run_encounter
@@ -339,7 +339,7 @@ class _Batch:
     """One language's responses with every quotation in them already identified.
 
     Shared by the two dimensions that judge scripture a model *volunteered*
-    (Scripture in Answers, Hallucination Resistance). They differ only in the
+    (the free-form auditing paths). They differ only in the
     verdict they draw from it, so the finding of quotations happens once.
     """
 
@@ -479,7 +479,7 @@ _WORDS = re.compile(r"\w+", re.UNICODE)
 
 
 async def _mark_absent_book_quotes(
-    verdicts: list[dict], item: PhantomItem, client: BibleClient, version_ids: list[int]
+    verdicts: list[dict], item: HallucinationItem, client: BibleClient, version_ids: list[int]
 ) -> None:
     """For an ``absent_from_version`` item, mark spans that quote the verse ASKED FOR.
 
@@ -521,7 +521,7 @@ async def _mark_absent_book_quotes(
             # "Misquote" is a claim we can't support here. The tested Bible doesn't
             # carry this book, so the model chose an edition — and we may not hold
             # it. At 0.75-0.89 against the nearest we do hold, a different edition
-            # is the likelier explanation than a sloppy quotation, and the phantom
+            # is the likelier explanation than a sloppy quotation, and the hallucination
             # ladder treats a misquote as invention. Say what we actually know.
             if v.get("classification") == "misquote":
                 v["classification"] = "unverified_edition"
@@ -840,8 +840,8 @@ def _quote_verdicts(
     return out
 
 
-async def generate_phantom(
-    items: list[PhantomItem],
+async def generate_hallucination(
+    items: list[HallucinationItem],
     model: LlmClient,
     *,
     concurrency: int = 12,
@@ -849,7 +849,7 @@ async def generate_phantom(
     checkpoint: CheckpointCb | None = None,
     progress: ProgressCb | None = None,
 ) -> list[dict]:
-    """Query the model for each phantom item (prompt precomputed). Answers are
+    """Query the model for each hallucination item (prompt precomputed). Answers are
     short — a refusal or a (bad) fabricated verse — so a modest token budget.
     Mirrors ``generate_simple``'s resume/checkpoint semantics."""
     done = already_done or set()
@@ -858,7 +858,7 @@ async def generate_phantom(
     lock = asyncio.Lock()
     collected: list[dict] = []
 
-    async def one(item: PhantomItem) -> None:
+    async def one(item: HallucinationItem) -> None:
         error = None
         resp = None
         async with sem:
@@ -883,16 +883,16 @@ async def generate_phantom(
     return collected
 
 
-async def score_phantom_items(
-    items_by_id: dict[str, PhantomItem],
+async def score_hallucination_items(
+    items_by_id: dict[str, HallucinationItem],
     responses: list[dict],
     client: BibleClient,
     *,
     progress: ProgressCb | None = None,
 ) -> list[dict]:
-    """Score phantom responses: asserting scripture where none exists fails;
+    """Score hallucination responses: asserting scripture where none exists fails;
     declining — or offering a real, clearly-cited substitute, ideally with a
-    "that isn't in the Bible" note — passes. See phantom.score_phantom.
+    "that isn't in the Bible" note — passes. See hallucination.score_hallucination.
 
     Detection is content-first and covers every translation of the language, so a
     model that correctly quotes a real verse as a helpful alternative is credited
@@ -936,7 +936,7 @@ async def score_phantom_items(
                 _span_ids_for(item.id, batch.marked_by_item[item.id], judgements),
             )
             # Attribution is adjacency-gated (see _attribute), which is what
-            # keeps the denied phantom reference from being read as the citation
+            # keeps the denied hallucination reference from being read as the citation
             # for a substitute verse offered later in the answer.
             refs = resolver.find(text)
             _attribute(verdicts, refs)
@@ -948,10 +948,10 @@ async def score_phantom_items(
             # Only for absent_from_version: the reference is real, so a targeted
             # comparison can recognise the verse in an edition we don't carry.
             await _mark_absent_book_quotes(verdicts, item, client, version_ids)
-            pscore = score_phantom_verdicts(verdicts, text, item.denial_markers)
+            pscore = score_hallucination_verdicts(verdicts, text, item.denial_markers)
             results.append({
                 "item_id": item.id,
-                "track": "phantom",
+                "track": "hallucination",
                 "language_tag": item.language_tag,
                 "version_id": item.version_id,
                 "version_abbrev": item.version_abbrev,
@@ -961,7 +961,7 @@ async def score_phantom_items(
                 "absent_source_abbrev": item.absent_source_abbrev,
                 "finish_reason": resp.get("finish_reason"),
                 "response_text": text,
-                "phantom_score": asdict(pscore),
+                "hallucination_score": asdict(pscore),
                 "quotes": verdicts,
                 "cited_refs": [r.usfm for r in refs],
                 "translations_searched": len(version_ids),

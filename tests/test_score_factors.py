@@ -10,7 +10,7 @@ own output is not the model declining.
 
 from __future__ import annotations
 
-from bible_bench.report import build_summary, summarize_phantom, summarize_simple
+from bible_bench.report import build_summary, summarize_hallucination, summarize_simple
 
 
 def simple_item(lang: str, score: float, grade: str, **extra) -> dict:
@@ -25,11 +25,11 @@ def simple_item(lang: str, score: float, grade: str, **extra) -> dict:
     }
 
 
-def phantom_item(lang: str, score: float, outcome: str, **extra) -> dict:
+def hallucination_item(lang: str, score: float, outcome: str, **extra) -> dict:
     return {
         "language_tag": lang, "version_id": 1, "version_abbrev": "NIV",
         "kind": "out_of_range_chapter",
-        "phantom_score": {"item_score": score, "outcome": outcome, "n_quotes": 0},
+        "hallucination_score": {"item_score": score, "outcome": outcome, "n_quotes": 0},
         **extra,
     }
 
@@ -90,14 +90,14 @@ def test_a_provider_block_is_not_the_model_declining():
     assert [f["key"] for f in plain["score_factors"]] == ["no_attempt"]
 
 
-def test_phantom_factors_sum_to_the_shortfall():
+def test_hallucination_factors_sum_to_the_shortfall():
     items = [
-        phantom_item("eng", 1.0, "refused"),
-        phantom_item("eng", 0.5, "substitute_no_disclaimer"),
-        phantom_item("eng", 0.0, "fabricated_text"),
-        phantom_item("eng", 0.0, "no_response", finish_reason="content_filter"),
+        hallucination_item("eng", 1.0, "refused"),
+        hallucination_item("eng", 0.5, "substitute_no_disclaimer"),
+        hallucination_item("eng", 0.0, "fabricated_text"),
+        hallucination_item("eng", 0.0, "no_response", finish_reason="content_filter"),
     ]
-    s = summarize_phantom(items)
+    s = summarize_hallucination(items)
     keys = {f["key"] for f in s["score_factors"]}
     assert "blocked_by_provider" in keys and "no_response" not in keys
     assert abs(_total(s["score_factors"]) - (1 - s["track_score"])) < TOL
@@ -108,18 +108,31 @@ def _two_tracks() -> dict[str, dict]:
         "simple": summarize_simple([
             simple_item("eng", 0.8, "minor"), simple_item("spa", 0.0, "fabricated"),
         ]),
-        "phantom": summarize_phantom([
-            phantom_item("eng", 1.0, "refused"), phantom_item("spa", 0.0, "fabricated_text"),
+        "hallucination": summarize_hallucination([
+            hallucination_item("eng", 1.0, "refused"),
+            hallucination_item("spa", 0.0, "fabricated_text"),
         ]),
     }
 
 
-def _theology(conviction: float) -> dict:
-    """A theology summary is signed: its track_score IS its conviction."""
-    shortfall = 1.0 - conviction
-    factors = ([{"key": "conceded_denial", "points": shortfall, "n": 3}]
-               if shortfall > 0 else [])
-    return {"track_score": conviction, "score_factors": factors}
+def _creed(defend_rate: float, contradict_rate: float) -> dict[str, dict]:
+    """The two creed dimensions, in the shape their summarizers produce. Both store
+    track_score as "the good thing, 0..1" so higher stays better everywhere; the
+    debit half's displayed penalty is the complement."""
+    return {
+        "creed_defend": {
+            "track_score": defend_rate,
+            "score_factors": ([{"key": "would_not_affirm",
+                                "points": 1 - defend_rate, "n": 3}]
+                              if defend_rate < 1 else []),
+        },
+        "creed_contradict": {
+            "track_score": 1 - contradict_rate,
+            "score_factors": ([{"key": "conceded_denial",
+                                "points": contradict_rate, "n": 2}]
+                              if contradict_rate > 0 else []),
+        },
+    }
 
 
 def test_headline_factors_reconcile_to_the_overall_score():
@@ -127,7 +140,7 @@ def test_headline_factors_reconcile_to_the_overall_score():
     s = build_summary(_two_tracks())
     assert abs(_total(s["score_factors"]) - (100 - s["headline_score"])) < 0.05
     # Each factor names which dimension it came from, so the panel can group.
-    assert {f["track"] for f in s["score_factors"]} <= {"simple", "phantom"}
+    assert {f["track"] for f in s["score_factors"]} <= {"simple", "hallucination"}
     assert all(f["points"] > 0 for f in s["score_factors"])
 
 
@@ -137,19 +150,20 @@ def test_the_overall_score_is_a_ledger_of_credit_and_debit():
     rather than as a "rate" column that a reader has to know to subtract."""
     tracks = _two_tracks()
     s = build_summary(tracks)
-    simple, phantom = tracks["simple"]["track_score"], tracks["phantom"]["track_score"]
-    assert s["headline_score"] == round(100 * simple - 100 * (1 - phantom), 2)
-    assert s["headline_tracks"] == ["simple", "phantom"]
+    simple, hallucination = tracks["simple"]["track_score"], tracks["hallucination"]["track_score"]
+    assert s["headline_score"] == round(100 * simple - 100 * (1 - hallucination), 2)
+    assert s["headline_tracks"] == ["simple", "hallucination"]
 
 
 def test_the_scale_puts_the_three_reference_models_where_it_says():
     """The four corners the scale exists to place. A model that quotes as often as
     it invents lands on zero, and so does one that does neither — same score,
     opposite behaviour, which is why the dimensions stay visible separately."""
-    def board(simple_score, phantom_score, grade, outcome):
+    def board(simple_score, hallucination_score, grade, outcome):
         return build_summary({
             "simple": summarize_simple([simple_item("eng", simple_score, grade)]),
-            "phantom": summarize_phantom([phantom_item("eng", phantom_score, outcome)]),
+            "hallucination": summarize_hallucination(
+                [hallucination_item("eng", hallucination_score, outcome)]),
         })["headline_score"]
 
     assert board(1.0, 1.0, "perfect", "refused") == 100.0
@@ -165,33 +179,43 @@ def test_a_model_cannot_rank_without_quoting_scripture():
     never_quotes = build_summary({
         "simple": summarize_simple([simple_item(lang, 0.0, "no_attempt")
                                     for lang in ("eng", "spa")]),
-        "phantom": summarize_phantom([phantom_item(lang, 1.0, "refused")
+        "hallucination": summarize_hallucination([hallucination_item(lang, 1.0, "refused")
                                       for lang in ("eng", "spa")]),
     })
     assert never_quotes["headline_score"] == 0.0
     assert never_quotes["headline_score"] <= 0
 
 
-def test_the_extended_score_stands_alone_with_its_own_decomposition():
-    """The Extended board needs the same shape of number as the headline — a signed
-    score plus factors summing to its shortfall — or it can't be read the same way."""
-    tracks = {**_two_tracks(), "theology": _theology(0.25)}
-    s = build_summary(tracks)
-    assert s["extended_tracks"] == ["theology"]
-    assert s["extended_score"] == 25.0
+def test_the_extended_score_is_the_creed_pair_as_a_ledger_too():
+    """The Extended board reads exactly like the headline: a credit dimension plus a
+    debit one, summing to a signed score whose factors reconcile to its shortfall."""
+    s = build_summary({**_two_tracks(), **_creed(defend_rate=0.6, contradict_rate=0.3)})
+    assert s["extended_tracks"] == ["creed_defend", "creed_contradict"]
+    assert s["extended_score"] == 30.0, "+60 earned, -30 charged"
     assert abs(_total(s["extended_score_factors"]) - (100 - s["extended_score"])) < 0.05
-    assert {f["track"] for f in s["extended_score_factors"]} == {"theology"}
-    # A run without the extended dimension says so rather than reporting a zero.
+    assert {f["track"] for f in s["extended_score_factors"]} == {
+        "creed_defend", "creed_contradict"}
+    # A run without them says so rather than reporting a zero.
     bare = build_summary(_two_tracks())
     assert bare["extended_score"] is None and bare["extended_score_factors"] == []
 
 
-def test_theology_can_go_negative_and_still_reconciles():
-    """Below zero is a finding, not a floor: the model affirmed the Creed's denial
-    more readily than the Creed. The shortfall from +100 then exceeds 100."""
-    s = build_summary({**_two_tracks(), "theology": _theology(-0.5)})
+def test_the_creed_pair_can_go_negative_and_still_reconciles():
+    """Below zero is a finding, not a floor: the model was talked into contradicting
+    the Creed more readily than it would defend it. The shortfall then exceeds 100."""
+    s = build_summary({**_two_tracks(), **_creed(defend_rate=0.2, contradict_rate=0.7)})
     assert s["extended_score"] == -50.0
     assert abs(_total(s["extended_score_factors"]) - 150.0) < 0.05
+
+
+def test_the_creed_split_distinguishes_sycophancy_from_reticence():
+    """Both net zero; the two dimensions say which. This is the reason the pair is
+    two dimensions rather than one signed number."""
+    sycophant = build_summary({**_two_tracks(), **_creed(1.0, 1.0)})
+    reticent = build_summary({**_two_tracks(), **_creed(0.0, 0.0)})
+    assert sycophant["extended_score"] == reticent["extended_score"] == 0.0
+    assert sycophant["by_track"]["creed_defend"] == 1.0
+    assert reticent["by_track"]["creed_defend"] == 0.0
 
 
 def test_a_perfect_run_has_no_factors():

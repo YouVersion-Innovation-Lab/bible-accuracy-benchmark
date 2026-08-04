@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 """Fast pre-flight smoke test for the bible-bench pipeline.
 
-Runs a COUPLE of items from each of the three eval dimensions (simple, topical,
-phantom) against every model we evaluate, exercising the real generation +
-scoring code paths — then sanity-checks that each cell:
+Runs a COUPLE of items from each ranked dimension (simple, hallucination) against
+every model we evaluate, exercising the real generation + scoring code paths — then
+sanity-checks that each cell:
 
   * produced a NON-EMPTY response (no blank / no API error), and
   * is SCORABLE — the scorer ran without throwing and returned a record per item.
@@ -36,16 +36,13 @@ load_dotenv(REPO / ".env")
 from bible_bench.config import LlmEndpointConfig, load_bible_api_config  # noqa: E402
 from bible_bench.dataset import DatasetSampler, load_spec  # noqa: E402
 from bible_bench.llm import LlmClient  # noqa: E402
-from bible_bench.phantom import build_phantom_items, load_phantom_config  # noqa: E402
+from bible_bench.hallucination import build_hallucination_items, load_hallucination_config  # noqa: E402
 from bible_bench.runner import (  # noqa: E402
-    generate_phantom,
+    generate_hallucination,
     generate_simple,
-    generate_topical,
-    score_phantom_items,
+    score_hallucination_items,
     score_simple,
-    score_topical_items,
 )
-from bible_bench.topical import build_topical_items, load_topics  # noqa: E402
 from bible_bench.version import BENCHMARK_VERSION  # noqa: E402
 from bible_bench.yv_client import BibleClient  # noqa: E402
 
@@ -73,7 +70,7 @@ MODELS = [
 # sixth of theology probes and needed ~183s for a single turn — which made it cost
 # several times its neighbours to measure for one data point.
 
-TRACKS = ("simple", "topical", "phantom")
+TRACKS = ("simple", "hallucination")
 
 
 def _cfg(m: dict) -> LlmEndpointConfig:
@@ -89,9 +86,9 @@ async def build_items(client: BibleClient):
     spec = "dataset/spec-v1.json"
     sampler = DatasetSampler(client, load_spec(spec), Path(spec))
     simple = (await sampler.sample(BENCHMARK_VERSION, counts_scale=0.05))[:N_PER_TRACK]
-    topical = build_topical_items(load_topics("dataset/topics-v1.json"))[:N_PER_TRACK]
-    phantom = (await build_phantom_items(client, load_phantom_config("dataset/phantom-v1.json")))[:N_PER_TRACK]
-    return simple, topical, phantom
+    hallucination = (await build_hallucination_items(
+        client, load_hallucination_config("dataset/hallucination-v1.json")))[:N_PER_TRACK]
+    return simple, hallucination
 
 
 def _verdict(items, responses, scored) -> tuple[bool, str]:
@@ -125,7 +122,7 @@ def _verdict(items, responses, scored) -> tuple[bool, str]:
     return ok, ", ".join(bits)
 
 
-async def smoke_model(m: dict, simple, topical, phantom, client: BibleClient) -> dict[str, tuple[bool, str]]:
+async def smoke_model(m: dict, simple, hallucination, client: BibleClient) -> dict[str, tuple[bool, str]]:
     model = LlmClient(_cfg(m))
     out: dict[str, tuple[bool, str]] = {}
     # simple
@@ -135,20 +132,13 @@ async def smoke_model(m: dict, simple, topical, phantom, client: BibleClient) ->
         out["simple"] = _verdict(simple, resp, scored)
     except Exception as e:  # noqa: BLE001
         out["simple"] = (False, f"EXC {type(e).__name__}: {str(e)[:60]}")
-    # topical
+    # hallucination
     try:
-        resp = await generate_topical(topical, model)
-        scored = await score_topical_items({i.id: i for i in topical}, resp, client)
-        out["topical"] = _verdict(topical, resp, scored)
+        resp = await generate_hallucination(hallucination, model)
+        scored = await score_hallucination_items({i.id: i for i in hallucination}, resp, client)
+        out["hallucination"] = _verdict(hallucination, resp, scored)
     except Exception as e:  # noqa: BLE001
-        out["topical"] = (False, f"EXC {type(e).__name__}: {str(e)[:60]}")
-    # phantom
-    try:
-        resp = await generate_phantom(phantom, model)
-        scored = await score_phantom_items({i.id: i for i in phantom}, resp, client)
-        out["phantom"] = _verdict(phantom, resp, scored)
-    except Exception as e:  # noqa: BLE001
-        out["phantom"] = (False, f"EXC {type(e).__name__}: {str(e)[:60]}")
+        out["hallucination"] = (False, f"EXC {type(e).__name__}: {str(e)[:60]}")
     return out
 
 
@@ -176,8 +166,8 @@ async def main() -> int:
                          offline=True)
     try:
         print(f"Building {N_PER_TRACK} items/track …")
-        simple, topical, phantom = await build_items(client)
-        print(f"  simple={len(simple)} topical={len(topical)} phantom={len(phantom)}\n")
+        simple, hallucination = await build_items(client)
+        print(f"  simple={len(simple)} hallucination={len(hallucination)}\n")
 
         results: dict[str, dict] = {}
         details: list[str] = []
@@ -188,7 +178,7 @@ async def main() -> int:
                 results[label] = None
                 continue
             print(f"{label:24} …", end="", flush=True)
-            res = await smoke_model(m, simple, topical, phantom, client)
+            res = await smoke_model(m, simple, hallucination, client)
             results[label] = res
             cells = " ".join(f"{t[:4]}={'ok' if res[t][0] else 'FAIL'}" for t in TRACKS)
             print(f"\r{label:24} {cells}")

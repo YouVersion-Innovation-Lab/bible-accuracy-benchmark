@@ -33,13 +33,13 @@ def _seed(tmp_path):
     store.write_text("runs/run-a/items.jsonl", "\n".join(json.dumps(r) for r in rows) + "\n")
     # Hallucination items in two languages/translations, so the version filter can
     # be checked on a track other than the direct-quote one.
-    store.write_text("runs/run-a/items_phantom.jsonl", "\n".join(json.dumps(r) for r in [
-        {"item_id": "p1", "track": "phantom", "language_tag": "eng", "version_abbrev": "NIV",
+    store.write_text("runs/run-a/items_hallucination.jsonl", "\n".join(json.dumps(r) for r in [
+        {"item_id": "p1", "track": "hallucination", "language_tag": "eng", "version_abbrev": "NIV",
          "version_id": 111, "kind": "fake_book",
-         "phantom_score": {"outcome": "refused", "item_score": 1.0}},
-        {"item_id": "p2", "track": "phantom", "language_tag": "kor", "version_abbrev": "KOR",
+         "hallucination_score": {"outcome": "refused", "item_score": 1.0}},
+        {"item_id": "p2", "track": "hallucination", "language_tag": "kor", "version_abbrev": "KOR",
          "version_id": 88, "kind": "fake_book",
-         "phantom_score": {"outcome": "fabricated_text", "item_score": 0.0}},
+         "hallucination_score": {"outcome": "fabricated_text", "item_score": 0.0}},
     ]) + "\n")
     # Generation records carry the prompt, joined into evaluations by item_id.
     store.write_text("runs/run-a/responses.jsonl", "\n".join(json.dumps(r) for r in [
@@ -121,7 +121,7 @@ def test_version_filter_applies_to_every_track(tmp_path):
     has to narrow any track — not just the direct-quote one. It used to be
     silently ignored elsewhere, which made a Korean cell open every language."""
     c = _client(tmp_path)
-    base = "/api/runs/run-a/evaluations?track=phantom"
+    base = "/api/runs/run-a/evaluations?track=hallucination"
     assert c.get(base).json()["total"] == 2
     kor = c.get(f"{base}&version_id=88").json()
     assert [i["id"] for i in kor["items"]] == ["p2"]

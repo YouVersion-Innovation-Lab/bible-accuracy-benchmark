@@ -11,11 +11,11 @@ import asyncio
 import pytest
 
 from bible_bench.dataset import BenchmarkItem
+from bible_bench.hallucination import HallucinationItem
 from bible_bench.llm import LlmResponse
-from bible_bench.phantom import PhantomItem
 from bible_bench.runner import (
     EvaluationError,
-    generate_phantom,
+    generate_hallucination,
     generate_simple,
 )
 
@@ -54,9 +54,9 @@ def _simple_item(i: int) -> BenchmarkItem:
     )
 
 
-def _phantom_item(i: int) -> PhantomItem:
-    return PhantomItem(
-        id=f"p-{i}", track="phantom", language_tag="eng", version_id=1,
+def _hallucination_item(i: int) -> HallucinationItem:
+    return HallucinationItem(
+        id=f"p-{i}", track="hallucination", language_tag="eng", version_id=1,
         version_abbrev="FAKE", reference_display="Psalm 180:1",
         kind="out_of_range_chapter", prompt="Quote Psalm 180:1.",
     )
@@ -72,23 +72,23 @@ def test_simple_generation_aborts_on_failed_call():
     assert "402" in str(ei.value)
 
 
-def test_phantom_generation_aborts_on_failed_call():
-    items = [_phantom_item(i) for i in range(4)]
+def test_hallucination_generation_aborts_on_failed_call():
+    items = [_hallucination_item(i) for i in range(4)]
     with pytest.raises(EvaluationError) as ei:
-        asyncio.run(generate_phantom(items, BoomClient(fail_on=0), concurrency=1))
-    assert "phantom item" in str(ei.value)
+        asyncio.run(generate_hallucination(items, BoomClient(fail_on=0), concurrency=1))
+    assert "hallucination item" in str(ei.value)
 
 
 def test_failure_midway_still_aborts_not_partially_recorded():
     """A late failure must abort too — the danger case is a run that mostly
     succeeded, because its numbers look plausible."""
-    items = [_phantom_item(i) for i in range(6)]
+    items = [_hallucination_item(i) for i in range(6)]
     with pytest.raises(EvaluationError):
-        asyncio.run(generate_phantom(items, BoomClient(fail_on=4), concurrency=1))
+        asyncio.run(generate_hallucination(items, BoomClient(fail_on=4), concurrency=1))
 
 
 def test_clean_run_returns_all_records():
-    items = [_phantom_item(i) for i in range(3)]
-    recs = asyncio.run(generate_phantom(items, BoomClient(fail_on=-1), concurrency=2))
+    items = [_hallucination_item(i) for i in range(3)]
+    recs = asyncio.run(generate_hallucination(items, BoomClient(fail_on=-1), concurrency=2))
     assert len(recs) == 3
     assert all(r["error"] is None for r in recs)

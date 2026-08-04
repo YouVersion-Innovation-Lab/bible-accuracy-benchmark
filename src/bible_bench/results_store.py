@@ -118,7 +118,7 @@ class GcsResultsStore(ResultsStore):
             blob.delete()
 
 
-_DETAIL_TRACKS = ("simple", "phantom", "theology")
+_DETAIL_TRACKS = ("simple", "hallucination", "creed_defend", "creed_contradict")
 
 
 def _track_detail(tracks: dict, track: str) -> dict:
@@ -127,9 +127,9 @@ def _track_detail(tracks: dict, track: str) -> dict:
     detail = {
         "track_score": ts.get("track_score"),
         "by_language": ts.get("by_language", {}),
-        # Theology names no translation — it isn't a quoting dimension — so it
-        # contributes languages but no version slices, and the board's
-        # per-translation block stays sourced from the tracks that have them.
+        # The creed dimensions name no translation — they aren't quoting
+        # dimensions — so they contribute languages but no version slices, and the
+        # board's per-translation block stays sourced from the tracks that have them.
         "versions": ts.get("versions", []),
     }
     return detail

@@ -64,7 +64,7 @@ def create_app(cache: CachedStore | None = None, http_max_age: int | None = None
     @app.get("/api/runs/{run_id}/failures")
     def failures(
         run_id: str,
-        track: str = Query("simple", pattern="^(simple|phantom|theology)$"),
+        track: str = Query("simple", pattern="^(simple|hallucination|theology)$"),
         language: str | None = None,
         version_id: int | None = None,
         limit: int = Query(25, ge=1, le=100),
@@ -85,7 +85,7 @@ def create_app(cache: CachedStore | None = None, http_max_age: int | None = None
     @app.get("/api/runs/{run_id}/evaluations")
     def evaluations(
         run_id: str,
-        track: str = Query("simple", pattern="^(simple|phantom)$"),
+        track: str = Query("simple", pattern="^(simple|hallucination)$"),
         outcome: str = Query("all", pattern="^(all|pass|fail)$"),
         language: str | None = None,
         version_id: int | None = None,
@@ -149,8 +149,8 @@ def _select_failures(
                     "response_text": turns[-1].get("response") if turns else None,
                     "turns": turns,
                 })
-        elif track == "phantom":
-            ps = r.get("phantom_score", {})
+        elif track == "hallucination":
+            ps = r.get("hallucination_score", {})
             # A failure is any item where the model quoted something for a
             # reference that does not exist (score < 1 = it did not decline).
             if ps.get("item_score", 1) < 1.0:
@@ -183,8 +183,8 @@ def _eval_passed(track: str, r: dict) -> bool:
     """Did this item pass? Per-track definition of a clean result."""
     if track == "simple":
         return r.get("score", {}).get("grade") in ("perfect", "near_perfect")
-    if track == "phantom":
-        return r.get("phantom_score", {}).get("item_score", 0) >= 1.0
+    if track == "hallucination":
+        return r.get("hallucination_score", {}).get("item_score", 0) >= 1.0
     return True
 
 
@@ -241,8 +241,8 @@ def _eval_row(track: str, r: dict, sent: dict, passed: bool) -> dict:
             "ground_truth_drift": r.get("ground_truth_drift"),
             "scoring_version": s.get("scoring_version"),
         })
-    elif track == "phantom":
-        ps = r.get("phantom_score", {})
+    elif track == "hallucination":
+        ps = r.get("hallucination_score", {})
         row.update({
             "reference": r.get("reference_display"), "kind": r.get("kind"),
             # absent_from_version only: a REAL verse, just not in this edition.

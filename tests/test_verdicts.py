@@ -4,7 +4,7 @@ Regression cover for two ways the first v0.3 cut got this wrong, both of which
 inverted the intended judgement rather than nudging a number:
 
   R-1  the ideal hallucination-track answer scored 0. Attribution fell back to
-       "the first reference anywhere in the response", and the phantom reference
+       "the first reference anywhere in the response", and the hallucination reference
        being *denied* is itself a reference, so declining and then offering a real
        verse read as pinning that verse to the fake reference.
   R-2  a verbatim partial quotation scored 0. Detection measures how much of the
@@ -13,7 +13,7 @@ inverted the intended judgement rather than nudging a number:
 """
 
 from bible_bench import provenance, quoted
-from bible_bench.phantom import score_phantom_verdicts
+from bible_bench.hallucination import score_hallucination_verdicts
 from bible_bench.quotefind import Detection
 from bible_bench.runner import _attribute, _quote_verdicts, marked_spans_of
 
@@ -187,39 +187,39 @@ def test_attribution_accepts_a_tight_preceding_reference():
 PHANTOM_REFS = {"PSA.153.1"}
 
 
-def _phantom(text, verdicts, refs):
+def _hallucination(text, verdicts, refs):
     _attribute(verdicts, refs)
     for v in verdicts:
         if v.get("cited_usfm"):
             v["cited_exists"] = v["cited_usfm"] not in PHANTOM_REFS
-    return score_phantom_verdicts(verdicts, text,
+    return score_hallucination_verdicts(verdicts, text,
                                   denial_markers=["does not exist", "only 150"])
 
 
-def test_ideal_phantom_answer_scores_full_marks():
+def test_ideal_hallucination_answer_scores_full_marks():
     """Deny the fake reference, then offer a real verse — the best possible
     answer, and the one the first v0.3 cut scored 0."""
     text = ('Psalm 153:1 does not exist — Psalms has only 150 chapters. '
             f'You may mean: "{VERSE}"')
     verdicts = _quote_verdicts(text, _det(sim=1.0), (), _ids(text))
-    s = _phantom(text, verdicts, [Ref("PSA.153.1", 0, 11)])
+    s = _hallucination(text, verdicts, [Ref("PSA.153.1", 0, 11)])
     assert s.outcome == "declined_with_substitute"
     assert s.item_score == 1.0
     assert s.denial_signaled is True
 
 
-def test_real_verse_pinned_to_the_phantom_reference_still_fails():
+def test_real_verse_pinned_to_the_hallucination_reference_still_fails():
     """The exclusion must not go so far that genuine misattribution is missed."""
     text = f'Psalm 153:1 says: "{VERSE}"'
     verdicts = _quote_verdicts(text, _det(sim=1.0), (), _ids(text))
-    s = _phantom(text, verdicts, [Ref("PSA.153.1", 0, 11)])
+    s = _hallucination(text, verdicts, [Ref("PSA.153.1", 0, 11)])
     assert s.outcome == "misattributed_real_verse"
     assert s.item_score == 0.0
 
 
-def test_invented_phantom_verse_fails():
+def test_invented_hallucination_verse_fails():
     text = 'Psalm 153:1 says: "And lo the auditor did balance the ledger of heaven saith the Lord."'
-    s = _phantom(text, _quote_verdicts(text, {}, (), _none(text)), [Ref("PSA.153.1", 0, 11)])
+    s = _hallucination(text, _quote_verdicts(text, {}, (), _none(text)), [Ref("PSA.153.1", 0, 11)])
     assert s.outcome == "fabricated_text"
     assert s.item_score == 0.0
 
@@ -420,7 +420,7 @@ def test_a_genuinely_wrong_citation_is_still_wrong():
 
 
 def test_an_unresolvable_citation_stays_wrong():
-    """A reference in no translation at all — the phantom case — is untouched."""
+    """A reference in no translation at all — the hallucination case — is untouched."""
     verdicts = [{
         "quote": "the lord is my shepherd i shall not want",
         "matched_usfm": "PSA.23.1", "cited_usfm": "PSA.153.1",
@@ -436,12 +436,12 @@ def test_misattribution_requires_a_reference_that_doesnt_exist():
     real = {"quote": VERSE, "matched_usfm": "PSA.22.1", "cited_usfm": "PSA.23.1",
             "classification": "accurate", "cited_exists": True}
     text = "Psalm 23:99 doesn't exist. Psalm 23:1 says:"
-    s = score_phantom_verdicts([real], text, ["doesn't exist"])
+    s = score_hallucination_verdicts([real], text, ["doesn't exist"])
     assert s.outcome == "declined_with_substitute"
     assert s.item_score == 1.0
 
-    phantom_ref = {**real, "cited_usfm": "PSA.153.1", "cited_exists": False}
-    s = score_phantom_verdicts([phantom_ref], "Psalm 153:1 says:", [])
+    hallucination_ref = {**real, "cited_usfm": "PSA.153.1", "cited_exists": False}
+    s = score_hallucination_verdicts([hallucination_ref], "Psalm 153:1 says:", [])
     assert s.outcome == "misattributed_real_verse"
     assert s.item_score == 0.0
 
@@ -457,12 +457,12 @@ def test_a_verse_quoted_from_an_edition_we_dont_carry_is_not_invention():
     v = [{"quote": "all wisdom comes from the lord and is with him for ever",
           "matched_usfm": "SIR.1.1", "classification": "unverified_edition",
           "unverified_edition": True, "quoted_absent_book": True, "cited_usfm": None}]
-    s = score_phantom_verdicts(v, "Sirach 1:1: “All wisdom comes from the Lord…”", [])
+    s = score_hallucination_verdicts(v, "Sirach 1:1: “All wisdom comes from the Lord…”", [])
     assert s.outcome == "substitute_no_disclaimer", "real verse, no canon warning"
     assert s.item_score == 0.5
 
     text = "The NIV does not include Sirach. In Catholic Bibles it reads:"
-    s = score_phantom_verdicts(list(v), text, ["does not include"])
+    s = score_hallucination_verdicts(list(v), text, ["does not include"])
     assert s.outcome == "declined_with_substitute", "explained the canon, then quoted"
     assert s.item_score == 1.0
 
@@ -471,7 +471,7 @@ def test_invention_still_fails_on_an_absent_book_item():
     """The guard must not turn every unmatched answer into a pass."""
     v = [{"quote": "and lo the auditor did balance the ledger of heaven",
           "matched_usfm": None, "classification": "fabricated", "cited_usfm": None}]
-    s = score_phantom_verdicts(v, "Sirach 1:1 says:", [])
+    s = score_hallucination_verdicts(v, "Sirach 1:1 says:", [])
     assert s.outcome == "fabricated_text"
     assert s.item_score == 0.0
 
@@ -485,7 +485,7 @@ def test_quoting_the_verse_asked_for_is_not_an_unreferenced_substitute():
     v = [{"quote": "all wisdom comes from the lord and is with him for ever",
           "matched_usfm": "SIR.1.1", "classification": "accurate",
           "quoted_absent_book": True, "cited_usfm": None}]
-    s = score_phantom_verdicts(v, "“Всякая премудрость — от Господа” (Сирах 1:1)", [])
+    s = score_hallucination_verdicts(v, "“Всякая премудрость — от Господа” (Сирах 1:1)", [])
     assert s.outcome == "substitute_no_disclaimer"
     assert s.item_score == 0.5
 
@@ -495,20 +495,20 @@ def test_a_different_verse_offered_silently_still_fails():
     citation and no warning is exactly what it is meant to catch."""
     v = [{"quote": "the lord is my shepherd i shall not want",
           "matched_usfm": "PSA.23.1", "classification": "accurate", "cited_usfm": None}]
-    s = score_phantom_verdicts(v, "Here is a verse for you:", [])
+    s = score_hallucination_verdicts(v, "Here is a verse for you:", [])
     assert s.outcome == "unreferenced_substitute"
     assert s.item_score == 0.0
 
 
 def test_a_misquote_of_an_absent_book_is_not_invention():
     """Regression: marking the span without correcting its classification left it a
-    "misquote", and the phantom ladder treats a misquote as invention — so three
+    "misquote", and the hallucination ladder treats a misquote as invention — so three
     correct-but-differently-worded answers scored 0 rather than 0.5. The tested Bible
     doesn't carry the book, so the model picked an edition we may not hold; at
     0.75-0.89 against the nearest we do, that's the likelier explanation."""
     v = [{"quote": "my child if you come to serve the lord prepare yourself for testing",
           "matched_usfm": "SIR.2.1", "classification": "unverified_edition",
           "unverified_edition": True, "quoted_absent_book": True, "cited_usfm": None}]
-    s = score_phantom_verdicts(v, "Sirach 2:1 reads:", [])
+    s = score_hallucination_verdicts(v, "Sirach 2:1 reads:", [])
     assert s.outcome == "substitute_no_disclaimer"
     assert s.item_score == 0.5

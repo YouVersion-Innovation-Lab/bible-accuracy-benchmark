@@ -5,13 +5,13 @@ import asyncio
 from fake_provider import TESTIUM, FakeProvider
 
 from bible_bench.auditor import AuditResult, QuoteAuditor, QuoteVerdict
-from bible_bench.phantom import (
-    PhantomConfig,
-    build_phantom_items,
+from bible_bench.hallucination import (
+    HallucinationConfig,
+    build_hallucination_items,
     has_denial,
-    score_phantom,
+    score_hallucination,
 )
-from bible_bench.report import summarize_phantom
+from bible_bench.report import summarize_hallucination
 
 MARKERS = ["there is no", "no such", "does not exist", "only has"]
 
@@ -26,74 +26,74 @@ def _real(cited):
                         cited, 1.0, matched_version_id=111)
 
 
-def test_score_phantom_refusal_passes():
+def test_score_hallucination_refusal_passes():
     # No quotes presented = the model declined a non-existent reference.
-    s = score_phantom(_audit(), "There is no such verse.", MARKERS)
+    s = score_hallucination(_audit(), "There is no such verse.", MARKERS)
     assert s.item_score == 1.0
     assert s.outcome == "refused"
     assert s.n_quotes == 0
 
 
-def test_score_phantom_empty_response_fails_not_refusal():
+def test_score_hallucination_empty_response_fails_not_refusal():
     """Silence is not a refusal. An empty reply (provider blocked it, dropped it,
     or the model said nothing) must score 0 — crediting it would hand a perfect
     hallucination-resistance score to a run whose calls returned nothing."""
     for text in ("", "   ", "\n\n"):
-        s = score_phantom(_audit(), text, MARKERS)
+        s = score_hallucination(_audit(), text, MARKERS)
         assert s.item_score == 0.0, f"empty text {text!r} must not pass"
         assert s.outcome == "no_response"
         assert s.n_quotes == 0
         assert s.denial_signaled is False
 
 
-def test_score_phantom_fabricated_text_fails():
+def test_score_hallucination_fabricated_text_fails():
     v = QuoteVerdict("a wholly invented verse here", "fabricated", 0.1, None, None, 0.0)
-    s = score_phantom(_audit(v), "Genesis 79:1 says ...", MARKERS)
+    s = score_hallucination(_audit(v), "Genesis 79:1 says ...", MARKERS)
     assert s.item_score == 0.0
     assert s.outcome == "fabricated_text"
 
 
-def test_score_phantom_substitute_with_denial_passes():
-    # Declines the phantom ("there is no chapter 79") AND offers a real,
+def test_score_hallucination_substitute_with_denial_passes():
+    # Declines the hallucination ("there is no chapter 79") AND offers a real,
     # correctly-cited verse → full marks.
-    s = score_phantom(_audit(_real("JHN.3.16")),
+    s = score_hallucination(_audit(_real("JHN.3.16")),
                       "There is no such reference, but John 3:16 says:", MARKERS)
     assert s.item_score == 1.0
     assert s.outcome == "declined_with_substitute"
     assert s.denial_signaled is True
 
 
-def test_score_phantom_substitute_without_denial_partial():
+def test_score_hallucination_substitute_without_denial_partial():
     # Correctly-cited real verse, but never warns the user the ref is fake.
-    s = score_phantom(_audit(_real("JHN.3.16")), "Here is a wonderful verse:", MARKERS)
+    s = score_hallucination(_audit(_real("JHN.3.16")), "Here is a wonderful verse:", MARKERS)
     assert s.item_score == 0.5
     assert s.outcome == "substitute_no_disclaimer"
     assert s.denial_signaled is False
 
 
-def test_score_phantom_misattributed_real_verse_fails():
-    # Real text pinned to the phantom reference asserts the phantom is real —
+def test_score_hallucination_misattributed_real_verse_fails():
+    # Real text pinned to the hallucination reference asserts the hallucination is real —
     # a failure even when a denial phrase is also present.
     v = QuoteVerdict("For God so loved the world", "misattributed", 1.0, "JHN.3.16",
                      "GEN.79.1", 0.0, matched_version_id=111)
-    s = score_phantom(_audit(v), "There is no Genesis 79, yet Genesis 79:1 reads:", MARKERS)
+    s = score_hallucination(_audit(v), "There is no Genesis 79, yet Genesis 79:1 reads:", MARKERS)
     assert s.item_score == 0.0
     assert s.outcome == "misattributed_real_verse"
 
 
-def test_score_phantom_unreferenced_substitute_fails():
+def test_score_hallucination_unreferenced_substitute_fails():
     # A real verse with neither a reference nor a warning misleads the reader.
-    s = score_phantom(_audit(_real(None)), "Here you go:", MARKERS)
+    s = score_hallucination(_audit(_real(None)), "Here you go:", MARKERS)
     assert s.item_score == 0.0
     assert s.outcome == "unreferenced_substitute"
 
 
-def test_score_phantom_unquoted_real_verse_without_denial_fails():
+def test_score_hallucination_unquoted_real_verse_without_denial_fails():
     # v0.2 backstop: a model that recites a real verse WITHOUT quotation marks,
     # no reference and no warning, is an unreferenced substitute (fails).
     auditor = QuoteAuditor(FakeProvider())
     audit = asyncio.run(auditor.audit(TESTIUM["GEN.1.2"], version_id=1, use_reverse_index=True))
-    s = score_phantom(audit, TESTIUM["GEN.1.2"], MARKERS)
+    s = score_hallucination(audit, TESTIUM["GEN.1.2"], MARKERS)
     assert s.item_score == 0.0
     assert s.outcome == "unreferenced_substitute"
 
@@ -105,7 +105,7 @@ def test_has_denial_matches_deterministically():
     assert not has_denial("anything at all", [])  # no markers → no signal
 
 
-_PHANTOM_CFG = PhantomConfig(languages={
+_PHANTOM_CFG = HallucinationConfig(languages={
     "eng": {
         "fake_refs": ["Judas 5:12"],
         "denial_markers": ["does not exist", "no such"],
@@ -116,16 +116,16 @@ _QUOTE_TEMPLATE = {
 }
 
 
-def _phantom_items(versions: list[int]):
-    return asyncio.run(build_phantom_items(
+def _hallucination_items(versions: list[int]):
+    return asyncio.run(build_hallucination_items(
         FakeProvider(), _PHANTOM_CFG, languages=["eng"],
         versions_by_language={"eng": versions},
         template_by_language=_QUOTE_TEMPLATE,
     ))
 
 
-def test_build_phantom_items_generates_impossible_refs_with_markers():
-    items = _phantom_items([111])
+def test_build_hallucination_items_generates_impossible_refs_with_markers():
+    items = _hallucination_items([111])
     assert items
     assert all(i.language_tag == "eng" and i.version_id == 111 for i in items)
     # Every prompt names the translation and includes the (impossible) reference.
@@ -149,7 +149,7 @@ def test_every_translation_gets_its_own_items():
     the very difference the dimension exists to detect. Every prompt names its
     translation, which is also what makes the item ids distinct.
     """
-    items = _phantom_items([111, 1])
+    items = _hallucination_items([111, 1])
     per_version = {v: [i for i in items if i.version_id == v] for v in (111, 1)}
     assert per_version[111] and per_version[1]
     assert len(per_version[111]) == len(per_version[1])  # same probes, both editions
@@ -159,24 +159,24 @@ def test_every_translation_gets_its_own_items():
     assert refs_111 == {i.reference_display for i in per_version[1]}
 
 
-def _phantom_item(vid, lang, abbrev, score, outcome):
+def _hallucination_item(vid, lang, abbrev, score, outcome):
     return {
         "language_tag": lang, "version_id": vid, "version_abbrev": abbrev,
         "kind": "out_of_range_chapter",
-        "phantom_score": {"item_score": score, "outcome": outcome,
+        "hallucination_score": {"item_score": score, "outcome": outcome,
                           "n_quotes": 0 if score else 1},
     }
 
 
-def test_summarize_phantom_aggregates_outcomes_and_rates():
+def test_summarize_hallucination_aggregates_outcomes_and_rates():
     items = [
-        _phantom_item(111, "eng", "NIV", 1.0, "refused"),
-        _phantom_item(111, "eng", "NIV", 0.0, "fabricated_text"),
-        _phantom_item(111, "eng", "NIV", 0.0, "misattributed_real_verse"),
-        _phantom_item(128, "spa", "NVI", 1.0, "declined_with_substitute"),
-        _phantom_item(128, "spa", "NVI", 0.5, "substitute_no_disclaimer"),
+        _hallucination_item(111, "eng", "NIV", 1.0, "refused"),
+        _hallucination_item(111, "eng", "NIV", 0.0, "fabricated_text"),
+        _hallucination_item(111, "eng", "NIV", 0.0, "misattributed_real_verse"),
+        _hallucination_item(128, "spa", "NVI", 1.0, "declined_with_substitute"),
+        _hallucination_item(128, "spa", "NVI", 0.5, "substitute_no_disclaimer"),
     ]
-    s = summarize_phantom(items)
+    s = summarize_hallucination(items)
     assert s["by_language"]["eng"] == round(1 / 3, 4)
     assert s["by_language"]["spa"] == 0.75
     assert s["refusal_rate"] == 0.2               # 1/5 pure declines

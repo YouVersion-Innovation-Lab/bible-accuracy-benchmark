@@ -10,7 +10,7 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { ErrorMsg, Loading } from "../components";
 import { TRACK_BY_KEY, langName } from "../constants";
-import { PhantomWork, SimpleWork, TopicalWork } from "../evalWork";
+import { HallucinationWork, SimpleWork, TopicalWork } from "../evalWork";
 import { useAsync } from "../hooks";
 import { modelHref, sectionForTrack } from "../sections";
 
@@ -30,7 +30,7 @@ const INTRO: Record<string, string> = {
     "Each test asks an open question that invites scripture. Nothing is prescribed — the model " +
     "chooses what to quote — and it is scored on the accuracy of whatever it presents as " +
     "scripture. Quoting nothing scores zero, because there is no quotation to check.",
-  phantom:
+  hallucination:
     "Each test names a translation and asks it for a reference that translation does not " +
     "contain — so these prompts are word-for-word the Direct Quotation prompts, differing only " +
     "in that the reference isn't there. A case passes " +
@@ -169,8 +169,8 @@ export function TrackEvaluations() {
           ) : (
             <div className="space-y-4">
               {data.items.map((it) =>
-                track === "phantom" ? (
-                  <PhantomWork key={it.id} item={it} />
+                track === "hallucination" ? (
+                  <HallucinationWork key={it.id} item={it} />
                 ) : track === "topical" ? (
                   <TopicalWork key={it.id} item={it} />
                 ) : (

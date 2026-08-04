@@ -275,7 +275,7 @@ export function DimensionBreakdown({ trackKey, ts }: { trackKey: string; ts: Tra
     );
   }
 
-  if (trackKey === "phantom") {
+  if (trackKey === "hallucination") {
     return (
       <div className="space-y-4">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">

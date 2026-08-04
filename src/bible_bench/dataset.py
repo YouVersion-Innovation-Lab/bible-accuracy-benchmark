@@ -9,7 +9,7 @@ so every column of the board answers the same questions. The list is drawn in th
 being asked, because the same reference is not the same verse across schemes (an
 uncorrected PSA.23.1 is a different psalm in three of the eighteen translations —
 see versification.py). Where an edition doesn't carry the resolved reference, the
-item is dropped; that absence belongs to Hallucination Resistance.
+item is dropped; that absence belongs to the Hallucination dimension.
 
 There is no per-language anything. Counts are global, the draw is global, and a
 translation is a translation.

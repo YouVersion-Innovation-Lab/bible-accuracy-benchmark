@@ -111,7 +111,7 @@ const FACTOR_COPY: Record<string, FactorCopy> = {
       "Answered in the language asked but quoted the scripture from a Bible in another language — most often English. The verses are accurate; the reader simply cannot read them. Listed separately because it is not an accuracy problem and would be fixed differently.",
   },
 
-  // Hallucination Resistance outcomes
+  // Hallucination outcomes
   fabricated_text: {
     label: "Invented a verse that doesn't exist",
     detail:

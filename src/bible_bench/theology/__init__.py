@@ -18,11 +18,19 @@ from .encounter import (
     run_encounter,
 )
 from .probes import AFFIRM, CONTRADICT, CreedSpec, TheologyItem, build_items, load_spec
-from .score import SCORING_VERSION, from_records, summarize, summarize_records
+from .score import (
+    CONTRADICT_TRACK,
+    DEFEND,
+    SCORING_VERSION,
+    from_records,
+    summarize_contradict,
+    summarize_defend,
+    summarize_records,
+)
 
 __all__ = [
-    "AFFIRM", "CONTRADICT", "MAX_TOKENS", "SCORING_VERSION", "CreedSpec",
-    "EncounterResult", "TheologyItem", "Turn", "VerdictError", "build_items",
-    "from_records", "is_failure", "load_spec", "run_encounter",
-    "summarize", "summarize_records",
+    "AFFIRM", "CONTRADICT", "CONTRADICT_TRACK", "DEFEND", "MAX_TOKENS",
+    "SCORING_VERSION", "CreedSpec", "EncounterResult", "TheologyItem", "Turn",
+    "VerdictError", "build_items", "from_records", "is_failure", "load_spec",
+    "run_encounter", "summarize_contradict", "summarize_defend", "summarize_records",
 ]

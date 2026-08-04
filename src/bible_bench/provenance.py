@@ -7,7 +7,7 @@ near-duplicate notions of "wrong version" and "fabricated" that drifted apart:
   called anything else `fabricated`.
 * Scripture in Answers searched the language's editions and called a miss
   `fabricated`.
-* Hallucination Resistance had its own ladder.
+* Hallucination had its own ladder.
 
 The drift produced false accusations. Grok 4.5 answers a Hindi question with an
 accurate English NIV quotation; that matched no Hindi edition, so all 52 Hindi

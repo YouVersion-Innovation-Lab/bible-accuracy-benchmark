@@ -37,12 +37,12 @@ from .config import (
     load_llm_endpoint,
 )
 from .dataset import BenchmarkItem, DatasetSampler, load_spec
+from .hallucination import HallucinationItem, build_hallucination_items, load_hallucination_config
 from .llm import LlmClient
-from .phantom import PhantomItem, build_phantom_items, load_phantom_config
 from .prompts import BENCHMARK_SYSTEM_PROMPT, simple_quote_templates
 from .report import (
     build_summary,
-    summarize_phantom,
+    summarize_hallucination,
     summarize_simple,
     summarize_slices,
 )
@@ -54,11 +54,11 @@ from .results_store import (
 )
 from .runner import (
     EvaluationError,
-    generate_phantom,
+    generate_hallucination,
     generate_simple,
     prefetch_versions,
     run_theology,
-    score_phantom_items,
+    score_hallucination_items,
     score_simple,
 )
 from .scoring import SCORING_VERSION
@@ -67,7 +67,7 @@ from .yv_client import BibleClient
 
 # The benchmark always runs all tracks — there is no track selection. Use
 # --only-tracks to patch a single dimension into an existing run.
-ALL_TRACKS = ("simple", "phantom", "theology")
+ALL_TRACKS = ("simple", "hallucination", "theology")
 
 # A fast pass is a separate generation with the same questions — see cmd_run.
 FAST_SUFFIX = "-fast"
@@ -141,8 +141,8 @@ def _items_from_json(rows: list[dict]) -> list[BenchmarkItem]:
     return [BenchmarkItem(**r) for r in rows]
 
 
-def _phantom_items_from_json(rows: list[dict]) -> list[PhantomItem]:
-    return [PhantomItem(**r) for r in rows]
+def _hallucination_items_from_json(rows: list[dict]) -> list[HallucinationItem]:
+    return [HallucinationItem(**r) for r in rows]
 
 
 def _build_attacker(args) -> LlmClient:
@@ -164,7 +164,7 @@ async def _sample_items(client: BibleClient, spec_path: str, seed: str, scale: f
 
 
 #: Item lists a patch run must inherit rather than resample, keyed by their track.
-_CARRIED_ITEMS = (("items", "simple"), ("phantom_items", "phantom"))
+_CARRIED_ITEMS = (("items", "simple"), ("hallucination_items", "hallucination"))
 
 
 def _carry_forward(manifest: dict, prior: dict, only: set[str]) -> dict:
@@ -266,7 +266,7 @@ async def cmd_run(args) -> int:
         #
         # --only-tracks patches one dimension into an existing run instead. A
         # dimension's design can change without invalidating the others:
-        # reworking Hallucination Resistance to name a translation made its items
+        # reworking Hallucination to name a translation made its items
         # obsolete and left Direct Quotation's 2,585 and Scripture in Answers'
         # 1,188 untouched. Re-running all 3,956 to replace 325 would spend tokens
         # reproducing answers already on disk.
@@ -298,36 +298,37 @@ async def cmd_run(args) -> int:
                 f"Built [bold]{len(theology_items)}[/bold] theology encounters "
                 f"({creed.creed} {creed.spec_version}, {len(creed.language_tags)} languages)."
             )
-        phantom_items = []
-        if "phantom" in tracks:
-            pcfg = load_phantom_config(args.phantom)
-            phantom_langs = (
-                [x.strip() for x in args.phantom_languages.split(",") if x.strip()]
-                if args.phantom_languages else None
+        hallucination_items = []
+        if "hallucination" in tracks:
+            pcfg = load_hallucination_config(args.hallucination)
+            hallucination_langs = (
+                [x.strip() for x in args.hallucination_languages.split(",") if x.strip()]
+                if args.hallucination_languages else None
             )
             # Same translations as Direct Quotation, from the same spec, and the
             # same per-language wording — so the two dimensions differ only in
             # whether the reference exists.
             spec_langs = load_spec(args.spec).get("languages", {})
-            phantom_versions = {
+            hallucination_versions = {
                 lang: cfg_l.get("versions") or [cfg_l["primary"]]
                 for lang, cfg_l in spec_langs.items()
             }
-            phantom_items = await build_phantom_items(
-                client, pcfg, languages=phantom_langs,
-                versions_by_language=phantom_versions,
+            hallucination_items = await build_hallucination_items(
+                client, pcfg, languages=hallucination_langs,
+                versions_by_language=hallucination_versions,
                 template_by_language=simple_quote_templates(),
             )
-            phantom_items = _thin_per_language(phantom_items, args.scale)
-            console.print(f"Built [bold]{len(phantom_items)}[/bold] phantom items across "
-                          f"{len({i.language_tag for i in phantom_items})} languages.")
+            hallucination_items = _thin_per_language(hallucination_items, args.scale)
+            console.print(f"Built [bold]{len(hallucination_items)}[/bold] hallucination items "
+                          f"across "
+                          f"{len({i.language_tag for i in hallucination_items})} languages.")
         manifest = {
             "run_key": run_key,
             "run_version": run_version,
             "dataset_spec": args.spec,
             "topics_file": args.topics,
             "creed_file": "dataset/creed/nicene-v1",
-            "phantom_file": args.phantom,
+            "hallucination_file": args.hallucination,
             "tracks": sorted(tracks),
             "scale": args.scale,
             "scoring_version": SCORING_VERSION,
@@ -357,7 +358,7 @@ async def cmd_run(args) -> int:
             "finished_at": None,
             "published": False,
             "items": [i.to_json() for i in items],
-            "phantom_items": [i.to_json() for i in phantom_items],
+            "hallucination_items": [i.to_json() for i in hallucination_items],
         }
         if only:
             _carry_forward(manifest, store.read_json(f"{run_dir}/manifest.json") or {}, only)
@@ -371,11 +372,11 @@ async def cmd_run(args) -> int:
                     items, client, model, already_done=done, checkpoint=cp, progress=tick,
                     concurrency=args.concurrency),
             )
-        if phantom_items:
+        if hallucination_items:
             await _generate_track(
-                store, run_dir, "responses_phantom.jsonl", "Querying model (phantom)",
-                lambda done, cp, tick: generate_phantom(
-                    phantom_items, model, already_done=done, checkpoint=cp, progress=tick,
+                store, run_dir, "responses_hallucination.jsonl", "Querying model (hallucination)",
+                lambda done, cp, tick: generate_hallucination(
+                    hallucination_items, model, already_done=done, checkpoint=cp, progress=tick,
                     concurrency=args.concurrency),
             )
         if theology_items:
@@ -396,13 +397,13 @@ async def cmd_run(args) -> int:
 
         # 3. Scoring pass.
         await _score_and_summarize(
-            store, run_dir, items, phantom_items, client, model
+            store, run_dir, items, hallucination_items, client, model
         )
     except EvaluationError as e:
         # A model call ran out of retries. The run is aborted UNSCORED and
         # UNFINISHED on purpose: a partial generation pass yields a wrong score,
         # not a missing one (failed calls read as "no attempt", deflating the
-        # quote tracks and inflating hallucination resistance).
+        # quote track and removing the hallucination penalty).
         console.print()
         console.print("[bold red]EVALUATION FAILED — run aborted, nothing scored.[/bold red]")
         console.print(f"[red]{e}[/red]")
@@ -444,7 +445,7 @@ async def _generate_track(store, run_dir, filename, desc, gen, *, id_key="item_i
 
 
 async def _score_and_summarize(
-    store, run_dir, items, phantom_items, client, model
+    store, run_dir, items, hallucination_items, client, model
 ) -> None:
     track_summaries: dict[str, dict] = {}
     # Kept alongside the summaries so the per-translation slices can be built
@@ -469,31 +470,31 @@ async def _score_and_summarize(
             track_summaries["simple"] = summarize_simple(scored)
             scored_by_track["simple"] = scored
 
-    if phantom_items:
-        responses = store.read_jsonl(f"{run_dir}/responses_phantom.jsonl")
-        with _progress("Scoring (phantom)") as (prog, task):
+    if hallucination_items:
+        responses = store.read_jsonl(f"{run_dir}/responses_hallucination.jsonl")
+        with _progress("Scoring (hallucination)") as (prog, task):
             prog.update(task, total=len(responses))
 
             def tick(ev: dict) -> None:
                 if ev["phase"] == "score":
                     prog.update(task, completed=ev["completed"])
 
-            scored_p = await score_phantom_items(
-                {i.id: i for i in phantom_items}, responses, client, progress=tick)
+            scored_p = await score_hallucination_items(
+                {i.id: i for i in hallucination_items}, responses, client, progress=tick)
         store.write_text(
-            f"{run_dir}/items_phantom.jsonl",
+            f"{run_dir}/items_hallucination.jsonl",
             "\n".join(json.dumps(r, ensure_ascii=False) for r in scored_p) + "\n",
         )
         if scored_p:
-            track_summaries["phantom"] = summarize_phantom(scored_p)
-            scored_by_track["phantom"] = scored_p
+            track_summaries["hallucination"] = summarize_hallucination(scored_p)
+            scored_by_track["hallucination"] = scored_p
 
     # Patching one dimension must not shrink the run's summary to that dimension.
     # The others' scored records are already on disk; read them back and
     # aggregate them unchanged, so the headline still covers everything.
     for track, fname, summarize in (
         ("simple", "items.jsonl", summarize_simple),
-        ("phantom", "items_phantom.jsonl", summarize_phantom),
+        ("hallucination", "items_hallucination.jsonl", summarize_hallucination),
     ):
         if track in track_summaries:
             continue
@@ -506,13 +507,15 @@ async def _score_and_summarize(
 
     theo_records = store.read_jsonl(f"{run_dir}/theology.jsonl")
     if theo_records:
-        track_summaries["theology"] = theology.summarize_records(theo_records)
-        # Handed to the slice summarizer too, so filtering the site to a
-        # translation narrows this dimension to that translation's language
-        # instead of dropping it out of the Extended Score unannounced.
-        scored_by_track["theology"] = theo_records
-        console.print(f"  theology: {len(theo_records)} encounters "
-                      f"-> {track_summaries['theology']['track_score']}")
+        # One encounter set, two dimensions: defending the Creed and being talked
+        # into contradicting it. Both are handed to the slice summarizer too, so
+        # filtering the site to a translation narrows them to that translation's
+        # language instead of dropping them out of the Extended Score unannounced.
+        for key, ts in theology.summarize_records(theo_records).items():
+            track_summaries[key] = ts
+            scored_by_track[key] = theo_records
+            console.print(f"  {key}: {len(theo_records)} encounters "
+                          f"-> {ts['track_score']}")
 
     summary = build_summary(
         track_summaries,
@@ -539,11 +542,11 @@ async def cmd_score(args) -> int:
     _require_cache(args)  # scoring reads only from the local cache
     client = _bible_client(args, offline=True)
     items = _items_from_json(manifest.get("items", []))
-    phantom_items = _phantom_items_from_json(manifest.get("phantom_items", []))
+    hallucination_items = _hallucination_items_from_json(manifest.get("hallucination_items", []))
     no_usage = SimpleNamespace(usage=SimpleNamespace(input_tokens=0, output_tokens=0, calls=0))
     try:
         await _score_and_summarize(
-            store, run_dir, items, phantom_items, client, no_usage
+            store, run_dir, items, hallucination_items, client, no_usage
         )
     finally:
         await client.aclose()
@@ -586,7 +589,8 @@ def cmd_resummarize(args) -> int:
     tracks: dict[str, dict] = {}
     summarizers = {
         "simple": ("items.jsonl", "responses.jsonl", summarize_simple),
-        "phantom": ("items_phantom.jsonl", "responses_phantom.jsonl", summarize_phantom),
+        "hallucination": ("items_hallucination.jsonl",
+                          "responses_hallucination.jsonl", summarize_hallucination),
     }
     rows_by_track: dict[str, list[dict]] = {}
     for track, (items_file, resp_file, summarize) in summarizers.items():
@@ -606,17 +610,17 @@ def cmd_resummarize(args) -> int:
         tracks[track] = summarize(rows)
         console.print(f"  {track}: {len(rows)} items -> {tracks[track]['track_score']}")
 
-    # Theology keeps encounters rather than scored items, so it isn't in the loop
-    # above — but it still has to be re-aggregated here. Omitting it made this
-    # command delete the dimension from summary.json: the Extended Score would
-    # revert to Scripture in Answers alone, from a command documented as unable
-    # to change a score.
+    # The creed dimensions keep encounters rather than scored items, so they are
+    # not in the loop above — but they still have to be re-aggregated here.
+    # Omitting them made this command delete them from summary.json outright, from
+    # a command documented as unable to change a score.
     theo_records = store.read_jsonl(f"{run_dir}/theology.jsonl")
     if theo_records:
-        rows_by_track["theology"] = theo_records
-        tracks["theology"] = theology.summarize_records(theo_records)
-        console.print(f"  theology: {len(theo_records)} encounters "
-                      f"-> {tracks['theology']['track_score']}")
+        for key, ts in theology.summarize_records(theo_records).items():
+            rows_by_track[key] = theo_records
+            tracks[key] = ts
+            console.print(f"  {key}: {len(theo_records)} encounters "
+                          f"-> {ts['track_score']}")
 
     if not tracks:
         console.print(f"[red]{run_key} has no scored items to summarize.[/red]")
@@ -638,7 +642,7 @@ def _usage_from_run(store, run_dir: str) -> dict:
     """Token/call totals recomputed from the generation records, so a
     re-summarize doesn't blank out usage that the original run reported."""
     totals = {"input_tokens": 0, "output_tokens": 0, "calls": 0}
-    for f in ("responses.jsonl", "responses_phantom.jsonl"):
+    for f in ("responses.jsonl", "responses_hallucination.jsonl"):
         for r in store.read_jsonl(f"{run_dir}/{f}"):
             totals["input_tokens"] += r.get("input_tokens") or 0
             totals["output_tokens"] += r.get("output_tokens") or 0
@@ -693,8 +697,8 @@ def _prefetch_version_ids(args, tracks: set[str]) -> list[int]:
             ids.update(pool)
     # Theology needs no entry here: it never quotes scripture, so it needs no
     # verse text prefetched.
-    if "phantom" in tracks:
-        pcfg = load_phantom_config(args.phantom)
+    if "hallucination" in tracks:
+        pcfg = load_hallucination_config(args.hallucination)
         for block in pcfg.languages.values():
             ids.add(block["version_id"])
             ids.update(block.get("accepted_version_ids", []))
@@ -808,22 +812,31 @@ def _print_summary(summary: dict) -> None:
         t.add_row("Refusal rate", f"{100 * simple['refusal_rate']:.1f}%")
         t.add_row("Wrong-version rate", f"{100 * simple['wrong_version_rate']:.1f}%")
         t.add_row("Wrong-language rate", f"{100 * simple.get('other_language_rate', 0):.1f}%")
-    phantom = summary.get("tracks", {}).get("phantom")
-    if phantom:
-        t.add_row("Hallucination resistance", f"{100 * phantom['track_score']:.1f}")
-        t.add_row("Declined (no quote)", f"{100 * phantom.get('refusal_rate', 0):.1f}%")
-        t.add_row("Offered real substitute", f"{100 * phantom.get('substitute_rate', 0):.1f}%")
-        t.add_row("Fabricated a verse", f"{100 * phantom.get('hallucination_rate', 0):.1f}%")
+    hallucination = summary.get("tracks", {}).get("hallucination")
+    if hallucination:
+        t.add_row("Hallucination resistance", f"{100 * hallucination['track_score']:.1f}")
+        t.add_row("Declined (no quote)", f"{100 * hallucination.get('refusal_rate', 0):.1f}%")
+        t.add_row("Offered real substitute",
+                  f"{100 * hallucination.get('substitute_rate', 0):.1f}%")
+        t.add_row("Fabricated a verse", f"{100 * hallucination.get('hallucination_rate', 0):.1f}%")
         t.add_row("Misattributed a real verse",
-                  f"{100 * phantom.get('misattribution_rate', 0):.1f}%")
-        t.add_row("Quoted real verse, uncited", f"{100 * phantom.get('unreferenced_rate', 0):.1f}%")
-    theo = summary.get("tracks", {}).get("theology")
-    if theo:
-        t.add_row("Affirms the Creed (turn 1)", f"{100 * theo.get('affirm_rate', 0):.1f}%")
-        t.add_row("Talked into denying it (by 3)", f"{100 * theo.get('contradict_rate', 0):.1f}%")
-        t.add_row("Conviction (affirm − contradict)", f"{100 * theo.get('conviction', 0):+.1f}")
-        if theo.get("n_errors"):
-            t.add_row("Referee errors", f"{theo['n_errors']} of {theo.get('n', 0)}")
+                  f"{100 * hallucination.get('misattribution_rate', 0):.1f}%")
+        t.add_row("Quoted real verse, uncited",
+                  f"{100 * hallucination.get('unreferenced_rate', 0):.1f}%")
+    defend = summary.get("tracks", {}).get(theology.DEFEND)
+    contra = summary.get("tracks", {}).get(theology.CONTRADICT_TRACK)
+    if defend:
+        t.add_row("Defends the Creed (turn 1)", f"{100 * defend.get('affirm_rate', 0):+.1f}")
+    if contra:
+        t.add_row("Contradicts it (by turn 3)",
+                  f"{-100 * contra.get('contradict_rate', 0):+.1f}")
+    if defend and contra:
+        t.add_row("Creed net", f"{100 * (defend.get('affirm_rate', 0)
+                                         - contra.get('contradict_rate', 0)):+.1f}")
+    errs = (defend or {}).get("n_errors", 0) + (contra or {}).get("n_errors", 0)
+    if errs:
+        n = (defend or {}).get("n", 0) + (contra or {}).get("n", 0)
+        t.add_row("Referee errors", f"{errs} of {n}")
     console.print(t)
     console.print(f"[dim]{summary['scoring_scope_note']}[/dim]")
 
@@ -879,15 +892,15 @@ def main(argv: list[str] | None = None) -> int:
                         "scoring is reproducible. Ignored for native endpoints; find a "
                         "model's provider slugs on its OpenRouter page.")
     r.add_argument("--spec", default="dataset/spec-v1.json")
-    r.add_argument("--phantom", default="dataset/phantom-v1.json")
-    r.add_argument("--phantom-languages", default="",
+    r.add_argument("--hallucination", default="dataset/hallucination-v1.json")
+    r.add_argument("--hallucination-languages", default="",
                    help="Comma-separated language tags to limit the hallucination track "
-                        "to (e.g. 'eng'); default all languages in the phantom file")
+                        "to (e.g. 'eng'); default all languages in the hallucination file")
     r.add_argument("--only-tracks", default="",
                    help="Comma-separated dimensions to (re)generate, patched into an "
                         "EXISTING run — the others keep their stored responses and "
                         "scores, and the summary still covers the whole run. Use when "
-                        "one dimension's design changes: 'phantom' re-asks 325 items "
+                        "one dimension's design changes: 'hallucination' re-asks 325 items "
                         "instead of re-running all 3,956. Default: the whole benchmark, "
                         "replacing the run.")
     r.add_argument("--timeout", type=float, default=120.0,
@@ -967,7 +980,7 @@ def main(argv: list[str] | None = None) -> int:
                              "local cache (run once; reused across runs)")
     pf.add_argument("--spec", default="dataset/spec-v1.json")
     pf.add_argument("--topics", default="dataset/topics-v1.json")
-    pf.add_argument("--phantom", default="dataset/phantom-v1.json")
+    pf.add_argument("--hallucination", default="dataset/hallucination-v1.json")
     _add_cache_arg(pf)
 
     args = parser.parse_args(argv)

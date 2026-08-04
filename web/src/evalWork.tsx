@@ -501,7 +501,7 @@ export function TopicalWork({ item }: { item: EvalItem }) {
   );
 }
 
-/* ------------------------------------ Hallucination Resistance (phantom) */
+/* ------------------------------------------------ Hallucination */
 
 const PHANTOM_LADDER: { key: string; label: string; score: string; why: string }[] = [
   { key: "refused", label: "Declined to quote", score: "1.0", why: "answered without presenting any scripture" },
@@ -534,7 +534,7 @@ const PHANTOM_LADDER: { key: string; label: string; score: string; why: string }
   { key: "quoted_real_verse", label: "Substituted a real verse (legacy)", score: "0", why: "pre-v0.2 outcome, kept so older runs still render" },
 ];
 
-export function PhantomWork({ item }: { item: EvalItem }) {
+export function HallucinationWork({ item }: { item: EvalItem }) {
   const quotes = item.quotes ?? [];
   const hit = PHANTOM_LADDER.find((r) => r.key === item.outcome);
   return (

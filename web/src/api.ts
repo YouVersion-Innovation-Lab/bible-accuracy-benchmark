@@ -120,7 +120,7 @@ export interface TrackSummary {
   versions?: VersionScore[];
   version_preference?: Record<string, VersionPreference>;
   grades?: Record<string, number>;
-  // phantom (hallucination) track
+  // Hallucination
   by_kind?: Record<string, number>;
   hallucination_rate?: number;
   misattribution_rate?: number;
@@ -179,7 +179,7 @@ export interface FailureItem {
   elicitation_level?: string;
   sensitive?: boolean;
   quotes?: { classification: string; quote: string; cited_usfm?: string }[];
-  // phantom (hallucination)
+  // Hallucination
   kind?: string;
   outcome?: string;
   // adversarial

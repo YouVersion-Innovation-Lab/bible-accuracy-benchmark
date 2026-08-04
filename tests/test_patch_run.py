@@ -10,9 +10,9 @@ from bible_bench.cli import _carry_forward, _stamp_completion
 
 PRIOR = {
     "run_key": "v0.5-fast--m",
-    "tracks": ["phantom", "simple"],
+    "tracks": ["hallucination", "simple"],
     "items": [{"id": "s1"}, {"id": "s2"}],
-    "phantom_items": [{"id": "p1"}],
+    "hallucination_items": [{"id": "p1"}],
     "started_at": "2026-07-30T23:22:16+00:00",
     "finished_at": "2026-07-30T23:28:22+00:00",
     "published": True,
@@ -24,7 +24,7 @@ def patch(only, fresh=None):
     m = {
         "run_key": "v0.5-fast--m",
         "tracks": sorted(only),
-        "items": [], "phantom_items": [],
+        "items": [], "hallucination_items": [],
         "started_at": "2026-08-03T19:00:00+00:00",
         "finished_at": None,
         "published": False,
@@ -39,19 +39,19 @@ def test_untouched_dimensions_keep_their_items():
     tested no verses."""
     m = patch({"theology"})
     assert m["items"] == PRIOR["items"]
-    assert m["phantom_items"] == PRIOR["phantom_items"]
+    assert m["hallucination_items"] == PRIOR["hallucination_items"]
 
 
 def test_the_patched_dimension_keeps_its_fresh_items():
     """The converse: re-running a dimension must NOT inherit the old item list."""
-    m = patch({"phantom"}, fresh={"phantom_items": [{"id": "p-new"}]})
-    assert m["phantom_items"] == [{"id": "p-new"}]
+    m = patch({"hallucination"}, fresh={"hallucination_items": [{"id": "p-new"}]})
+    assert m["hallucination_items"] == [{"id": "p-new"}]
     assert m["items"] == PRIOR["items"], "the others still carry forward"
 
 
 def test_the_track_list_gains_the_new_dimension_without_losing_the_old():
     m = patch({"theology"})
-    assert m["tracks"] == ["phantom", "simple", "theology"]
+    assert m["tracks"] == ["hallucination", "simple", "theology"]
 
 
 def test_a_patch_does_not_redate_the_run():
@@ -88,8 +88,8 @@ def test_published_state_survives_the_patch():
 def test_patched_tracks_accumulate():
     """Which dimensions were added after the fact is provenance worth keeping."""
     m = _carry_forward(
-        {"tracks": ["phantom"], "items": [], "phantom_items": []},
+        {"tracks": ["hallucination"], "items": [], "hallucination_items": []},
         {**PRIOR, "patched_tracks": ["theology"]},
-        {"phantom"},
+        {"hallucination"},
     )
-    assert m["patched_tracks"] == ["phantom", "theology"]
+    assert m["patched_tracks"] == ["hallucination", "theology"]

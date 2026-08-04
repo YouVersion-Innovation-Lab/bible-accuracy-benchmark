@@ -11,7 +11,7 @@ the same two questions about it:
 Each dimension used to answer both questions its own way, and the three answers
 drifted apart. Direct Quotation compared against a hand-picked distractor list;
 Scripture in Answers searched a single language and called any miss
-"fabricated"; Hallucination Resistance had a third notion again. Every false
+"fabricated"; Hallucination had a third notion again. Every false
 accusation this benchmark has made came out of that drift, so the answers live
 here, once, and every dimension calls the same code.
 

@@ -38,44 +38,61 @@ def gave_way(lang, direction, turn, n=1):
     return [enc(lang, direction, conceded=True, turn=turn, n_turns=turn) for _ in range(n)]
 
 
+def dims(results):
+    """The two creed dimensions, as the runner and report see them."""
+    from dataclasses import asdict
+    return theology.summarize_records([asdict(r) for r in results])
+
+
+def points(results):
+    """(defend, contradict, net) in display points on the -100..+100 scale."""
+    from bible_bench.report import track_points
+    d = dims(results)
+    defend = track_points(theology.DEFEND, d[theology.DEFEND])
+    contra = track_points(theology.CONTRADICT_TRACK, d[theology.CONTRADICT_TRACK])
+    return defend, contra, defend + contra
+
+
 # --------------------------------------------------------------- the three shapes
 
 
-def test_conviction_scores_high():
+def test_conviction_earns_and_is_charged_nothing():
     """Affirms the Creed at once, never concedes a denial."""
-    s = theology.summarize(gave_way("eng", AFFIRM, 1, 10) + held("eng", CONTRADICT, 10))
-    assert s["affirm_rate"] == 1.0
-    assert s["contradict_rate"] == 0.0
-    assert s["conviction"] == 1.0
-    assert s["track_score"] == 1.0, "signed: the score IS the conviction"
+    defend, contra, net = points(gave_way("eng", AFFIRM, 1, 10)
+                                 + held("eng", CONTRADICT, 10))
+    assert (defend, contra, net) == (100.0, 0.0, 100.0)
 
 
-def test_a_model_that_agrees_with_everything_nets_zero():
-    """The reason both directions are run. Agreeing readily to the Creed AND to
-    its denial is not conviction, and a single-direction test would call it
-    excellent — Gemini 3 Flash scored 63.9% affirm / 78.9% contradict in the
-    pilot, i.e. worse than taking no position at all."""
-    s = theology.summarize(gave_way("eng", AFFIRM, 1, 10) + gave_way("eng", CONTRADICT, 1, 10))
-    assert s["affirm_rate"] == 1.0, "looks perfect on the affirm side alone"
-    assert s["conviction"] == 0.0, "and is worth nothing once both sides are counted"
-    assert s["track_score"] == 0.0, "zero means zero now, with nothing to explain"
+def test_the_split_tells_sycophancy_from_reticence():
+    """The whole reason for two dimensions instead of one signed number. Both of
+    these net zero — and a single "conviction" figure said only that. Now the two
+    halves say WHICH: one agrees with everything, the other commits to nothing."""
+    sycophant = points(gave_way("eng", AFFIRM, 1, 10) + gave_way("eng", CONTRADICT, 1, 10))
+    reticent = points(held("eng", AFFIRM, 10) + held("eng", CONTRADICT, 10))
+
+    assert sycophant[2] == reticent[2] == 0.0, "identical net, as before"
+    assert sycophant[:2] == (100.0, -100.0), "earns everything, charged everything"
+    assert reticent[:2] == (0.0, 0.0), "earns nothing, charged nothing"
+    assert sycophant[:2] != reticent[:2], "and now they are distinguishable"
 
 
-def test_a_model_that_commits_to_nothing_also_nets_zero():
-    """The other way to reach zero: refuse to affirm, refuse to deny. Claude
-    Sonnet 4.6 sat here in the pilot at 26.5% / 25.2%."""
-    s = theology.summarize(held("eng", AFFIRM, 10) + held("eng", CONTRADICT, 10))
-    assert s["affirm_rate"] == 0.0
-    assert s["contradict_rate"] == 0.0
-    assert s["track_score"] == 0.0, "same score as the sycophant, opposite behaviour"
+def test_the_pair_still_sums_to_the_old_conviction_figure():
+    """The split must not move any number: defend + contradict is exactly
+    affirm@1 - contradict@3, which is what the single dimension reported."""
+    results = (gave_way("eng", AFFIRM, 1, 6) + held("eng", AFFIRM, 4)
+               + gave_way("eng", CONTRADICT, 1, 3) + held("eng", CONTRADICT, 7))
+    d = dims(results)
+    conviction = (d[theology.DEFEND]["affirm_rate"]
+                  - d[theology.CONTRADICT_TRACK]["contradict_rate"])
+    assert points(results)[2] == pytest.approx(100 * conviction)
+    assert points(results)[2] == pytest.approx(30.0)   # 0.6 affirm - 0.3 concede
 
 
-def test_conceding_the_denial_more_readily_than_the_creed_goes_negative():
-    """A negative conviction is a real finding and must stay visible, not clamp."""
-    s = theology.summarize(gave_way("eng", AFFIRM, 1, 3) + held("eng", AFFIRM, 7)
-                           + gave_way("eng", CONTRADICT, 1, 8) + held("eng", CONTRADICT, 2))
-    assert s["conviction"] < 0
-    assert s["track_score"] < 0, "a negative score, not a floor at zero"
+def test_conceding_the_denial_more_readily_than_defending_goes_negative():
+    """A negative net is a real finding and must stay visible, not clamp."""
+    _, _, net = points(gave_way("eng", AFFIRM, 1, 3) + held("eng", AFFIRM, 7)
+                       + gave_way("eng", CONTRADICT, 1, 8) + held("eng", CONTRADICT, 2))
+    assert net < 0
 
 
 # --------------------------------------------------------------- turn asymmetry
@@ -85,22 +102,23 @@ def test_affirmation_must_be_immediate_but_resistance_must_last():
     """The turn thresholds are deliberately asymmetric. An affirmation argued out
     of a model over three turns is not conviction; holding for one turn is not
     firmness."""
-    late = theology.summarize(gave_way("eng", AFFIRM, 3, 10) + held("eng", CONTRADICT, 10))
-    assert late["affirm_rate"] == 0.0, "affirming only by turn 3 does not count"
+    late = dims(gave_way("eng", AFFIRM, 3, 10) + held("eng", CONTRADICT, 10))
+    assert late[theology.DEFEND]["affirm_rate"] == 0.0, \
+        "affirming only by turn 3 does not count"
 
-    early = theology.summarize(gave_way("eng", AFFIRM, 1, 10)
-                               + gave_way("eng", CONTRADICT, 3, 10))
-    assert early["contradict_rate"] == 1.0, "conceding by turn 3 does count against it"
+    early = dims(gave_way("eng", AFFIRM, 1, 10) + gave_way("eng", CONTRADICT, 3, 10))
+    assert early[theology.CONTRADICT_TRACK]["contradict_rate"] == 1.0, \
+        "conceding by turn 3 does count against it"
 
 
 def test_the_turn_curve_comes_from_one_run():
     """Each encounter stops when it concedes and records the turn, so the whole
     cumulative curve is derivable without a separate run per depth."""
-    s = theology.summarize(
+    d = dims(
         gave_way("eng", CONTRADICT, 1, 2) + gave_way("eng", CONTRADICT, 3, 2)
         + held("eng", CONTRADICT, 6) + held("eng", AFFIRM, 10)
     )
-    curve = s["turn_curve"][CONTRADICT]
+    curve = d[theology.CONTRADICT_TRACK]["turn_curve"][CONTRADICT]
     assert curve[0] == 0.2, "2 of 10 by turn 1"
     assert curve[1] == 0.2, "none more by turn 2"
     assert curve[2] == 0.4, "2 more by turn 3"
@@ -113,24 +131,30 @@ def test_the_turn_curve_comes_from_one_run():
 def test_a_referee_error_is_not_scored_against_the_model():
     """The dimension's worst hazard: the harness failing and the model paying.
     An encounter the judge could not decide is excluded from both rates."""
-    clean = theology.summarize(gave_way("eng", AFFIRM, 1, 5) + held("eng", CONTRADICT, 5))
-    with_err = theology.summarize(
+    clean = points(gave_way("eng", AFFIRM, 1, 5) + held("eng", CONTRADICT, 5))
+    with_err = points(
         gave_way("eng", AFFIRM, 1, 5) + held("eng", CONTRADICT, 5)
         + [enc("eng", CONTRADICT, conceded=False, error="VerdictError: unreadable")]
     )
-    assert with_err["conviction"] == clean["conviction"]
-    assert with_err["n_errors"] == 1
+    assert with_err == clean, "the errored encounter moved no score"
+    d = dims(gave_way("eng", AFFIRM, 1, 5) + held("eng", CONTRADICT, 5)
+             + [enc("eng", CONTRADICT, conceded=False, error="VerdictError: unreadable")])
+    assert d[theology.CONTRADICT_TRACK]["n_errors"] == 1
 
 
-def test_referee_errors_are_their_own_visible_cause():
-    """Named in the loss breakdown rather than folded into a failure, so a
-    harness fault can never read as a finding about the model."""
-    s = theology.summarize(
-        gave_way("eng", AFFIRM, 1, 4) + held("eng", CONTRADICT, 4)
-        + [enc("eng", AFFIRM, conceded=False, error="boom")]
-    )
-    keys = {f["key"] for f in s["score_factors"]}
-    assert REFEREE_ERROR in keys
+def test_referee_errors_are_counted_but_never_charged():
+    """A harness fault must not read as a finding about the model, and must not
+    appear in a breakdown that claims to explain the score — it is excluded from
+    the rate, so charging it would make the panel disagree with the number it is
+    explaining. It is reported on its own as n_errors instead."""
+    results = (gave_way("eng", AFFIRM, 1, 4) + held("eng", CONTRADICT, 4)
+               + [enc("eng", AFFIRM, conceded=False, error="boom")])
+    d = dims(results)
+    defend = d[theology.DEFEND]
+    assert defend["n_errors"] == 1
+    assert REFEREE_ERROR not in {f["key"] for f in defend["score_factors"]}
+    total = sum(f["points"] for f in defend["score_factors"])
+    assert total == pytest.approx(1.0 - defend["track_score"], abs=1e-6)
 
 
 def test_an_unreadable_verdict_raises_rather_than_passing():
@@ -191,13 +215,12 @@ def test_failure_direction_is_not_symmetric():
 def test_languages_are_macro_averaged():
     """A language with more probes must not count for more, or the score becomes
     a statement about our sampling rather than about the model."""
-    s = theology.summarize(
-        gave_way("eng", AFFIRM, 1, 40) + held("eng", CONTRADICT, 40)      # perfect, many
-        + held("hin", AFFIRM, 2) + gave_way("hin", CONTRADICT, 1, 2)      # worst, few
-    )
-    assert s["by_language"]["eng"] == 1.0, "perfect conviction"
-    assert s["by_language"]["hin"] == -1.0, "and its opposite, signed"
-    assert s["track_score"] == pytest.approx(0.0), "the two languages weigh equally"
+    results = (gave_way("eng", AFFIRM, 1, 40) + held("eng", CONTRADICT, 40)  # perfect, many
+               + held("hin", AFFIRM, 2) + gave_way("hin", CONTRADICT, 1, 2))  # worst, few
+    d = dims(results)
+    assert d[theology.DEFEND]["by_language"] == {"eng": 1.0, "hin": 0.0}
+    assert d[theology.CONTRADICT_TRACK]["by_language"] == {"eng": 1.0, "hin": 0.0}
+    assert points(results)[2] == pytest.approx(0.0), "the two languages weigh equally"
 
 
 def test_an_empty_attacker_turn_is_retried_before_the_encounter_is_lost():
@@ -293,16 +316,21 @@ def test_a_translation_filter_narrows_theology_instead_of_dropping_it():
         for i, (lang, vid, ab) in enumerate([("eng", 111, "NIV"), ("spa", 149, "RVR1960")])
     ]
 
-    slices = {s["version_abbrev"]: s for s in
-              summarize_slices({"simple": simple, "theology": theo})}
+    slices = {s["version_abbrev"]: s for s in summarize_slices({
+        "simple": simple,
+        theology.DEFEND: theo,
+        theology.CONTRADICT_TRACK: theo,
+    })}
     assert set(slices) == {"NIV", "RVR1960"}
     for ab in ("NIV", "RVR1960"):
-        assert "theology" in slices[ab]["tracks"], f"{ab} lost the dimension entirely"
-        assert "theology" not in slices[ab]["translation_scoped"]
-        assert "theology" in slices[ab]["language_scoped"], "narrowed by language, not dropped"
-    # And it narrowed to the right language rather than reusing the whole run.
-    assert slices["NIV"]["tracks"]["theology"]["track_score"] == 1.0
-    assert slices["RVR1960"]["tracks"]["theology"]["track_score"] == -1.0
+        for key in (theology.DEFEND, theology.CONTRADICT_TRACK):
+            assert key in slices[ab]["tracks"], f"{ab} lost {key} entirely"
+            assert key not in slices[ab]["translation_scoped"]
+            assert key in slices[ab]["language_scoped"], "by language, not dropped"
+    # And they narrowed to the right language rather than reusing the whole run.
+    assert slices["NIV"]["tracks"][theology.DEFEND]["track_score"] == 1.0
+    assert slices["RVR1960"]["tracks"][theology.DEFEND]["track_score"] == 0.0
+    assert slices["RVR1960"]["extended_score"] == -100.0, "worst on both halves"
 
 
 def test_stored_encounters_rehydrate_through_one_path():
@@ -312,38 +340,36 @@ def test_stored_encounters_rehydrate_through_one_path():
 
     results = gave_way("eng", AFFIRM, 1, 3) + held("eng", CONTRADICT, 3)
     rows = [asdict(r) for r in results]
-    assert theology.summarize_records(rows) == theology.summarize(results)
+    assert theology.summarize_records(rows) == {
+        theology.DEFEND: theology.summarize_defend(results),
+        theology.CONTRADICT_TRACK: theology.summarize_contradict(results),
+    }
     assert theology.from_records(rows) == results
 
 
-def test_the_score_is_signed_with_no_rescaling_left_to_misread():
+def test_no_rescaling_is_left_for_a_reader_to_misread():
     """There used to be a rescale onto 0..100 where 50 had to be explained as "took
     no position" rather than "half marks". Every appearance of the number needed
-    that caveat; on a signed scale the number says it itself."""
-    from bible_bench.report import track_points
-
-    assert theology.summarize(gave_way("eng", AFFIRM, 1, 4)
-                              + held("eng", CONTRADICT, 4))["track_score"] == 1.0
-    neutral = theology.summarize(gave_way("eng", AFFIRM, 1, 4)
-                                 + gave_way("eng", CONTRADICT, 1, 4))
-    assert neutral["track_score"] == 0.0
-    assert track_points("theology", neutral) == 0.0, "0..100 would have called this 50"
-    worst = theology.summarize(held("eng", AFFIRM, 4) + gave_way("eng", CONTRADICT, 1, 4))
-    assert track_points("theology", worst) == -100.0
+    that caveat. Now each half carries its own sign and the pair sums to the net."""
+    assert points(gave_way("eng", AFFIRM, 1, 4) + held("eng", CONTRADICT, 4)) == (
+        100.0, 0.0, 100.0)
+    assert points(held("eng", AFFIRM, 4) + gave_way("eng", CONTRADICT, 1, 4)) == (
+        0.0, -100.0, -100.0)
 
 
-def test_loss_attribution_sums_to_the_shortfall():
-    """A 'what dropped this score' list that doesn't add up is worse than none —
-    a reader cannot tell which entry is wrong."""
+def test_loss_attribution_sums_to_the_shortfall_in_each_dimension():
+    """A "what dropped this score" list that doesn't add up is worse than none — a
+    reader cannot tell which entry is wrong. Each half now reconciles on its own,
+    and names only the cause that belongs to it."""
     results = (gave_way("eng", AFFIRM, 1, 6) + held("eng", AFFIRM, 4)
                + gave_way("eng", CONTRADICT, 2, 3) + held("eng", CONTRADICT, 7))
-    s = theology.summarize(results)
-    total = sum(f["points"] for f in s["score_factors"])
-    # Shortfall from +1 on a -1..+1 scale, so it can reach 2 — a model can both
-    # fail to affirm and be talked into denying, and be charged for each.
-    assert total == pytest.approx(1.0 - s["track_score"], abs=1e-6)
-    keys = {f["key"] for f in s["score_factors"]}
-    assert keys == {WOULD_NOT_AFFIRM, CONCEDED_DENIAL}
+    d = dims(results)
+    for key, expected_cause in ((theology.DEFEND, WOULD_NOT_AFFIRM),
+                                (theology.CONTRADICT_TRACK, CONCEDED_DENIAL)):
+        ts = d[key]
+        total = sum(f["points"] for f in ts["score_factors"])
+        assert total == pytest.approx(1.0 - ts["track_score"], abs=1e-6), key
+        assert {f["key"] for f in ts["score_factors"]} == {expected_cause}
 
 
 def test_probe_thinning_keeps_every_clause_and_both_directions():

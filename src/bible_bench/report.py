@@ -39,8 +39,13 @@ SIGNED = "signed"    # -100..+100  already two-sided in its own right
 
 TRACK_POLARITY = {
     "simple": CREDIT,
-    "phantom": DEBIT,
-    "theology": SIGNED,
+    "hallucination": DEBIT,
+    # The creed pair mirrors the ranked pair exactly: defending it earns, being
+    # talked into contradicting it deducts. Their sum is the conviction figure a
+    # single signed dimension used to report, so nothing is lost by splitting them
+    # — and what is gained is that a reader can see WHICH half a model is failing.
+    theology.DEFEND: CREDIT,
+    theology.CONTRADICT_TRACK: DEBIT,
 }
 
 # The two ranked dimensions, equally weighted — which is not a preference but
@@ -50,7 +55,7 @@ TRACK_POLARITY = {
 # the halves separately to fix that puts a kink at zero, destroying the one thing
 # the scale is for. Equal weight is the price of "0 means neutral", and it is a
 # fair price — inventing scripture is as serious as reproducing it faithfully.
-HEADLINE_TRACKS = ("simple", "phantom")
+HEADLINE_TRACKS = ("simple", "hallucination")
 
 # Measured, stored and displayed in full, deliberately outside the headline.
 #
@@ -64,7 +69,7 @@ HEADLINE_TRACKS = ("simple", "phantom")
 # a model volunteers meant finding quotations nobody marked, identifying each one,
 # and judging it against every translation of the language, and every measurement
 # error the benchmark has had lived in that path.
-EXTENDED_TRACKS = ("theology",)
+EXTENDED_TRACKS = (theology.DEFEND, theology.CONTRADICT_TRACK)
 
 # Grades that mean the model presented text as scripture but got it wrong,
 # vs. simply declined.
@@ -255,7 +260,7 @@ def summarize_simple(items: list[dict]) -> dict:
     }
 
 
-def summarize_phantom(items: list[dict]) -> dict:
+def summarize_hallucination(items: list[dict]) -> dict:
     """Hallucination-resistance aggregation. Every item counts; a higher score
     means the model more reliably declined to quote a non-existent reference.
     Per-(language, version) breakdown mirrors the simple track so the website
@@ -268,7 +273,7 @@ def summarize_phantom(items: list[dict]) -> dict:
     total = 0
 
     for it in items:
-        s = it["phantom_score"]
+        s = it["hallucination_score"]
         sc = s["item_score"]
         total += 1
         by_lang[it["language_tag"]].append(sc)
@@ -290,10 +295,10 @@ def summarize_phantom(items: list[dict]) -> dict:
     factors = _macro_loss(
         items,
         lang_of=lambda it: it["language_tag"],
-        score_of=lambda it: it["phantom_score"]["item_score"],
+        score_of=lambda it: it["hallucination_score"]["item_score"],
         cause_of=lambda it: (
-            _BLOCKED if it["phantom_score"]["outcome"] == "no_response" and _was_blocked(it)
-            else it["phantom_score"]["outcome"]
+            _BLOCKED if it["hallucination_score"]["outcome"] == "no_response" and _was_blocked(it)
+            else it["hallucination_score"]["outcome"]
         ),
     )
     versions = [
@@ -389,20 +394,22 @@ def _composite(tracks: dict[str, dict]) -> tuple[float, list[dict]]:
 
 _SUMMARIZERS = {
     "simple": summarize_simple,
-    "phantom": summarize_phantom,
-    # Theology stores encounters rather than scored items, so it summarizes from
-    # its own rows — but it goes through the same registry, because a dimension
-    # missing here is a dimension silently absent from every per-translation
-    # slice while the page still labels the score as including it.
-    "theology": theology.summarize_records,
+    "hallucination": summarize_hallucination,
+    # The creed dimensions store encounters rather than scored items, so they
+    # summarize from their own rows — but they go through the same registry,
+    # because a dimension missing here is a dimension silently absent from every
+    # per-translation slice while the page still labels the score as including it.
+    theology.DEFEND: lambda rows: theology.summarize_records(rows)[theology.DEFEND],
+    theology.CONTRADICT_TRACK:
+        lambda rows: theology.summarize_records(rows)[theology.CONTRADICT_TRACK],
 }
 
 # Dimensions whose prompts name a translation, and therefore vary by one. Both
 # ranked dimensions do: Quoting Accuracy asks for a verse from a named edition, and
-# Hallucination asks for a reference that edition does not contain. Basic Christian
-# Theology names no translation and no verse at all, so every slice narrows it to
-# its language instead.
-_TRANSLATION_SCOPED = ("simple", "phantom")
+# Hallucination asks for a reference that edition does not contain. The creed
+# dimensions name no translation and no verse at all, so every slice narrows them
+# to its language instead.
+_TRANSLATION_SCOPED = ("simple", "hallucination")
 
 
 def summarize_slices(items_by_track: dict[str, list[dict]]) -> list[dict]:
