@@ -3,24 +3,17 @@ import { Link } from "react-router-dom";
 import { api, type LeaderboardEntry } from "../api";
 import { BetaNotice, ErrorMsg, HeatCell, Loading, ScoreBadge } from "../components";
 import { useAsync } from "../hooks";
-import {
-  EXTENDED,
-  MAIN,
-  blendForSlice,
-  modelHref,
-  versionColumnsInform,
-  type Section,
-} from "../sections";
-import { languageSlices, sliceScore, versionSlices } from "../slices";
+import { EXTENDED, MAIN, blendForSlice, boardSlices, modelHref, type Section } from "../sections";
+import { sliceScore, type Slice } from "../slices";
 
-// A data column in the matrix: a value in [0,1] per model, or undefined if the
-// model wasn't scored on it.
+// A data column: one slice, scored in display points per model.
 interface Col {
   key: string;
   label: string;
   title?: string;
-  first?: boolean; // starts a column group — gets a divider
   get: (e: LeaderboardEntry) => number | undefined;
+  /** Dimensions with no data for this slice — named so a partial cell says so. */
+  missing: (e: LeaderboardEntry) => string[];
 }
 
 const OVERALL = "overall";
@@ -44,41 +37,30 @@ export function Board({ section }: { section: Section }) {
     [data, activeVer],
   );
 
-  // Every language and every Bible version this section covers, always all
-  // shown: no filter to set, nothing hidden behind one.
+  // One column per slice, always all of them: no filter to set, nothing hidden
+  // behind one.
   const cols: Col[] = useMemo(() => {
-    const langs = languageSlices(
+    const slices = boardSlices(
+      section,
       entries.flatMap((e) => section.tracks.map((t) => e.tracks_detail?.[t.key])),
     );
-    const allVersions = versionSlices(entries.map((e) => e.tracks_detail?.[section.versionTrack]));
-    // Drop the per-translation block entirely when it would just restate the
-    // per-language one — 11 columns of identical numbers is noise, not detail.
-    const versions = versionColumnsInform(langs.length, allVersions.length) ? allVersions : [];
-    return [
-      ...langs.map((s, i) => ({
-        key: s.key,
-        label: s.label,
-        title: `${section.title} score for ${s.label}`,
-        first: i === 0,
-        get: (e: LeaderboardEntry) =>
-          blendForSlice(section, (t) => e.tracks_detail?.[t]?.by_language?.[s.lang]),
-      })),
-      // Both ranked dimensions name a translation in their prompts, so a
-      // translation column is the same blend as a language column — just at a
-      // finer grain. It used to be Quoting Accuracy alone, because the hallucination
-      // prompts named no translation and had nothing to contribute here.
-      ...versions.map((s, i) => ({
-        key: s.key,
-        label: s.label,
-        title: `${section.verGroup} · ${s.label}`,
-        first: i === 0,
-        get: (e: LeaderboardEntry) =>
-          blendForSlice(section, (t) => sliceScore(e.tracks_detail?.[t], s)),
-      })),
-    ];
+    return slices.map((s: Slice) => ({
+      key: s.key,
+      label: s.label,
+      title: `${section.title} · ${s.label}`,
+      get: (e: LeaderboardEntry) =>
+        blendForSlice(section, (t) => sliceScore(e.tracks_detail?.[t], s)),
+      // Seven of the eighteen editions carry no hallucination items, so their cell
+      // is a credit with nothing charged against it. That is a real gap in what was
+      // measured, not a clean sheet, and one number cannot show the difference —
+      // so the cell says which dimension is missing rather than letting a
+      // single-dimension figure pass as a complete ledger.
+      missing: (e: LeaderboardEntry) =>
+        section.tracks
+          .filter((t) => sliceScore(e.tracks_detail?.[t.key], s) == null)
+          .map((t) => t.short),
+    }));
   }, [entries, section]);
-
-  const nLang = useMemo(() => cols.filter((c) => c.key.startsWith("lang:")).length, [cols]);
 
   const rows = useMemo(() => {
     const col = cols.find((c) => c.key === sortKey);
@@ -148,24 +130,10 @@ export function Board({ section }: { section: Section }) {
           )}
 
           <p className="text-xs text-slate-500 mb-2">
-            Every language and every translation tested, all shown at once — scroll sideways for the
-            rest. Click a column heading to sort by it, or a model to see its own breakdown.
-            <span className="block mt-1">
-              {cols.length > nLang ? (
-                <>
-                  Both blocks are the same blend ({section.composition}) at two grains:{" "}
-                  <span className="text-slate-400">by language</span>, then{" "}
-                  <span className="text-slate-400">by the individual translation</span> each
-                  dimension named in its prompts.
-                </>
-              ) : (
-                <>
-                  One column per language: nothing here asks for a particular translation, so
-                  there is no per-translation split to show. Each quotation is checked against
-                  every translation of its language.
-                </>
-              )}
-            </span>
+            Every column is the same score as the one on the left — {section.composition} —
+            narrowed to {section.sliceKind === "version" ? "one Bible translation" : "one language"}.
+            All shown at once; scroll sideways for the rest. Click a column heading to sort by it,
+            or a model to see its own breakdown.
           </p>
 
           <div className="mt-3 overflow-x-auto rounded-xl border border-white/10">
@@ -185,14 +153,13 @@ export function Board({ section }: { section: Section }) {
                     Model
                   </th>
                   <SortableTh
-                    label={section.beta ? "Extended Score" : "Overall Score"}
+                    label={section.scoreLabel}
                     title={`${section.composition}, across every language`}
                     active={sortKey === OVERALL}
                     onClick={() => setSortKey(OVERALL)}
                     rowSpan={2}
                   />
-                  <GroupTh span={nLang} label={section.langGroup} />
-                  <GroupTh span={cols.length - nLang} label={section.verGroup} />
+                  <GroupTh span={cols.length} label={section.sliceGroup} />
                 </tr>
                 <tr>
                   {cols.map((c) => (
@@ -202,7 +169,6 @@ export function Board({ section }: { section: Section }) {
                       title={c.title}
                       active={sortKey === c.key}
                       onClick={() => setSortKey(c.key)}
-                      divider={c.first}
                     />
                   ))}
                 </tr>
@@ -225,19 +191,34 @@ export function Board({ section }: { section: Section }) {
                     <td className="px-3 py-3 text-center">
                       <ScoreBadge score={section.scoreOf(e)} />
                     </td>
-                    {cols.map((c) => (
-                      <HeatCell
-                        key={c.key}
-                        value={c.get(e)}
-                        title={`${e.model_label} · ${c.title ?? c.label}`}
-                        divider={c.first}
-                      />
-                    ))}
+                    {cols.map((c) => {
+                      const gaps = c.missing(e);
+                      return (
+                        <HeatCell
+                          key={c.key}
+                          value={c.get(e)}
+                          title={
+                            `${e.model_label} · ${c.label}` +
+                            (gaps.length ? ` — not measured: ${gaps.join(", ")}` : "")
+                          }
+                          partial={gaps.length > 0}
+                        />
+                      );
+                    })}
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+
+          {section.sliceKind === "version" && (
+            <p className="text-xs text-slate-500 mt-2">
+              <sup>†</sup> Quoting Accuracy only — this edition carries no hallucination items,
+              because those prompts ask a named Bible for a reference it does not contain, and
+              only eleven of the eighteen editions have a set of their own. Nothing is charged
+              against these figures, so they are not comparable with a full column.
+            </p>
+          )}
 
           <CrossLink section={section} />
         </>
@@ -276,11 +257,11 @@ function MainIntro() {
       <p className="text-slate-400">
         This board rates only the accuracy of quoted scripture — it does not score or rate the
         theological positions or theological accuracy of a response. Theological alignment is
-        measured, but it is reported in the{" "}
+        measured, but it is reported on the{" "}
         <Link to="/extended" className="underline">
-          Extended Benchmark
+          Theology Leaderboard
         </Link>{" "}
-        and counts toward no model's Overall Score.
+        and counts toward no model's Bible Accuracy Score.
       </p>
     </section>
   );
@@ -289,7 +270,7 @@ function MainIntro() {
 function ExtendedIntro() {
   return (
     <section className="mb-8 text-slate-300 leading-normal space-y-3">
-      <h1 className="text-3xl font-bold text-white">Extended Benchmark — Beta</h1>
+      <h1 className="text-3xl font-bold text-white">Theology Leaderboard — Beta</h1>
       <BetaNotice />
       <div>
         <p>
@@ -328,7 +309,7 @@ function ExtendedIntro() {
       </p>
       <p className="text-slate-400">
         Read exactly as the main board: same columns, same colours, same drill-downs, and the two
-        dimensions add up the same way. None of it counts toward any model's Overall Score.
+        dimensions add up the same way. None of it counts toward any model's Bible Accuracy Score.
       </p>
     </section>
   );
@@ -341,12 +322,12 @@ function CrossLink({ section }: { section: Section }) {
       {section.key === "main" ? (
         <>
           <Link to={other.base || "/"} className="text-indigo-300 hover:underline font-medium">
-            Extended Benchmark — Beta →
+            Theology Leaderboard — Beta →
           </Link>
           <p className="text-xs text-slate-500 mt-1">
             Whether a model holds to the Nicene Creed under pressure, and whether it will disagree —
-            scored as the same credit-and-debit ledger as this board, and counting toward no model's
-            Overall Score.
+            scored as the same credit-and-debit ledger as this board, and counting toward no
+            model's Bible Accuracy Score.
           </p>
         </>
       ) : (
@@ -355,7 +336,7 @@ function CrossLink({ section }: { section: Section }) {
             ← Back to the Bible Accuracy Benchmark
           </Link>
           <p className="text-xs text-slate-500 mt-1">
-            The scored board: {MAIN.composition}.
+            The ranked board: {MAIN.composition}.
           </p>
         </>
       )}

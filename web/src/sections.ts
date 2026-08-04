@@ -9,6 +9,7 @@
  * a dimension is an edit here rather than a second copy of the UI.
  */
 import type { LeaderboardEntry, ScoreFactor, SummaryView, TrackSummary } from "./api";
+import { languageSlices, versionSlices, type Slice, type Sliceable } from "./slices";
 import {
   EXTENDED_TRACKS,
   HEADLINE_TRACKS,
@@ -28,60 +29,62 @@ export interface Section {
   tracks: TrackMeta[];
   /** Relative weights for blending dimensions into one score per slice. */
   weights: Record<string, number>;
-  /** Which dimension supplies the per-translation columns. */
-  versionTrack: string;
+  /**
+   * What this board's columns slice by — the finest grain its dimensions actually
+   * vary over. Quoting Accuracy and Hallucination name a translation in every
+   * prompt, so they slice by version; the creed dimensions quote no scripture at
+   * all and exist only per language, so a per-version column set is not something
+   * this board could show even if we wanted it to.
+   */
+  sliceKind: "version" | "language";
   /** A model's score for this board, 0..100. */
   scoreOf: (e: LeaderboardEntry) => number | null;
   summaryScoreOf: (s: SummaryView) => number | null;
   factorsOf: (s: SummaryView) => ScoreFactor[];
-  /** Heading over the blended-per-language column group. */
-  langGroup: string;
-  /** Heading over the per-translation column group. */
-  verGroup: string;
+  /** Heading over the per-slice column group. */
+  sliceGroup: string;
   /** How the score is composed, shown under it. */
   composition: string;
+  /** What this board's score is called, wherever a number needs a name. */
+  scoreLabel: string;
   beta?: boolean;
 }
 
 export const MAIN: Section = {
   key: "main",
   base: "",
-  nav: "Leaderboard",
-  title: "Bible Accuracy Benchmark",
+  nav: "Bible Accuracy",
+  title: "Bible Accuracy Leaderboard",
   tracks: HEADLINE_TRACKS,
   weights: TRACK_WEIGHTS,
-  versionTrack: "simple",
+  sliceKind: "version",
   scoreOf: (e) => e.headline_score,
   summaryScoreOf: (s) => s.headline_score ?? null,
   factorsOf: (s) => s.score_factors ?? [],
-  langGroup: "Overall by language",
-  verGroup: "Overall by translation",
+  sliceGroup: "By Bible translation",
   composition: "Quoting Accuracy (0…+100) plus Hallucination (−100…0)",
+  scoreLabel: "Bible Accuracy Score",
 };
 
 export const EXTENDED: Section = {
   key: "extended",
   base: "/extended",
-  nav: "Extended Benchmark",
-  title: "Extended Benchmark — Beta",
+  nav: "Theology",
+  title: "Theology Leaderboard",
   tracks: EXTENDED_TRACKS,
   weights: Object.fromEntries(EXTENDED_TRACKS.map((t) => [t.key, 1])),
-  // Neither creed dimension mentions a translation — they quote no scripture at
-  // all — so this names one of them deliberately: it carries no version slices,
-  // which suppresses the per-translation block rather than borrowing a quoting
-  // dimension's translations onto a board they have nothing to do with.
-  versionTrack: "creed_defend",
+  sliceKind: "language",
   scoreOf: (e) => e.extended_score ?? null,
   summaryScoreOf: (s) => s.extended_score ?? null,
   factorsOf: (s) => s.extended_score_factors ?? [],
-  langGroup: "Extended by language",
-  verGroup: "Extended by translation",
+  sliceGroup: "By language",
   // The same ledger as the main board, one level down: defending the Creed earns,
   // being talked into contradicting it deducts, and the two sum to the score. Their
   // sum is the conviction figure a single signed dimension used to report — what the
   // split adds is that a reader can see WHICH half a model is failing, since a
   // sycophant and a model that commits to nothing both land on zero.
   composition: "Defend the Creed (0…+100) plus Contradict it (−100…0)",
+  scoreLabel: "Theology Score",
   beta: true,
 };
 
@@ -117,18 +120,12 @@ export function blendForSlice(
 }
 
 /**
- * Whether per-translation columns tell you anything the per-language columns
- * don't. They only do when some language was tested on more than one
- * translation — otherwise every translation column is its language's column
- * under a different heading, and showing both invites the reader to look for a
- * difference that cannot exist.
- *
- * True for Direct Quotation (English alone has five editions); false for the
- * open-question dimensions, which define one translation per language.
+ * The columns for a board: whichever slice kind its dimensions vary over.
  */
-export function versionColumnsInform(langCount: number, versionCount: number): boolean {
-  return versionCount > langCount;
+export function boardSlices(section: Section, tracks: (Sliceable | undefined)[]): Slice[] {
+  return section.sliceKind === "version" ? versionSlices(tracks) : languageSlices(tracks);
 }
+
 
 /** Per-track payloads for this section's dimensions, in display order. */
 export function sectionTracks<T>(
