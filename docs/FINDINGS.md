@@ -47,11 +47,10 @@ but the reader cannot read it.
 | model | share of its quotations in a language other than the one asked |
 |---|---|
 | **Grok 4.5** | **26%** — Hindi 83%, Arabic 62%, Indonesian 43% |
-| Kimi K3 | 5% — Hindi 57% |
 | GPT-5.6 Terra, MiniMax M3 | ~1% |
 | The other six models tested | 0% |
 
-Four of ten models do this; six never do. It tracks how well-resourced a language
+Three of nine models do this; six never do. It tracks how well-resourced a language
 is: not one of them does it in English, Spanish, Portuguese or French, and Hindi is
 the language most often answered in English.
 
@@ -64,7 +63,7 @@ are the ones asking in the languages that already have the least.
 
 * **This is a fast pass.** Each model answered about 400 questions — enough for a
   first look, not a verdict. Hallucination Resistance especially saturates at this
-  size, with five of ten models scoring a perfect 100, so rankings should be
+  size, with four of nine models scoring a perfect 100, so rankings should be
   expected to shift on the full run.
 * **Earlier "invented a verse" figures were too high.** Our scorer was failing to
   recognise real verses quoted from editions and languages it wasn't looking in,

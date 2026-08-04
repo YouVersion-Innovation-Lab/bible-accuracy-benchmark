@@ -66,9 +66,12 @@ MODELS = [
     dict(label="Gemini 3.5 Flash Lite", base=GEMINI,     key="GEMINI_API_KEY",     model="gemini-3.5-flash-lite",      provider=""),
     dict(label="DeepSeek V4 Pro",       base=OPENROUTER, key="OPENROUTER_API_KEY", model="deepseek/deepseek-v4-pro",   provider=""),
     dict(label="GLM-5.2",               base=OPENROUTER, key="OPENROUTER_API_KEY", model="z-ai/glm-5.2",               provider="z-ai"),
-    dict(label="Kimi K3",               base=OPENROUTER, key="OPENROUTER_API_KEY", model="moonshotai/kimi-k3",         provider=""),
     dict(label="Grok 4.5",              base=OPENROUTER, key="OPENROUTER_API_KEY", model="x-ai/grok-4.5",              provider=""),
 ]
+# Kimi K3 is deliberately absent: dropped from the lineup on cost. It reasons far
+# past every other model tested — it exhausted an 8192-token budget on roughly a
+# sixth of theology probes and needed ~183s for a single turn — which made it cost
+# several times its neighbours to measure for one data point.
 
 TRACKS = ("simple", "topical", "phantom")
 

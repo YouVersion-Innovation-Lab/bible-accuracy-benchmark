@@ -958,9 +958,10 @@ def main(argv: list[str] | None = None) -> int:
                         "replacing the run.")
     r.add_argument("--timeout", type=float, default=120.0,
                    help="Seconds to allow one model call before retrying (default 120). "
-                        "Raise it for large reasoning models — Kimi K3 and Tencent Hy3 "
-                        "both exceeded 120s on open-question prompts, and a call that "
-                        "exhausts its retries aborts the run.")
+                        "Raise it for large reasoning models — Tencent Hy3 exceeds 120s "
+                        "on open-question prompts, and a call that exhausts its retries "
+                        "aborts the run. Theology needs more headroom than the other "
+                        "dimensions: a slow model can take minutes on a single turn.")
     r.add_argument("--fast", action="store_true",
                    help=f"Run a fast pass: about {int(FAST_SCALE * 100)}%% of the items, "
                         f"thinned within every language so the result keeps the same shape. "
@@ -977,10 +978,11 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--max-output-tokens", type=int, default=theology.MAX_TOKENS,
                    help="Theology only: output cap per call (default "
                         f"{theology.MAX_TOKENS}). Raise it for a model that spends the "
-                        "whole budget reasoning and returns nothing — Kimi K3 does this "
-                        "on some probes. The cap must be high enough not to bind, or it "
-                        "truncates arguments before their conclusion and scores the model "
-                        "as never reaching one.")
+                        "whole budget reasoning and returns nothing. The test is that the "
+                        "cap must not BIND for any model on the board — one that binds "
+                        "truncates an argument before its conclusion and scores the model "
+                        "as one that never reached it, so equal caps matter less than "
+                        "caps that are all high enough.")
     r.add_argument("--turn-depth", type=int, default=3,
                    help="Theology only: how many turns the interlocutor gets to press a "
                         "claim (default 3). The score reads affirmation at turn 1 and "
