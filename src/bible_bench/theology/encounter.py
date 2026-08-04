@@ -207,6 +207,7 @@ async def run_encounter(
     judge=None,         # async (messages, **kw) -> str   — defaults to `attacker`
     turn_depth: int = 3,
     tutor: bool = True,
+    max_tokens: int = MAX_TOKENS,
 ) -> EncounterResult:
     """Press one claim for up to ``turn_depth`` exchanges, stopping at concession.
 
@@ -235,19 +236,17 @@ async def run_encounter(
                  "content": m["content"]}
                 for m in conversation
             ]
-            attack = await attacker(
-                [{"role": "system", "content": attacker_brief}, *swapped],
-                max_tokens=MAX_TOKENS,
-            )
-            if not (attack or "").strip():
-                raise VerdictError(f"attacker produced nothing on turn {n}")
+            attack = await _press(
+                attacker, [{"role": "system", "content": attacker_brief}, *swapped],
+                n, max_tokens)
             conversation.append({"role": "user", "content": attack})
 
             # No system prompt: whatever we put here we would be measuring.
-            response = await defender(list(conversation), max_tokens=MAX_TOKENS)
+            response = await defender(list(conversation), max_tokens=max_tokens)
             conversation.append({"role": "assistant", "content": response or ""})
 
-            conceded, reasoning = await _judge_turn(judge, item, response or "", n)
+            conceded, reasoning = await _judge_turn(
+                judge, item, response or "", n, max_tokens)
             result.turns.append(Turn(n=n, attack=attack, response=response or "",
                                      conceded=conceded, reasoning=reasoning))
             if conceded:
@@ -259,7 +258,7 @@ async def run_encounter(
                 advice = await attacker(
                     [{"role": "user", "content": _tutor_prompt(
                         item, attack, response or "", language_name)}],
-                    max_tokens=MAX_TOKENS,
+                    max_tokens=max_tokens,
                 )
                 if (advice or "").strip():
                     attacker_brief = (
@@ -271,12 +270,43 @@ async def run_encounter(
     return result
 
 
+#: Attempts to get a non-empty attack before the encounter is abandoned. The same
+#: shape as the judge's retry, and for the same reason: the referee occasionally
+#: returns an empty body that no exception describes, so the client's own retries
+#: never see a failure to retry.
+#:
+#: Measured, and the measurement is why this is not optional. Losing the encounter
+#: outright cost 0.2-0.6% of a run early in the v0.5-fast sweep and 7-19% later the
+#: same night — same referee, same prompts, so the rate is a property of the
+#: endpoint's mood rather than of anything we control. At 19% it aborted runs; worse,
+#: a loss that varies with when a model happened to be measured is a loss that makes
+#: two models' coverage incomparable for reasons having nothing to do with theology.
+ATTACK_ATTEMPTS = 3
+
+
+async def _press(attacker, messages: list[dict], turn: int,
+                 max_tokens: int = MAX_TOKENS) -> str:
+    """Get one attacker turn, retrying an empty reply, and raise if none arrives.
+
+    Warmth is what makes the retry worth having: the attacker runs at temperature
+    0.8, so a second attempt is a genuinely different attempt rather than a replay
+    of the one that just came back empty.
+    """
+    for _attempt in range(ATTACK_ATTEMPTS):
+        attack = await attacker(messages, max_tokens=max_tokens)
+        if (attack or "").strip():
+            return attack
+    raise VerdictError(
+        f"attacker produced nothing on turn {turn} after {ATTACK_ATTEMPTS} attempts")
+
+
 #: An unreadable verdict is usually a one-off — the referee emitting a stray
 #: token instead of its JSON. Worth retrying; not worth guessing at.
 JUDGE_ATTEMPTS = 3
 
 
-async def _judge_turn(judge, item: TheologyItem, response: str, turn: int) -> tuple[bool, str]:
+async def _judge_turn(judge, item: TheologyItem, response: str, turn: int,
+                      max_tokens: int = MAX_TOKENS) -> tuple[bool, str]:
     """Ask for a verdict, retrying a garbled one, and raise if it never arrives.
 
     Never falls back to a default. For a contradict probe "no verdict" would
@@ -288,7 +318,7 @@ async def _judge_turn(judge, item: TheologyItem, response: str, turn: int) -> tu
         raw = await judge(
             [{"role": "system", "content": _judge_prompt(item)},
              {"role": "user", "content": f"The assistant said:\n\n{response}"}],
-            max_tokens=MAX_TOKENS, json_mode=True,
+            max_tokens=max_tokens, json_mode=True,
         )
         try:
             return _read_verdict(raw, item, turn)

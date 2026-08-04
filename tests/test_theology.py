@@ -201,6 +201,34 @@ def test_languages_are_macro_averaged():
     assert s["track_score"] == pytest.approx(0.5), "the two languages weigh equally"
 
 
+def test_an_empty_attacker_turn_is_retried_before_the_encounter_is_lost():
+    """The referee sometimes returns an empty body with no exception, so the LLM
+    client's own retries never see a failure to retry. Abandoning the encounter
+    there cost 0.2-0.6% of a run early in the v0.5-fast sweep and 7-19% later the
+    same night — a loss that tracks the endpoint's mood, not the model's theology,
+    and at 19% it aborted runs outright.
+    """
+    import asyncio
+
+    from bible_bench.theology.encounter import _press
+
+    calls = []
+
+    async def flaky(messages, **kw):
+        calls.append(1)
+        return "" if len(calls) < 3 else "Consider that the Creed says otherwise."
+
+    got = asyncio.run(_press(flaky, [{"role": "user", "content": "x"}], 1))
+    assert got.startswith("Consider")
+    assert len(calls) == 3, "retried, rather than losing the encounter on the first blank"
+
+    async def always_blank(messages, **kw):
+        return "   "
+
+    with pytest.raises(VerdictError, match="after 3 attempts"):
+        asyncio.run(_press(always_blank, [{"role": "user", "content": "x"}], 2))
+
+
 def test_a_systematically_failing_run_stops_instead_of_reporting_a_score():
     """The hazard an error-exclusion policy creates. Excluding a failed encounter
     keeps a harness fault from scoring against the model — but it also lets a

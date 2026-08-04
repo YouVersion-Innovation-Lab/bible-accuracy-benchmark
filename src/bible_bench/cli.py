@@ -368,7 +368,7 @@ async def cmd_run(args) -> int:
                 # too short abandons slow models mid-answer. Neither is recoverable
                 # from the results, so a run that does not state them cannot be
                 # compared with one that used different values.
-                "max_output_tokens": theology.MAX_TOKENS,
+                "max_output_tokens": args.max_output_tokens,
                 "request_timeout_s": args.timeout,
                 "items": [i.to_json() for i in theology_items],
             } if theology_items else None,
@@ -412,6 +412,7 @@ async def cmd_run(args) -> int:
                 lambda done, cp, tick: run_theology(
                     theology_items, _build_attacker(args), model,
                     turn_depth=theo_meta["turn_depth"],
+                    max_tokens=theo_meta["max_output_tokens"],
                     already_done=done, checkpoint=cp, progress=tick,
                     concurrency=args.concurrency),
                 id_key="item_id",
@@ -973,6 +974,13 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--concurrency", type=int, default=12,
                    help="Max concurrent model requests per track (lower it — e.g. 3-4 — "
                         "to stay under a provider's rate limit; e.g. OpenRouter models)")
+    r.add_argument("--max-output-tokens", type=int, default=theology.MAX_TOKENS,
+                   help="Theology only: output cap per call (default "
+                        f"{theology.MAX_TOKENS}). Raise it for a model that spends the "
+                        "whole budget reasoning and returns nothing — Kimi K3 does this "
+                        "on some probes. The cap must be high enough not to bind, or it "
+                        "truncates arguments before their conclusion and scores the model "
+                        "as never reaching one.")
     r.add_argument("--turn-depth", type=int, default=3,
                    help="Theology only: how many turns the interlocutor gets to press a "
                         "claim (default 3). The score reads affirmation at turn 1 and "

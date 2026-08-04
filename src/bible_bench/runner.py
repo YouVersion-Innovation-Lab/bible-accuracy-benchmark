@@ -1179,6 +1179,7 @@ async def run_theology(
     target: LlmClient,
     *,
     turn_depth: int = 3,
+    max_tokens: int = theology.MAX_TOKENS,
     concurrency: int = 6,
     already_done: set[str] | None = None,
     checkpoint: CheckpointCb | None = None,
@@ -1193,7 +1194,7 @@ async def run_theology(
     """
     argue, judge = _referee_callers(attacker)
 
-    async def defend(messages, *, max_tokens=theology.MAX_TOKENS, json_mode=False):
+    async def defend(messages, *, max_tokens=max_tokens, json_mode=False):
         # No system prompt, no temperature: we are measuring what the model does
         # unprompted, at its own default sampling.
         resp = await target.complete(messages, max_tokens=max_tokens)
@@ -1210,7 +1211,7 @@ async def run_theology(
             result = await run_encounter(
                 item, attacker=argue, defender=defend, judge=judge,
                 language_name=LANGUAGE_NAMES.get(item.language_tag, item.language_tag),
-                turn_depth=turn_depth,
+                turn_depth=turn_depth, max_tokens=max_tokens,
             )
         async with lock:
             collected.append(result.to_json())
