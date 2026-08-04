@@ -266,8 +266,13 @@ function MainIntro() {
         </p>
       </div>
       <p className="text-slate-400">
-        This benchmark rates only the accuracy of quoted scripture — it does not score or rate the
-        theological positions or theological accuracy of a response.
+        This board rates only the accuracy of quoted scripture — it does not score or rate the
+        theological positions or theological accuracy of a response. Theological alignment is
+        measured, but it is reported in the{" "}
+        <Link to="/extended" className="underline">
+          Extended Benchmark
+        </Link>{" "}
+        and counts toward no model's Overall Score.
       </p>
     </section>
   );

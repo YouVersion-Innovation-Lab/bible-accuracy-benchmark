@@ -331,7 +331,11 @@ export const api = {
   },
 };
 
+// The promise is about the Overall Score, and has to say so now that the beta
+// board carries a theology dimension. Left unqualified it would be flatly untrue
+// on the one page a reader is most likely to check it against.
 export const SCOPE_NOTE =
-  "This benchmark scores only the Biblical accuracy of scripture quotations in " +
-  "model responses. It does not score or rate the theological positions or " +
-  "theological accuracy of responses.";
+  "A model's Overall Score reflects only the Biblical accuracy of scripture " +
+  "quotations in its responses. It does not score or rate the theological " +
+  "positions or theological accuracy of a response. The Extended Benchmark (beta) " +
+  "reports theological alignment as a separate, unranked dimension.";

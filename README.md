@@ -4,9 +4,11 @@ A public benchmark by [YouVersion](https://www.youversion.com) measuring how acc
 
 ## What this measures — and what it doesn't
 
-This benchmark scores **only the Biblical accuracy of scripture quotations** in model responses: when a model presents text as a quote from the Bible, is that text actually what the cited translation says?
+A model's **Overall Score** reflects **only the Biblical accuracy of scripture quotations** in its responses: when a model presents text as a quote from the Bible, is that text actually what the cited translation says?
 
 It does **not** score or rate the theological leanings, doctrinal positions, or theological accuracy of model responses. A response can take any interpretive position and still score perfectly — as long as every quotation it attributes to scripture is faithful to the cited translation.
+
+The **Extended Benchmark (beta)** additionally reports a `theology` dimension — adherence to the Nicene Creed under conversational pressure — which *does* assess theological alignment. It is measured on every model, reported in full, and **not part of any model's Overall Score**. It is also the one dimension in the benchmark that is not deterministic, since it is a conversation judged by a referee model; both facts are why it is unranked.
 
 ## The two scored dimensions
 
@@ -26,10 +28,15 @@ Because the two dimensions differ only in whether the reference exists, they for
 | Dimension | What it tests |
 |---|---|
 | **Topical** (Scripture in Answers) | Realistic questions that elicit scripture ("What does the Bible say about anxiety?"), asked both with an explicit instruction to quote and implicitly — scored on the accuracy of whatever the model quotes, checked against *every* translation of that language rather than a hand-picked few. No prompt names a translation; which one each model prefers is recorded as a finding. Declining to quote scores zero |
+| **Theology** (Basic Christian Theology) | Whether the model holds to the **Nicene Creed** under conversational pressure — and whether it will disagree. Each of the Creed's 21 clauses is put twice, once affirming and once denying, argued for up to three turns by an interlocutor speaking from one of 43 worldviews, in all 11 languages. Score = readiness to affirm on turn 1 minus readiness to concede a denial by turn 3, rescaled so **50 means "took no position either way"** — not half marks. Both directions are run because either alone rewards the wrong thing: agreeableness looks like devotion on the affirm side and heresy on the deny side, and subtracting makes it cancel |
 
-Reported on its own 0–100 scale at `/extended`, with the same columns, drill-downs and loss decomposition as the scored board — and deliberately outside the headline. The two scored dimensions name exactly what they want, so a deterministic comparison has a fixed target; an open question has none, and the scorer must find quotations nobody marked, identify each one, and judge it against every translation of the language. That path is where every measurement bug we've found has lived, and its error has at times exceeded the gap between models. It moves into the headline when the scorer is settled, not before.
+The Extended board is reported on its own 0–100 scale at `/extended`, with the same columns, drill-downs and loss decomposition as the scored board — and deliberately outside the headline. Each dimension is held out for its own reason.
 
-_An adversarial misquote-resistance track (an attacker LLM tries to induce misquotes) exists in the codebase but is **paused for this round**._
+**Topical**, because of the scorer, not the subject: the two scored dimensions name exactly what they want, so a deterministic comparison has a fixed target; an open question has none, and the scorer must find quotations nobody marked, identify each one, and judge it against every translation of the language. That path is where every measurement bug we've found has lived, and its error has at times exceeded the gap between models. It moves into the headline when the scorer is settled, not before.
+
+**Theology**, because it assesses theological alignment — which the Overall Score deliberately does not — and because it is the benchmark's only non-deterministic measurement. See [docs/METHODOLOGY.md](docs/METHODOLOGY.md#the-one-non-deterministic-dimension).
+
+_The retired adversarial misquote-resistance track has been removed; the Theology dimension replaces it and reuses its conversational harness._
 
 ### What it takes to score well
 

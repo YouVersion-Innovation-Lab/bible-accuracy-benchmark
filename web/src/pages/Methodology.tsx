@@ -4,22 +4,37 @@ export function Methodology() {
       <h1 className="text-3xl font-bold">Methodology</h1>
 
       <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm">
-        <strong>What this measures — and what it doesn't.</strong> This benchmark scores
-        only the Biblical accuracy of scripture quotations in model responses: when a
-        model presents text as a quote from the Bible, is that text actually what the
-        cited translation says? It does <em>not</em> score or rate the theological
-        positions, doctrinal leanings, or theological accuracy of a response. A response
-        may take any interpretive position and still score perfectly, as long as every
-        quotation it attributes to scripture is faithful.
+        <strong>What this measures — and what it doesn't.</strong> A model's{" "}
+        <strong>Overall Score</strong> reflects only the Biblical accuracy of scripture
+        quotations in its responses: when a model presents text as a quote from the Bible,
+        is that text actually what the cited translation says? It does <em>not</em> score
+        or rate the theological positions, doctrinal leanings, or theological accuracy of a
+        response. A response may take any interpretive position and still score perfectly,
+        as long as every quotation it attributes to scripture is faithful.
+        <p className="mt-2">
+          The Extended Benchmark (beta) is where that boundary is being tested. It carries a{" "}
+          <strong>Basic Christian Theology</strong> dimension that does assess theological
+          alignment — against the Nicene Creed specifically, the statement most of
+          Christianity holds in common. It is reported separately and is{" "}
+          <strong>not part of any model's Overall Score</strong>. The ranking's promise is
+          unchanged.
+        </p>
       </div>
 
-      <Section title="Scoring is deterministic">
-        No language model ever renders or influences a score. Every verdict comes from
-        deterministic text comparison against the actual verse text of the cited
-        translation, fetched at evaluation time from YouVersion's Bible API. No language
-        model appears anywhere in the scored tracks — not even to generate prompts. (An
-        adversarial misquote-resistance track that used an attacker model is paused for
-        this round.)
+      <Section title="Scoring the Overall Score is deterministic">
+        No language model ever renders or influences a model's Overall Score. Every verdict
+        behind it comes from deterministic text comparison against the actual verse text of
+        the cited translation, fetched at evaluation time from YouVersion's Bible API. No
+        language model appears anywhere in the ranked dimensions — not even to generate
+        prompts.
+        <p className="mt-2">
+          Basic Christian Theology, in the beta board, is the one exception in the whole
+          benchmark: it cannot be deterministic, because it is a conversation. An open-weight
+          referee argues the case and judges the reply, so the same model can score slightly
+          differently on two runs. That is the second reason it is unranked, alongside the
+          subject matter — and it is why the referee is a published open-weight model rather
+          than any lab's own, and why every transcript is stored.
+        </p>
       </Section>
 
       <Section title="The two scored dimensions">
@@ -81,6 +96,30 @@ export function Methodology() {
           exactly why we would rather report it honestly beside the score than fold it in
           before it's ready.
         </p>
+        <p className="mt-4">
+          <strong>Basic Christian Theology</strong> asks a different question: does the model
+          hold to the <strong>Nicene Creed</strong> — the confession most of Christianity
+          shares — and will it disagree with someone pressing it to abandon one? Each of the
+          Creed's 21 clauses is put to the model twice, once affirming and once denying, and
+          argued for up to three turns by an interlocutor speaking from one of 43 worldviews.
+          The score is the model's readiness to affirm on the first turn minus its readiness
+          to concede a denial by the third.
+        </p>
+        <p className="mt-2">
+          Running both directions is the whole design. Measured only on affirmations, a model
+          that agrees with whatever it is told looks devout; measured only on denials, that
+          same model looks heretical. Subtracting the two makes agreeableness cancel, which
+          leaves <strong>50 meaning "took no position either way"</strong> rather than half
+          marks. Most models measured so far sit close to it, because they answer theology by
+          surveying what traditions believe rather than by holding a view.
+        </p>
+        <p className="mt-2 text-slate-400">
+          Every probe is written in all eleven languages the fast pass covers, so this is not
+          an English measurement reported for everyone. The referee is a pinned open-weight
+          model — deliberately not any frontier lab's, since no lab should be both contestant
+          and judge — and encounters it cannot decide are excluded from the rates and reported
+          as our error rather than the model's.
+        </p>
       </Section>
 
       <Section title="Which books, and how one question set covers them all">
@@ -118,9 +157,9 @@ export function Methodology() {
           failure when it is a gap in what we could obtain.
         </p>
         <p className="mt-2 text-slate-400">
-          A model is never scored on a theological position, on which canon it favours, or on
-          what it says about a text — only on whether text it was asked for is reproduced
-          accurately, and on whether it claims scripture that isn't there.
+          Nothing in a model's Overall Score depends on a theological position, on which canon
+          it favours, or on what it says about a text — only on whether text it was asked for
+          is reproduced accurately, and on whether it claims scripture that isn't there.
         </p>
       </Section>
 
