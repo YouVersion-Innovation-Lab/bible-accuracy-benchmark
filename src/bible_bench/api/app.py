@@ -64,7 +64,7 @@ def create_app(cache: CachedStore | None = None, http_max_age: int | None = None
     @app.get("/api/runs/{run_id}/failures")
     def failures(
         run_id: str,
-        track: str = Query("simple", pattern="^(simple|topical|phantom|theology)$"),
+        track: str = Query("simple", pattern="^(simple|phantom|theology)$"),
         language: str | None = None,
         version_id: int | None = None,
         limit: int = Query(25, ge=1, le=100),
@@ -85,7 +85,7 @@ def create_app(cache: CachedStore | None = None, http_max_age: int | None = None
     @app.get("/api/runs/{run_id}/evaluations")
     def evaluations(
         run_id: str,
-        track: str = Query("simple", pattern="^(simple|topical|phantom)$"),
+        track: str = Query("simple", pattern="^(simple|phantom)$"),
         outcome: str = Query("all", pattern="^(all|pass|fail)$"),
         language: str | None = None,
         version_id: int | None = None,
@@ -149,19 +149,6 @@ def _select_failures(
                     "response_text": turns[-1].get("response") if turns else None,
                     "turns": turns,
                 })
-        elif track == "topical":
-            ts = r.get("topical_score", {})
-            has_bad = any(q.get("classification") in ("mismatch", "misattributed", "fabricated")
-                          for q in r.get("quotes", []))
-            if has_bad or ts.get("item_score", 1) < 1.0:
-                out.append({
-                    "id": r["item_id"], "language_tag": r.get("language_tag"),
-                    "topic_name": r.get("topic_name"),
-                    "elicitation_level": r.get("elicitation_level"),
-                    "sensitive": r.get("sensitive"), "score": ts.get("item_score"),
-                    "response_text": r.get("response_text"),
-                    "quotes": r.get("quotes", []),
-                })
         elif track == "phantom":
             ps = r.get("phantom_score", {})
             # A failure is any item where the model quoted something for a
@@ -196,13 +183,6 @@ def _eval_passed(track: str, r: dict) -> bool:
     """Did this item pass? Per-track definition of a clean result."""
     if track == "simple":
         return r.get("score", {}).get("grade") in ("perfect", "near_perfect")
-    if track == "topical":
-        ts = r.get("topical_score", {})
-        bad = any(
-            q.get("classification") in ("mismatch", "misattributed", "fabricated")
-            for q in r.get("quotes", [])
-        )
-        return not bad and ts.get("item_score", 0) >= 1.0
     if track == "phantom":
         return r.get("phantom_score", {}).get("item_score", 0) >= 1.0
     return True
@@ -260,26 +240,6 @@ def _eval_row(track: str, r: dict, sent: dict, passed: bool) -> dict:
             "best_neighbor": s.get("best_neighbor"),
             "ground_truth_drift": r.get("ground_truth_drift"),
             "scoring_version": s.get("scoring_version"),
-        })
-    elif track == "topical":
-        ts = r.get("topical_score", {})
-        row.update({
-            "topic_id": r.get("topic_id"),
-            "topic_name": r.get("topic_name"),
-            "elicitation_level": r.get("elicitation_level"),
-            "sensitive": r.get("sensitive"),
-            "score": ts.get("item_score"),
-            # The A x E decomposition, so the score is reproducible by eye.
-            "accuracy": ts.get("accuracy"),
-            "emission": ts.get("emission"),
-            "n_quotes": ts.get("n_quotes"),
-            "n_accurate": ts.get("n_accurate"),
-            "n_fabricated": ts.get("n_fabricated"),
-            "n_fabricated_refs": ts.get("n_fabricated_refs"),
-            "grades": ts.get("grades"),
-            "quotes": r.get("quotes", []),
-            "cited_refs": r.get("cited_refs", []),
-            "fabricated_refs": r.get("fabricated_refs", []),
         })
     elif track == "phantom":
         ps = r.get("phantom_score", {})

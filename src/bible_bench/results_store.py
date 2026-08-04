@@ -118,7 +118,7 @@ class GcsResultsStore(ResultsStore):
             blob.delete()
 
 
-_DETAIL_TRACKS = ("simple", "topical", "phantom", "theology")
+_DETAIL_TRACKS = ("simple", "phantom", "theology")
 
 
 def _track_detail(tracks: dict, track: str) -> dict:
@@ -132,9 +132,6 @@ def _track_detail(tracks: dict, track: str) -> dict:
         # per-translation block stays sourced from the tracks that have them.
         "versions": ts.get("versions", []),
     }
-    # Topical also carries which translation the model quotes when unprompted.
-    if track == "topical" and ts.get("version_preference"):
-        detail["version_preference"] = ts["version_preference"]
     return detail
 
 

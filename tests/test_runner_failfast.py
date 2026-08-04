@@ -17,9 +17,7 @@ from bible_bench.runner import (
     EvaluationError,
     generate_phantom,
     generate_simple,
-    generate_topical,
 )
-from bible_bench.topical import TopicalItem
 
 
 class BoomClient:
@@ -56,14 +54,6 @@ def _simple_item(i: int) -> BenchmarkItem:
     )
 
 
-def _topical_item(i: int) -> TopicalItem:
-    return TopicalItem(
-        id=f"t-{i}", track="topical", language_tag="eng", version_id=1,
-        version_abbrev="FAKE", topic_id="anxiety", topic_name="anxiety",
-        elicitation_level="L1", sensitive=False, prompt="What does the Bible say?",
-    )
-
-
 def _phantom_item(i: int) -> PhantomItem:
     return PhantomItem(
         id=f"p-{i}", track="phantom", language_tag="eng", version_id=1,
@@ -82,13 +72,6 @@ def test_simple_generation_aborts_on_failed_call():
     assert "402" in str(ei.value)
 
 
-def test_topical_generation_aborts_on_failed_call():
-    items = [_topical_item(i) for i in range(4)]
-    with pytest.raises(EvaluationError) as ei:
-        asyncio.run(generate_topical(items, BoomClient(fail_on=0), concurrency=1))
-    assert "topical item" in str(ei.value)
-
-
 def test_phantom_generation_aborts_on_failed_call():
     items = [_phantom_item(i) for i in range(4)]
     with pytest.raises(EvaluationError) as ei:
@@ -99,13 +82,13 @@ def test_phantom_generation_aborts_on_failed_call():
 def test_failure_midway_still_aborts_not_partially_recorded():
     """A late failure must abort too — the danger case is a run that mostly
     succeeded, because its numbers look plausible."""
-    items = [_topical_item(i) for i in range(6)]
+    items = [_phantom_item(i) for i in range(6)]
     with pytest.raises(EvaluationError):
-        asyncio.run(generate_topical(items, BoomClient(fail_on=4), concurrency=1))
+        asyncio.run(generate_phantom(items, BoomClient(fail_on=4), concurrency=1))
 
 
 def test_clean_run_returns_all_records():
-    items = [_topical_item(i) for i in range(3)]
-    recs = asyncio.run(generate_topical(items, BoomClient(fail_on=-1), concurrency=2))
+    items = [_phantom_item(i) for i in range(3)]
+    recs = asyncio.run(generate_phantom(items, BoomClient(fail_on=-1), concurrency=2))
     assert len(recs) == 3
     assert all(r["error"] is None for r in recs)

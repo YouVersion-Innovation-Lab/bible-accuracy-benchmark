@@ -10,9 +10,8 @@ from bible_bench.cli import _carry_forward, _stamp_completion
 
 PRIOR = {
     "run_key": "v0.5-fast--m",
-    "tracks": ["phantom", "simple", "topical"],
+    "tracks": ["phantom", "simple"],
     "items": [{"id": "s1"}, {"id": "s2"}],
-    "topical_items": [{"id": "t1"}],
     "phantom_items": [{"id": "p1"}],
     "started_at": "2026-07-30T23:22:16+00:00",
     "finished_at": "2026-07-30T23:28:22+00:00",
@@ -25,7 +24,7 @@ def patch(only, fresh=None):
     m = {
         "run_key": "v0.5-fast--m",
         "tracks": sorted(only),
-        "items": [], "topical_items": [], "phantom_items": [],
+        "items": [], "phantom_items": [],
         "started_at": "2026-08-03T19:00:00+00:00",
         "finished_at": None,
         "published": False,
@@ -40,20 +39,19 @@ def test_untouched_dimensions_keep_their_items():
     tested no verses."""
     m = patch({"theology"})
     assert m["items"] == PRIOR["items"]
-    assert m["topical_items"] == PRIOR["topical_items"]
     assert m["phantom_items"] == PRIOR["phantom_items"]
 
 
 def test_the_patched_dimension_keeps_its_fresh_items():
     """The converse: re-running a dimension must NOT inherit the old item list."""
-    m = patch({"topical"}, fresh={"topical_items": [{"id": "t-new"}]})
-    assert m["topical_items"] == [{"id": "t-new"}]
+    m = patch({"phantom"}, fresh={"phantom_items": [{"id": "p-new"}]})
+    assert m["phantom_items"] == [{"id": "p-new"}]
     assert m["items"] == PRIOR["items"], "the others still carry forward"
 
 
 def test_the_track_list_gains_the_new_dimension_without_losing_the_old():
     m = patch({"theology"})
-    assert m["tracks"] == ["phantom", "simple", "theology", "topical"]
+    assert m["tracks"] == ["phantom", "simple", "theology"]
 
 
 def test_a_patch_does_not_redate_the_run():
@@ -90,8 +88,8 @@ def test_published_state_survives_the_patch():
 def test_patched_tracks_accumulate():
     """Which dimensions were added after the fact is provenance worth keeping."""
     m = _carry_forward(
-        {"tracks": ["topical"], "items": [], "topical_items": [], "phantom_items": []},
+        {"tracks": ["phantom"], "items": [], "phantom_items": []},
         {**PRIOR, "patched_tracks": ["theology"]},
-        {"topical"},
+        {"phantom"},
     )
-    assert m["patched_tracks"] == ["theology", "topical"]
+    assert m["patched_tracks"] == ["phantom", "theology"]

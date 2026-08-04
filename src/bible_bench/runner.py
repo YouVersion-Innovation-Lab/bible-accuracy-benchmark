@@ -7,9 +7,9 @@ Both passes are resumable — re-running skips items already present.
 Generation FAILS FAST. A model call that exhausts its retries aborts the whole
 run (see EvaluationError). A benchmark result assembled from a partially-failed
 generation pass is not a measurement of the model — failed calls land in the
-scorers as "no attempt", which silently deflates the direct-quote and topical
-scores and silently INFLATES hallucination resistance (an empty response reads
-as "declined to quote", i.e. a pass). Better to abort loudly and re-run than to
+scorers as "no attempt", which silently deflates Quoting Accuracy and silently
+REMOVES the hallucination penalty (an empty response reads as "declined to
+quote", i.e. nothing to charge for). Better to abort loudly and re-run than to
 publish a plausible-looking invalid number.
 """
 
@@ -31,7 +31,6 @@ from .phantom import PhantomItem, score_phantom_verdicts
 from .prompts import BENCHMARK_SYSTEM_PROMPT, render_simple_prompt
 from .scoring import score_item
 from .theology import TheologyItem, run_encounter
-from .topical import TopicalItem, score_topical_verdicts
 from .versification import VersificationError
 from .yv_client import BibleClient
 
@@ -148,7 +147,7 @@ async def score_simple(
     verse faithfully from an edition we didn't ask for looked like it had invented
     the text: asked for Judges 11:11 in the NABRE, one model returned the verse
     verbatim in another translation and scored zero as "fabricated". This is the
-    same content-first principle the topical track already used — identify what
+    same content-first principle the quote auditor already used — identify what
     the text actually IS before judging it.
 
     Translations iterate in the outer loop and are released after use, so peak
@@ -320,59 +319,6 @@ def _score_one(
     }
 
 
-async def generate_topical(
-    items: list[TopicalItem],
-    model: LlmClient,
-    *,
-    concurrency: int = 12,
-    already_done: set[str] | None = None,
-    checkpoint: CheckpointCb | None = None,
-    progress: ProgressCb | None = None,
-) -> list[dict]:
-    """Query the model for each topical item (prompt is precomputed on the item).
-
-    Topical answers are long-form, so a larger token budget than the simple
-    track. Mirrors ``generate_simple``'s resume/checkpoint semantics."""
-    done = already_done or set()
-    todo = [it for it in items if it.id not in done]
-    sem = asyncio.Semaphore(concurrency)
-    lock = asyncio.Lock()
-    collected: list[dict] = []
-
-    async def one(item: TopicalItem) -> None:
-        error = None
-        resp = None
-        async with sem:
-            try:
-                resp = await model.complete(_messages(item.prompt))
-            except Exception as e:
-                # Fail fast — see module docstring.
-                raise EvaluationError(
-                    f"{item.track} item {item.id}: {type(e).__name__}: {e}") from e
-        rec = _response_record(item.id, item.prompt, resp, error)
-        async with lock:
-            collected.append(rec)
-            if progress:
-                progress({"phase": "generate", "completed": len(collected),
-                          "total": len(todo), "error": bool(error)})
-            if checkpoint and len(collected) % _CHECKPOINT_EVERY == 0:
-                await _maybe_await(checkpoint(list(collected)))
-
-    await asyncio.gather(*(one(it) for it in todo))
-    if checkpoint:
-        await _maybe_await(checkpoint(list(collected)))
-    return collected
-
-
-# Crossing a language boundary demands a stronger match than staying inside one,
-# because similarity is not neutral across languages: related languages share
-# proper nouns and cognates, so a verse full of names collides by accident.
-# Measured on the ten published runs, Spanish answers matched Portuguese editions
-# of the same verse at 0.61–0.70 and German matched English at 0.75 — every one of
-# them noise, the text plainly still in the language asked. The genuine cases,
-# where the model really did answer in another language, sat at 0.96–1.00. So
-# ``RECOGNISABLE`` is the right floor within a language and much too low across
-# one; a real cross-language quotation IS the other language's text.
 CROSS_LANGUAGE_FLOOR = quoted.NEAR
 
 # Direct-quote grades that a one-language search cannot tell apart from an answer
@@ -490,75 +436,6 @@ async def _identify_quotations(
     return batches, judgements
 
 
-async def score_topical_items(
-    items_by_id: dict[str, TopicalItem],
-    responses: list[dict],
-    client: BibleClient,
-    *,
-    progress: ProgressCb | None = None,
-) -> list[dict]:
-    """Score topical responses by identifying quotations by CONTENT.
-
-    Every quotation is identified against every translation the benchmark covers
-    for the language asked — and, if that finds nothing, against every other
-    language too (see ``_identify_quotations``) — rather than against a short
-    accepted list and whatever reference happened to sit next to it. A faithful
-    quote of any real translation therefore counts as faithful, and which
-    translation the model reached for is recorded rather than prescribed.
-    """
-    batches, judgements = await _identify_quotations(
-        items_by_id, responses, client, include_duplicates=False, progress=progress
-    )
-    results: list[dict] = []
-    done = 0
-    total = sum(len(b.responses) for b in batches)
-    for batch in batches:
-        first = items_by_id[batch.responses[0]["item_id"]]
-        # References are a claim signal ("these words are that verse") and are
-        # resolved from the language's own localized book names.
-        resolver = await QuoteAuditor(client)._resolver(first.version_id)  # noqa: SLF001
-        for resp in batch.responses:
-            item = items_by_id[resp["item_id"]]
-            text = batch.texts[item.id]
-            refs = resolver.find(text)
-            verdicts = _topical_verdicts(
-                text, batch.detections.get(item.id, {}), refs,
-                _span_ids_for(item.id, batch.marked_by_item[item.id], judgements),
-            )
-            tscore = score_topical_verdicts(verdicts)
-            results.append({
-                "item_id": item.id,
-                "track": "topical",
-                "language_tag": item.language_tag,
-                "version_id": item.version_id,
-                "version_abbrev": item.version_abbrev,
-                "topic_id": item.topic_id,
-                "topic_name": item.topic_name,
-                "elicitation_level": item.elicitation_level,
-                "sensitive": item.sensitive,
-                "finish_reason": resp.get("finish_reason"),
-                "response_text": text,
-                "topical_score": asdict(tscore),
-                "quotes": verdicts,
-                "translations_searched": len(batch.editions),
-                "usage": {
-                    "input_tokens": resp.get("input_tokens", 0),
-                    "output_tokens": resp.get("output_tokens", 0),
-                },
-                "error": resp.get("error"),
-            })
-            done += 1
-            if progress:
-                progress({"phase": "score", "completed": done, "total": total})
-    results.sort(key=lambda r: r["item_id"])
-    return results
-
-
-# The system prompt asks for the reference immediately AFTER the quotation, so a
-# following reference is the expected form and gets a generous window. A
-# PRECEDING reference only counts when it's tight against the quote ("Psalm 23:1:
-# ...") — widen this and a denial like "Psalm 153:1 does not exist … you may mean:
-# '<verse>'" would wrongly read the denied reference as the quote's attribution.
 _ATTRIBUTION_AFTER = 120
 _ATTRIBUTION_BEFORE = 30
 
@@ -856,7 +733,7 @@ def _verdict(
     }
 
 
-def _topical_verdicts(
+def _quote_verdicts(
     text: str, detections: dict, refs=(), span_ids: dict[int, object] | None = None
 ) -> list[dict]:
     """Verdicts for text the model PRESENTED as scripture.
@@ -974,7 +851,7 @@ async def generate_phantom(
 ) -> list[dict]:
     """Query the model for each phantom item (prompt precomputed). Answers are
     short — a refusal or a (bad) fabricated verse — so a modest token budget.
-    Mirrors ``generate_topical``'s resume/checkpoint semantics."""
+    Mirrors ``generate_simple``'s resume/checkpoint semantics."""
     done = already_done or set()
     todo = [it for it in items if it.id not in done]
     sem = asyncio.Semaphore(concurrency)
@@ -1022,7 +899,7 @@ async def score_phantom_items(
     for it instead of being marked as inventing text merely because it used a
     translation the old accepted list didn't include.
     """
-    # Duplicates INCLUDED here, unlike the topical track. The dedupe exists so two
+    # Duplicates INCLUDED here, unlike free-form auditing. The dedupe exists so two
     # editions with identical text don't fight over which translation a model
     # prefers — a finding this track doesn't report. What it cost here was
     # coverage: Russian Synodal-with-deuterocanon is deduped away and is the only
@@ -1054,7 +931,7 @@ async def score_phantom_items(
         for resp in batch.responses:
             item = items_by_id[resp["item_id"]]
             text = batch.texts[item.id]
-            verdicts = _topical_verdicts(
+            verdicts = _quote_verdicts(
                 text, batch.detections.get(item.id, {}), (),
                 _span_ids_for(item.id, batch.marked_by_item[item.id], judgements),
             )
@@ -1238,7 +1115,7 @@ async def prefetch_versions(
     """Fetch every chapter of each version into the client's (disk) cache.
 
     This is the run-independent, shared-across-runs work — chiefly the whole-
-    Bible text the topical reverse index needs. Idempotent: chapters already
+    Bible text the reverse index needs. Idempotent: chapters already
     on disk are loaded, not re-fetched, so it resumes cleanly. Returns simple
     stats. Requires the client to have been constructed with a cache_dir."""
     # Enumerate all (version, chapter) pairs first (needs version.json each).

@@ -23,7 +23,11 @@ from rapidfuzz.distance import Levenshtein
 from . import quoted
 from .normalize import normalize
 
-SCORING_VERSION = "1.3.0"
+# 2.0.0: the composite moved from 0..100 to -100..+100. Per-item scoring is
+# unchanged — this is a major bump because the same item scores now aggregate into
+# a number on a different scale, so a stored score is only interpretable next to
+# the version that produced it.
+SCORING_VERSION = "2.0.0"
 
 # Severity thresholds (loose-normalized similarity). Tuned during the pilot;
 # changes bump SCORING_VERSION.

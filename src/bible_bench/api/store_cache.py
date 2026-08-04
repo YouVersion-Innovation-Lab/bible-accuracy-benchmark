@@ -74,7 +74,7 @@ class CachedStore:
 
     def manifest_meta(self, run_id: str) -> dict | None:
         """Manifest with the heavy item lists stripped (model meta + config only)."""
-        _skip = ("items", "topical_items", "phantom_items", "theology")
+        _skip = ("items", "phantom_items", "theology")
 
         def load() -> dict | None:
             m = self._store.read_json(f"runs/{run_id}/manifest.json")
@@ -84,7 +84,7 @@ class CachedStore:
         return self._get(f"manifest:{run_id}", load)  # type: ignore[return-value]
 
     def items(self, run_id: str, kind: str) -> list[dict]:
-        fname = {"simple": "items.jsonl", "topical": "items_topical.jsonl",
+        fname = {"simple": "items.jsonl",
                  "phantom": "items_phantom.jsonl",
                  "theology": "theology.jsonl"}[kind]
 
@@ -94,7 +94,7 @@ class CachedStore:
 
     def responses(self, run_id: str, kind: str) -> list[dict]:
         """The generation records (which carry the prompt) for a track."""
-        fname = {"simple": "responses.jsonl", "topical": "responses_topical.jsonl",
+        fname = {"simple": "responses.jsonl",
                  "phantom": "responses_phantom.jsonl"}.get(kind)
         if not fname:
             return []

@@ -1,42 +1,70 @@
 """Aggregation: per-item scored records → summary metrics + composite score.
 
-Headline = 100 × (⅔·simple + ⅓·hallucination resistance), over the two
-dimensions the benchmark ranks on. Tracks not present in a run are dropped from
-the weighted average and the weights renormalized, so a simple-only pilot run
-still yields a comparable simple-track score (with headline_partial=True).
+Overall Score = Quoting Accuracy (0..+100) + Hallucination (-100..0), a ledger on
+a -100..+100 scale. Quoting scripture accurately earns; asserting scripture that
+does not exist deducts. Zero is the honest middle: a model that invents as much as
+it reproduces lands there, and so does one that does neither.
 
-Every other dimension is summarized in full and published, just outside the
-headline — see EXTENDED_TRACKS. Nothing is discarded: `tracks` always carries
-every summary a run produced, so a dimension can move in or out of the headline
-without re-scoring a single item.
+Two properties this buys, both worth keeping:
+
+  * **Nothing above zero without quoting.** Silence earns no credit and incurs no
+    debit, so a model that never quotes scores 0 — it cannot rank without actually
+    reproducing scripture. That replaces a weighting argument with an invariant.
+  * **Zero means neutral in every dimension.** Including Basic Christian Theology,
+    whose score is a difference of two rates and was previously squeezed onto 0..100
+    where 50 had to be explained as "took no position".
+
+Tracks absent from a run are simply absent from the sum (with headline_partial=True),
+so a simple-only pilot still yields a comparable Quoting Accuracy figure. Nothing is
+discarded: `tracks` always carries every summary a run produced, so a dimension can
+move in or out of the ranking without re-scoring a single item.
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
 
-from . import provenance, theology
+from . import theology
 from .usfm import CANONS
 
-# Relative, and normalized before use — "2:1" states that Direct Quotation
-# counts twice what Hallucination Resistance does without a repeating decimal
-# in the source. Reproducing the requested verse is the benchmark's subject;
-# refusing to invent one is the guardrail that stops silence scoring well.
-HEADLINE_WEIGHTS = {"simple": 2, "phantom": 1}
+# How a dimension contributes to a score on the -100..+100 scale.
+#
+# The scale is a ledger. Quoting scripture accurately EARNS up to +100; asserting
+# scripture that does not exist DEDUCTS up to -100. A model that does both in equal
+# measure lands on zero, and so does one that does neither — which is the point:
+# zero means "no net help", not "half marks".
+CREDIT = "credit"    # 0..+100     earned by getting it right
+DEBIT = "debit"      # -100..0     deducted for asserting what isn't there
+SIGNED = "signed"    # -100..+100  already two-sided in its own right
+
+TRACK_POLARITY = {
+    "simple": CREDIT,
+    "phantom": DEBIT,
+    "theology": SIGNED,
+}
+
+# The two ranked dimensions, equally weighted — which is not a preference but
+# arithmetic. A 0..+100 credit plus a -100..0 debit spans exactly -100..+100 and
+# gives each side 100 points to move. The previous 2:1 weighting cannot survive a
+# symmetric scale: weighting them unequally yields a lopsided range, and rescaling
+# the halves separately to fix that puts a kink at zero, destroying the one thing
+# the scale is for. Equal weight is the price of "0 means neutral", and it is a
+# fair price — inventing scripture is as serious as reproducing it faithfully.
+HEADLINE_TRACKS = ("simple", "phantom")
 
 # Measured, stored and displayed in full, deliberately outside the headline.
-# Scripture in Answers asks an open question and scores whatever the model
-# volunteers, which makes it the least settled scorer of the three; ranking
-# models on it would put the benchmark's shakiest measurement in its most
-# quoted number. Each extended dimension stands alone on its own 100-point
-# scale rather than being blended with the others.
 #
-# Basic Christian Theology sits here for a second reason on top of that: it is the
-# only dimension in the benchmark that is not deterministic. An LLM argues, an LLM
-# judges, and a tutor adapts the attack between turns, so the same model run twice
-# will not produce the same number. Ranking on it would put a model-judged figure
-# in the benchmark's most-quoted slot.
-EXTENDED_TRACKS = ("topical", "theology")
+# Basic Christian Theology is unranked for two reasons. It is the only dimension in
+# the benchmark that is not deterministic — an LLM argues, an LLM judges, and a
+# tutor adapts the attack between turns, so the same model run twice will not give
+# the same number — and it assesses theological alignment, which the Overall Score
+# deliberately does not.
+#
+# Scripture in Answers used to sit here too and has been retired: scoring whatever
+# a model volunteers meant finding quotations nobody marked, identifying each one,
+# and judging it against every translation of the language, and every measurement
+# error the benchmark has had lived in that path.
+EXTENDED_TRACKS = ("theology",)
 
 # Grades that mean the model presented text as scripture but got it wrong,
 # vs. simply declined.
@@ -227,139 +255,6 @@ def summarize_simple(items: list[dict]) -> dict:
     }
 
 
-def _topical_cause(it: dict) -> str:
-    """Why this answer fell short of full marks — the label a lab reads to decide
-    what to fix, so it has to name the real behaviour.
-
-    "Quoted, but not accurately" was doing duty for everything that scored below
-    1.0, which put Grok 4.5's single biggest problem under the one heading that
-    misdescribes it: its scripture IS accurate — 166 quotations matching the
-    English NIV at similarity 1.000 — and the failure is that the reader asked in
-    Hindi (docs/FINDINGS.md F-3). A lab told "your quotations are inaccurate"
-    would go looking for a retrieval or memorisation problem it does not have.
-
-    So a wrong-language answer is attributed as such whenever that is what
-    predominantly happened, and only genuine misquotes keep the accuracy label.
-    """
-    if not (it.get("response_text") or "").strip() and _was_blocked(it):
-        return _BLOCKED
-    if not it["topical_score"]["emission"]:
-        return "no_quote"
-    quotes = it.get("quotes") or []
-    if quotes:
-        elsewhere = sum(
-            1 for q in quotes if q.get("provenance") == provenance.OTHER_LANGUAGE
-        )
-        if elsewhere * 2 > len(quotes):
-            return "wrong_language"
-    return "inaccurate_quotes"
-
-
-def summarize_topical(items: list[dict]) -> dict:
-    """Per-language macro-average of A×E item scores, plus emission/fabrication
-    rates by elicitation level and a sensitive-topic slice."""
-    by_lang: dict[str, list[float]] = defaultdict(list)
-    by_level: dict[str, list[float]] = defaultdict(list)
-    by_topic: dict[str, list[float]] = defaultdict(list)
-    by_version: dict[str, list[float]] = defaultdict(list)
-    version_meta: dict[str, dict] = {}
-    emission_by_level: dict[str, list[float]] = defaultdict(list)
-    sensitive_scores: list[float] = []
-    nonsensitive_scores: list[float] = []
-    # Spontaneous version preference (L2, where no version is named): which
-    # translation the model chose to quote, per language.
-    pref: dict[str, dict[int, int]] = defaultdict(lambda: defaultdict(int))
-    fabricated_refs = 0
-    # Per-QUOTATION verdicts summed across items (accurate / minor / misquote /
-    # fabricated). Item scores alone can't show *how* a model's quotations failed.
-    quote_grades: dict[str, int] = defaultdict(int)
-    quote_provenance: dict[str, int] = defaultdict(int)
-    total = 0
-
-    for it in items:
-        s = it["topical_score"]
-        total += 1
-        by_lang[it["language_tag"]].append(s["item_score"])
-        by_level[it["elicitation_level"]].append(s["item_score"])
-        by_topic[it["topic_id"]].append(s["item_score"])
-        emission_by_level[it["elicitation_level"]].append(s["emission"])
-        (sensitive_scores if it["sensitive"] else nonsensitive_scores).append(s["item_score"])
-        fabricated_refs += s["n_fabricated_refs"]
-        vid = str(it["version_id"])
-        by_version[vid].append(s["item_score"])
-        version_meta.setdefault(vid, {
-            "version_id": it["version_id"],
-            "language_tag": it["language_tag"],
-            "version_abbrev": it.get("version_abbrev", ""),
-        })
-        # Which translation the model reaches for, counted at BOTH levels: from
-        # v0.3 neither prompt names a translation, so every accurate quotation is
-        # a free choice and therefore evidence of preference.
-        for q in it.get("quotes", []):
-            quote_grades[q.get("classification", "?")] += 1
-            quote_provenance[q.get("provenance", provenance.OTHER_VERSION)] += 1
-            mv = q.get("matched_version_id")
-            if mv is not None and q.get("classification") in ("accurate", "minor"):
-                pref[it["language_tag"]][mv] += 1
-
-    lang_means = {lang: _mean(v) for lang, v in by_lang.items()}
-    macro = _mean(list(lang_means.values()))
-    factors = _macro_loss(
-        items,
-        lang_of=lambda it: it["language_tag"],
-        score_of=lambda it: it["topical_score"]["item_score"],
-        cause_of=_topical_cause,
-    )
-    versions = [
-        {**version_meta[vid], "score": round(_mean(scores), 4), "n": len(scores)}
-        for vid, scores in sorted(by_version.items())
-    ]
-    version_preference = {}
-    for lang, counts in pref.items():
-        total_q = sum(counts.values())
-        if not total_q:
-            continue
-        version_preference[lang] = {
-            "by_version": {
-                str(v): c for v, c in sorted(counts.items(), key=lambda kv: -kv[1])
-            },
-            "top_version_id": max(counts, key=counts.get),
-            "n": total_q,
-        }
-    return {
-        "track_score": round(macro, 4),
-        "n": total,
-        "by_language": {k: round(v, 4) for k, v in sorted(lang_means.items())},
-        "by_version": {k: round(_mean(v), 4) for k, v in sorted(by_version.items())},
-        "versions": versions,
-        "version_preference": version_preference,
-        "by_level": {k: round(_mean(v), 4) for k, v in sorted(by_level.items())},
-        "by_topic": {k: round(_mean(v), 4) for k, v in sorted(by_topic.items())},
-        "emission_rate_by_level": {
-            k: round(_mean(v), 4) for k, v in sorted(emission_by_level.items())
-        },
-        "sensitive_topic_score": round(_mean(sensitive_scores), 4) if sensitive_scores else None,
-        "nonsensitive_topic_score": (
-            round(_mean(nonsensitive_scores), 4) if nonsensitive_scores else None
-        ),
-        "fabricated_ref_count": fabricated_refs,
-        # Derived from the per-quotation verdicts rather than the item score's
-        # n_fabricated, which counts MISQUOTES — so this figure was reporting
-        # "quoted a real verse inaccurately" under the label "invented". They are
-        # different claims about a model and both are reported now.
-        "fabricated_quote_count": quote_grades.get("fabricated", 0),
-        "misquoted_quote_count": quote_grades.get("misquote", 0),
-        # Accurate scripture delivered in a language the reader did not ask in.
-        # Counted separately from both accuracy and invention because it is
-        # neither: the verse is right, the language is not (docs/FINDINGS.md F-3).
-        "other_language_quote_count": quote_provenance.get(provenance.OTHER_LANGUAGE, 0),
-        "quote_provenance": dict(sorted(quote_provenance.items())),
-        "quote_grades": dict(sorted(quote_grades.items())),
-        "n_quotes": sum(quote_grades.values()),
-        "score_factors": factors,
-    }
-
-
 def summarize_phantom(items: list[dict]) -> dict:
     """Hallucination-resistance aggregation. Every item counts; a higher score
     means the model more reliably declined to quote a non-existent reference.
@@ -448,27 +343,44 @@ def summarize_phantom(items: list[dict]) -> dict:
     }
 
 
-def _composite(tracks: dict[str, dict], weights: dict[str, float]) -> tuple[float, list[dict]]:
-    """A weighted score in [0,1] plus its loss decomposition in points off 100.
+def track_points(track: str, ts: dict) -> float:
+    """One dimension's contribution to a composite, in points on the -100..+100 scale.
 
-    "What dropped this score" — every factor from every dimension, rescaled by
-    that dimension's weight, ranked worst first. The factors sum to (100 −
-    score) by construction: each dimension's factors sum to its own shortfall,
-    and the composite is a weighted mean of the dimensions. A reader can
-    therefore add the list up and land on the score.
+    A credit dimension pays out what it earned; a debit dimension charges for what
+    it got wrong, so a flawless one contributes nothing rather than a bonus. That
+    asymmetry is deliberate: never inventing scripture is the baseline expected of
+    any model, not an achievement to be rewarded.
     """
-    total = sum(weights[t] for t in tracks)
-    if total <= 0:
+    s = ts["track_score"]
+    polarity = TRACK_POLARITY.get(track, CREDIT)
+    if polarity == DEBIT:
+        return -100.0 * (1.0 - s)
+    return 100.0 * s          # CREDIT (0..1) and SIGNED (-1..+1) both scale directly
+
+
+def _composite(tracks: dict[str, dict]) -> tuple[float, list[dict]]:
+    """A score in [-100,+100] plus its decomposition in points short of +100.
+
+    Every dimension is worth 100 points of movement, so there is no weighting left
+    to normalise — the composite is a plain sum of contributions.
+
+    The factors still add up, which is the property worth protecting: each
+    dimension's own factors sum to its shortfall from its best case, and its best
+    case is +100 for a credit dimension and 0 for a debit one. So the list sums to
+    (100 − score) exactly, as it did on the old scale. What changed is the ceiling
+    on that sum: a model can now be as much as 200 points short of +100, because it
+    can fail to earn 100 and be charged another 100.
+    """
+    if not tracks:
         return 0.0, []
-    score = sum(weights[t] * tracks[t]["track_score"] for t in tracks) / total
+    score = sum(track_points(t, ts) for t, ts in tracks.items())
     factors: list[dict] = []
-    for track in tracks:
-        weight = weights[track] / total
-        for f in tracks[track].get("score_factors", []):
+    for track, ts in tracks.items():
+        for f in ts.get("score_factors", []):
             factors.append({
                 "track": track,
                 "key": f["key"],
-                "points": round(100 * weight * f["points"], 2),
+                "points": round(100 * f["points"], 2),
                 "n": f["n"],
             })
     factors = [f for f in sorted(factors, key=lambda f: -f["points"]) if f["points"] > 0]
@@ -477,7 +389,6 @@ def _composite(tracks: dict[str, dict], weights: dict[str, float]) -> tuple[floa
 
 _SUMMARIZERS = {
     "simple": summarize_simple,
-    "topical": summarize_topical,
     "phantom": summarize_phantom,
     # Theology stores encounters rather than scored items, so it summarizes from
     # its own rows — but it goes through the same registry, because a dimension
@@ -487,10 +398,10 @@ _SUMMARIZERS = {
 }
 
 # Dimensions whose prompts name a translation, and therefore vary by one. Both
-# ranked dimensions do: Direct Quotation asks for a verse from a named edition,
-# and Hallucination Resistance asks for a reference that edition does not
-# contain. Scripture in Answers asks an open question that names none, so a
-# "per-translation" figure for it is its language's figure under another heading.
+# ranked dimensions do: Quoting Accuracy asks for a verse from a named edition, and
+# Hallucination asks for a reference that edition does not contain. Basic Christian
+# Theology names no translation and no verse at all, so every slice narrows it to
+# its language instead.
 _TRANSLATION_SCOPED = ("simple", "phantom")
 
 
@@ -569,22 +480,22 @@ def build_summary(
     slices: list[dict] | None = None,
 ) -> dict:
     """Combine per-track summaries into the run summary with composite score."""
-    present = {t: track_summaries[t] for t in HEADLINE_WEIGHTS if t in track_summaries}
-    headline, factors = _composite(present, HEADLINE_WEIGHTS)
+    present = {t: track_summaries[t] for t in HEADLINE_TRACKS if t in track_summaries}
+    headline, factors = _composite(present)
     # The extended dimensions get the identical treatment on their own scale —
     # same composite, same decomposition — so the site can present them the way
     # it presents the headline, and a reader reads one kind of number, not two.
     extended = {t: track_summaries[t] for t in EXTENDED_TRACKS if t in track_summaries}
-    ext_score, ext_factors = _composite(extended, dict.fromkeys(EXTENDED_TRACKS, 1))
+    ext_score, ext_factors = _composite(extended)
     return {
-        "headline_score": round(100 * headline, 2),
-        "headline_partial": set(present) != set(HEADLINE_WEIGHTS),
+        "headline_score": round(headline, 2),
+        "headline_partial": set(present) != set(HEADLINE_TRACKS),
         "score_factors": factors,
         # Which dimensions the headline covers, so the site doesn't have to
         # hardcode a copy of this decision and drift from it.
-        "headline_tracks": [t for t in HEADLINE_WEIGHTS if t in present],
+        "headline_tracks": [t for t in HEADLINE_TRACKS if t in present],
         "extended_tracks": [t for t in EXTENDED_TRACKS if t in extended],
-        "extended_score": round(100 * ext_score, 2) if extended else None,
+        "extended_score": round(ext_score, 2) if extended else None,
         "extended_score_factors": ext_factors,
         # Every track a run produced, headline or not.
         "by_track": {t: ts["track_score"] for t, ts in track_summaries.items()},

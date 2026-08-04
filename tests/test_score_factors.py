@@ -3,13 +3,14 @@
 A credit-score-style factor list that doesn't reconcile is worse than none: a
 reader can't tell which entry is wrong. These tests pin the arithmetic — each
 dimension's factors sum to its own shortfall, and the headline factors sum to
-(100 - headline_score) — and pin the one semantic distinction the list exists to
-draw: a provider blocking its own output is not the model declining.
+(100 - headline_score), which on a -100..+100 scale can be as much as 200 — and
+pin the one semantic distinction the list exists to draw: a provider blocking its
+own output is not the model declining.
 """
 
 from __future__ import annotations
 
-from bible_bench.report import build_summary, summarize_phantom, summarize_simple, summarize_topical
+from bible_bench.report import build_summary, summarize_phantom, summarize_simple
 
 
 def simple_item(lang: str, score: float, grade: str, **extra) -> dict:
@@ -20,19 +21,6 @@ def simple_item(lang: str, score: float, grade: str, **extra) -> dict:
             "item_score": score, "grade": grade, "verbatim_strict": grade == "perfect",
             "format_ok": True, "qer": 1 - score,
         },
-        **extra,
-    }
-
-
-def topical_item(lang: str, score: float, emission: float, **extra) -> dict:
-    return {
-        "language_tag": lang, "version_id": 1, "version_abbrev": "NIV",
-        "topic_id": "anxiety", "elicitation_level": "L1", "sensitive": False,
-        "topical_score": {
-            "item_score": score, "emission": emission, "accuracy": score,
-            "n_quotes": 1, "n_accurate": 0, "n_fabricated": 0, "n_fabricated_refs": 0,
-        },
-        "quotes": [],
         **extra,
     }
 
@@ -102,19 +90,6 @@ def test_a_provider_block_is_not_the_model_declining():
     assert [f["key"] for f in plain["score_factors"]] == ["no_attempt"]
 
 
-def test_topical_splits_never_quoted_from_quoted_badly():
-    items = [
-        topical_item("eng", 0.0, 0.0),   # quoted nothing
-        topical_item("eng", 0.5, 1.0),   # quoted, half right
-        topical_item("eng", 1.0, 1.0),
-    ]
-    s = summarize_topical(items)
-    keys = {f["key"]: f for f in s["score_factors"]}
-    assert keys["no_quote"]["n"] == 1
-    assert keys["inaccurate_quotes"]["n"] == 1
-    assert abs(_total(s["score_factors"]) - (1 - s["track_score"])) < TOL
-
-
 def test_phantom_factors_sum_to_the_shortfall():
     items = [
         phantom_item("eng", 1.0, "refused"),
@@ -128,13 +103,10 @@ def test_phantom_factors_sum_to_the_shortfall():
     assert abs(_total(s["score_factors"]) - (1 - s["track_score"])) < TOL
 
 
-def _three_tracks() -> dict[str, dict]:
+def _two_tracks() -> dict[str, dict]:
     return {
         "simple": summarize_simple([
             simple_item("eng", 0.8, "minor"), simple_item("spa", 0.0, "fabricated"),
-        ]),
-        "topical": summarize_topical([
-            topical_item("eng", 0.0, 0.0), topical_item("spa", 0.9, 1.0),
         ]),
         "phantom": summarize_phantom([
             phantom_item("eng", 1.0, "refused"), phantom_item("spa", 0.0, "fabricated_text"),
@@ -142,45 +114,84 @@ def _three_tracks() -> dict[str, dict]:
     }
 
 
+def _theology(conviction: float) -> dict:
+    """A theology summary is signed: its track_score IS its conviction."""
+    shortfall = 1.0 - conviction
+    factors = ([{"key": "conceded_denial", "points": shortfall, "n": 3}]
+               if shortfall > 0 else [])
+    return {"track_score": conviction, "score_factors": factors}
+
+
 def test_headline_factors_reconcile_to_the_overall_score():
     """The whole point: a reader can add the list up and land on the score."""
-    s = build_summary(_three_tracks())
+    s = build_summary(_two_tracks())
     assert abs(_total(s["score_factors"]) - (100 - s["headline_score"])) < 0.05
     # Each factor names which dimension it came from, so the panel can group.
     assert {f["track"] for f in s["score_factors"]} <= {"simple", "phantom"}
     assert all(f["points"] > 0 for f in s["score_factors"])
 
 
-def test_the_headline_covers_only_the_two_ranked_dimensions():
-    """Scripture in Answers is measured and published but must not touch the
-    headline: a reader who adds up "what dropped this score" has to land on the
-    score, and a dimension that contributes points without contributing weight
-    would break that in the direction of understating the total."""
-    tracks = _three_tracks()
+def test_the_overall_score_is_a_ledger_of_credit_and_debit():
+    """Quoting accuracy EARNS; hallucination DEDUCTS. The sum is the score, and it
+    is inspectable by eye — which is the reason the debit is carried as a negative
+    rather than as a "rate" column that a reader has to know to subtract."""
+    tracks = _two_tracks()
     s = build_summary(tracks)
     simple, phantom = tracks["simple"]["track_score"], tracks["phantom"]["track_score"]
-    assert s["headline_score"] == round(100 * (2 * simple + phantom) / 3, 2)
+    assert s["headline_score"] == round(100 * simple - 100 * (1 - phantom), 2)
     assert s["headline_tracks"] == ["simple", "phantom"]
-    assert "topical" not in {f["track"] for f in s["score_factors"]}
-    # ...and dropping it entirely leaves the headline untouched.
-    assert build_summary({k: v for k, v in tracks.items() if k != "topical"})[
-        "headline_score"
-    ] == s["headline_score"]
+
+
+def test_the_scale_puts_the_three_reference_models_where_it_says():
+    """The four corners the scale exists to place. A model that quotes as often as
+    it invents lands on zero, and so does one that does neither — same score,
+    opposite behaviour, which is why the dimensions stay visible separately."""
+    def board(simple_score, phantom_score, grade, outcome):
+        return build_summary({
+            "simple": summarize_simple([simple_item("eng", simple_score, grade)]),
+            "phantom": summarize_phantom([phantom_item("eng", phantom_score, outcome)]),
+        })["headline_score"]
+
+    assert board(1.0, 1.0, "perfect", "refused") == 100.0
+    assert board(0.0, 1.0, "no_attempt", "refused") == 0.0, "silence earns nothing"
+    assert board(1.0, 0.0, "perfect", "fabricated_text") == 0.0, "invents as much as it quotes"
+    assert board(0.0, 0.0, "fabricated", "fabricated_text") == -100.0
+
+
+def test_a_model_cannot_rank_without_quoting_scripture():
+    """The non-gameability property, stated as an invariant rather than an argument
+    about weights: no amount of correctly declining fake references earns a point,
+    because the debit dimension's best case is zero, not a bonus."""
+    never_quotes = build_summary({
+        "simple": summarize_simple([simple_item(lang, 0.0, "no_attempt")
+                                    for lang in ("eng", "spa")]),
+        "phantom": summarize_phantom([phantom_item(lang, 1.0, "refused")
+                                      for lang in ("eng", "spa")]),
+    })
+    assert never_quotes["headline_score"] == 0.0
+    assert never_quotes["headline_score"] <= 0
 
 
 def test_the_extended_score_stands_alone_with_its_own_decomposition():
-    """The Extended board needs the same shape of number as the headline — a
-    0-100 score plus factors summing to its shortfall — or it can't be read the
-    same way."""
-    tracks = _three_tracks()
+    """The Extended board needs the same shape of number as the headline — a signed
+    score plus factors summing to its shortfall — or it can't be read the same way."""
+    tracks = {**_two_tracks(), "theology": _theology(0.25)}
     s = build_summary(tracks)
-    assert s["extended_tracks"] == ["topical"]
-    assert s["extended_score"] == round(100 * tracks["topical"]["track_score"], 2)
+    assert s["extended_tracks"] == ["theology"]
+    assert s["extended_score"] == 25.0
     assert abs(_total(s["extended_score_factors"]) - (100 - s["extended_score"])) < 0.05
-    assert {f["track"] for f in s["extended_score_factors"]} == {"topical"}
+    assert {f["track"] for f in s["extended_score_factors"]} == {"theology"}
     # A run without the extended dimension says so rather than reporting a zero.
-    bare = build_summary({k: v for k, v in tracks.items() if k != "topical"})
+    bare = build_summary(_two_tracks())
     assert bare["extended_score"] is None and bare["extended_score_factors"] == []
+
+
+def test_theology_can_go_negative_and_still_reconciles():
+    """Below zero is a finding, not a floor: the model affirmed the Creed's denial
+    more readily than the Creed. The shortfall from +100 then exceeds 100."""
+    s = build_summary({**_two_tracks(), "theology": _theology(-0.5)})
+    assert s["extended_score"] == -50.0
+    assert abs(_total(s["extended_score_factors"]) - 150.0) < 0.05
 
 
 def test_a_perfect_run_has_no_factors():

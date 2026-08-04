@@ -45,7 +45,6 @@ from .report import (
     summarize_phantom,
     summarize_simple,
     summarize_slices,
-    summarize_topical,
 )
 from .results_store import (
     GcsResultsStore,
@@ -57,21 +56,18 @@ from .runner import (
     EvaluationError,
     generate_phantom,
     generate_simple,
-    generate_topical,
     prefetch_versions,
     run_theology,
     score_phantom_items,
     score_simple,
-    score_topical_items,
 )
 from .scoring import SCORING_VERSION
-from .topical import TopicalItem, build_topical_items, load_topics
 from .version import BENCHMARK_VERSION
 from .yv_client import BibleClient
 
 # The benchmark always runs all tracks — there is no track selection. Use
 # --only-tracks to patch a single dimension into an existing run.
-ALL_TRACKS = ("simple", "topical", "phantom", "theology")
+ALL_TRACKS = ("simple", "phantom", "theology")
 
 # A fast pass is a separate generation with the same questions — see cmd_run.
 FAST_SUFFIX = "-fast"
@@ -145,10 +141,6 @@ def _items_from_json(rows: list[dict]) -> list[BenchmarkItem]:
     return [BenchmarkItem(**r) for r in rows]
 
 
-def _topical_items_from_json(rows: list[dict]) -> list[TopicalItem]:
-    return [TopicalItem(**r) for r in rows]
-
-
 def _phantom_items_from_json(rows: list[dict]) -> list[PhantomItem]:
     return [PhantomItem(**r) for r in rows]
 
@@ -172,8 +164,7 @@ async def _sample_items(client: BibleClient, spec_path: str, seed: str, scale: f
 
 
 #: Item lists a patch run must inherit rather than resample, keyed by their track.
-_CARRIED_ITEMS = (("items", "simple"), ("topical_items", "topical"),
-                  ("phantom_items", "phantom"))
+_CARRIED_ITEMS = (("items", "simple"), ("phantom_items", "phantom"))
 
 
 def _carry_forward(manifest: dict, prior: dict, only: set[str]) -> dict:
@@ -289,21 +280,11 @@ async def cmd_run(args) -> int:
         else:
             store.clear(run_dir)
         items = []
-        topical_items = []
         if "simple" in tracks:
             with console.status("Sampling simple-track items from spec…"):
                 items = await _sample_items(client, args.spec, sample_seed, args.scale)
             console.print(f"Sampled [bold]{len(items)}[/bold] simple items across "
                           f"{len({i.language_tag for i in items})} languages.")
-        if "topical" in tracks:
-            cfg = load_topics(args.topics)
-            topical_langs = (
-                [x.strip() for x in args.topical_languages.split(",") if x.strip()]
-                if args.topical_languages else None
-            )
-            topical_items = _thin_per_language(
-                build_topical_items(cfg, languages=topical_langs), args.scale)
-            console.print(f"Built [bold]{len(topical_items)}[/bold] topical items.")
         theology_items = []
         if "theology" in tracks:
             creed = theology.load_spec()
@@ -376,7 +357,6 @@ async def cmd_run(args) -> int:
             "finished_at": None,
             "published": False,
             "items": [i.to_json() for i in items],
-            "topical_items": [i.to_json() for i in topical_items],
             "phantom_items": [i.to_json() for i in phantom_items],
         }
         if only:
@@ -389,13 +369,6 @@ async def cmd_run(args) -> int:
                 store, run_dir, "responses.jsonl", "Querying model (simple)",
                 lambda done, cp, tick: generate_simple(
                     items, client, model, already_done=done, checkpoint=cp, progress=tick,
-                    concurrency=args.concurrency),
-            )
-        if topical_items:
-            await _generate_track(
-                store, run_dir, "responses_topical.jsonl", "Querying model (topical)",
-                lambda done, cp, tick: generate_topical(
-                    topical_items, model, already_done=done, checkpoint=cp, progress=tick,
                     concurrency=args.concurrency),
             )
         if phantom_items:
@@ -423,7 +396,7 @@ async def cmd_run(args) -> int:
 
         # 3. Scoring pass.
         await _score_and_summarize(
-            store, run_dir, items, topical_items, phantom_items, client, model
+            store, run_dir, items, phantom_items, client, model
         )
     except EvaluationError as e:
         # A model call ran out of retries. The run is aborted UNSCORED and
@@ -471,7 +444,7 @@ async def _generate_track(store, run_dir, filename, desc, gen, *, id_key="item_i
 
 
 async def _score_and_summarize(
-    store, run_dir, items, topical_items, phantom_items, client, model
+    store, run_dir, items, phantom_items, client, model
 ) -> None:
     track_summaries: dict[str, dict] = {}
     # Kept alongside the summaries so the per-translation slices can be built
@@ -495,25 +468,6 @@ async def _score_and_summarize(
         if scored:
             track_summaries["simple"] = summarize_simple(scored)
             scored_by_track["simple"] = scored
-
-    if topical_items:
-        responses = store.read_jsonl(f"{run_dir}/responses_topical.jsonl")
-        with _progress("Scoring (topical)") as (prog, task):
-            prog.update(task, total=len(responses))
-
-            def tick(ev: dict) -> None:
-                if ev["phase"] == "score":
-                    prog.update(task, completed=ev["completed"])
-
-            scored_t = await score_topical_items(
-                {i.id: i for i in topical_items}, responses, client, progress=tick)
-        store.write_text(
-            f"{run_dir}/items_topical.jsonl",
-            "\n".join(json.dumps(r, ensure_ascii=False) for r in scored_t) + "\n",
-        )
-        if scored_t:
-            track_summaries["topical"] = summarize_topical(scored_t)
-            scored_by_track["topical"] = scored_t
 
     if phantom_items:
         responses = store.read_jsonl(f"{run_dir}/responses_phantom.jsonl")
@@ -539,7 +493,6 @@ async def _score_and_summarize(
     # aggregate them unchanged, so the headline still covers everything.
     for track, fname, summarize in (
         ("simple", "items.jsonl", summarize_simple),
-        ("topical", "items_topical.jsonl", summarize_topical),
         ("phantom", "items_phantom.jsonl", summarize_phantom),
     ):
         if track in track_summaries:
@@ -586,12 +539,11 @@ async def cmd_score(args) -> int:
     _require_cache(args)  # scoring reads only from the local cache
     client = _bible_client(args, offline=True)
     items = _items_from_json(manifest.get("items", []))
-    topical_items = _topical_items_from_json(manifest.get("topical_items", []))
     phantom_items = _phantom_items_from_json(manifest.get("phantom_items", []))
     no_usage = SimpleNamespace(usage=SimpleNamespace(input_tokens=0, output_tokens=0, calls=0))
     try:
         await _score_and_summarize(
-            store, run_dir, items, topical_items, phantom_items, client, no_usage
+            store, run_dir, items, phantom_items, client, no_usage
         )
     finally:
         await client.aclose()
@@ -634,7 +586,6 @@ def cmd_resummarize(args) -> int:
     tracks: dict[str, dict] = {}
     summarizers = {
         "simple": ("items.jsonl", "responses.jsonl", summarize_simple),
-        "topical": ("items_topical.jsonl", "responses_topical.jsonl", summarize_topical),
         "phantom": ("items_phantom.jsonl", "responses_phantom.jsonl", summarize_phantom),
     }
     rows_by_track: dict[str, list[dict]] = {}
@@ -687,7 +638,7 @@ def _usage_from_run(store, run_dir: str) -> dict:
     """Token/call totals recomputed from the generation records, so a
     re-summarize doesn't blank out usage that the original run reported."""
     totals = {"input_tokens": 0, "output_tokens": 0, "calls": 0}
-    for f in ("responses.jsonl", "responses_topical.jsonl", "responses_phantom.jsonl"):
+    for f in ("responses.jsonl", "responses_phantom.jsonl"):
         for r in store.read_jsonl(f"{run_dir}/{f}"):
             totals["input_tokens"] += r.get("input_tokens") or 0
             totals["output_tokens"] += r.get("output_tokens") or 0
@@ -740,11 +691,6 @@ def _prefetch_version_ids(args, tracks: set[str]) -> list[int]:
             ids.update(lang.get("versions", []))
         for pool in spec.get("distractor_pools", {}).values():
             ids.update(pool)
-    if "topical" in tracks:
-        cfg = load_topics(args.topics)
-        for block in cfg.languages.values():
-            ids.add(block["version_id"])
-            ids.update(block.get("accepted_version_ids", []))
     # Theology needs no entry here: it never quotes scripture, so it needs no
     # verse text prefetched.
     if "phantom" in tracks:
@@ -862,14 +808,6 @@ def _print_summary(summary: dict) -> None:
         t.add_row("Refusal rate", f"{100 * simple['refusal_rate']:.1f}%")
         t.add_row("Wrong-version rate", f"{100 * simple['wrong_version_rate']:.1f}%")
         t.add_row("Wrong-language rate", f"{100 * simple.get('other_language_rate', 0):.1f}%")
-    topical = summary.get("tracks", {}).get("topical")
-    if topical:
-        emit = topical.get("emission_rate_by_level", {})
-        t.add_row("Topical emission (by level)",
-                  ", ".join(f"{k}={100 * v:.0f}%" for k, v in emit.items()) or "—")
-        if topical.get("sensitive_topic_score") is not None:
-            t.add_row("Sensitive-topic score", f"{100 * topical['sensitive_topic_score']:.1f}")
-        t.add_row("Topical fabricated quotes", str(topical.get("fabricated_quote_count", 0)))
     phantom = summary.get("tracks", {}).get("phantom")
     if phantom:
         t.add_row("Hallucination resistance", f"{100 * phantom['track_score']:.1f}")
@@ -941,10 +879,6 @@ def main(argv: list[str] | None = None) -> int:
                         "scoring is reproducible. Ignored for native endpoints; find a "
                         "model's provider slugs on its OpenRouter page.")
     r.add_argument("--spec", default="dataset/spec-v1.json")
-    r.add_argument("--topics", default="dataset/topics-v1.json")
-    r.add_argument("--topical-languages", default="",
-                   help="Comma-separated language tags to limit the topical track to "
-                        "(e.g. 'eng'); default all languages in the topics file")
     r.add_argument("--phantom", default="dataset/phantom-v1.json")
     r.add_argument("--phantom-languages", default="",
                    help="Comma-separated language tags to limit the hallucination track "

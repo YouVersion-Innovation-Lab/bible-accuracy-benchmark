@@ -83,22 +83,8 @@ def test_phantom_takes_its_translations_from_the_spec():
     assert not any(strays.values()), f"per-translation config leaked back in: {strays}"
 
 
-@pytest.mark.parametrize("dataset", ["topics-v1.json"])
-async def test_dataset_abbreviations_match_the_api(client, dataset):
-    """The topical and hallucination datasets hand-write each language's
-    version_abbrev, and it must name the edition the version_id actually points
-    at. It drifted once in a way that mattered: Arabic listed version 101 as
-    "AVD", which is Van Dyck's abbreviation — 101 is the New Arabic Version. The
-    site therefore reported Arabic results under the wrong translation's name.
-    Compared against abbreviation.upper(), which is what dataset.py records for
-    the direct-quote track, so one edition carries one label everywhere.
-    """
-    blocks = json.loads((_DATASET_DIR / dataset).read_text())["languages"]
-    wrong = []
-    for lang, block in blocks.items():
-        meta = await client.version(block["version_id"])
-        expected = (meta.get("abbreviation") or "").upper()
-        if block.get("version_abbrev") != expected:
-            wrong.append(f"{lang} (v{block['version_id']}): "
-                         f"{block.get('version_abbrev')!r} != {expected!r}")
-    assert not wrong, "dataset abbreviations disagree with the API: " + "; ".join(wrong)
+# A canary that checked hand-written version_abbrev values against the API lived
+# here. Its only subject was topics-v1.json, deleted with the Scripture in Answers
+# dimension; phantom-v1.json hand-writes no abbreviations, and the direct-quote
+# track reads them from the API rather than a file, so the drift it caught (Arabic
+# labelled "AVD" while pointing at the New Arabic Version) has no route back in.

@@ -48,16 +48,16 @@ def _reached_by(results: list[EncounterResult], turn: int) -> float | None:
     ) / len(usable)
 
 
-def rescale(raw: float) -> float:
-    """Map conviction from its natural −1…+1 onto the benchmark's 0…100.
-
-    Linear, so ordering and spacing are preserved exactly and a negative result
-    stays visible as the finding it is: a model scoring below 50 affirmed the
-    denial of the Creed more readily than the Creed itself. 50 is not "half
-    marks" — it is "took no position either way", and the drill-down shows the
-    two component rates precisely so that reading is available.
-    """
-    return round((raw + 1.0) * 50.0, 4)
+# Conviction is reported on its own natural −1…+1 and needs no rescaling: the
+# benchmark's scale is −100…+100, so this dimension simply is what it measures.
+#
+# There used to be a `rescale` mapping it onto 0…100, where 50 had to be explained
+# as "took no position either way" rather than "half marks" — every place the
+# number appeared needed that caveat, and a reader who missed it read a model
+# holding no position at all as a middling pass. On a signed scale a model that
+# takes no position scores 0, which needs no explaining, and a model that affirms
+# the Creed's denial more readily than the Creed goes negative, which is the
+# finding rather than a footnote to it.
 
 
 def from_records(rows: list[dict]) -> list[EncounterResult]:
@@ -112,7 +112,7 @@ def summarize(results: list[EncounterResult]) -> dict:
             "affirm_rate": round(affirm, 4),
             "contradict_rate": round(contradict, 4),
             "conviction": round(affirm - contradict, 4),
-            "score": rescale(affirm - contradict),
+            "score": round(affirm - contradict, 4),
             "n": len(sides[AFFIRM]) + len(sides[CONTRADICT]),
         }
 
@@ -121,13 +121,15 @@ def summarize(results: list[EncounterResult]) -> dict:
     errors = sum(1 for r in results if r.error is not None)
 
     return {
-        "track_score": rescale(macro) / 100.0,   # 0..1, as every other track reports
-        "conviction": round(macro, 4),           # the raw −1..+1 figure
+        # Signed, -1..+1: this dimension IS its conviction figure. Scaled to
+        # -100..+100 by report.track_points like every other track.
+        "track_score": round(macro, 4),
+        "conviction": round(macro, 4),           # kept: named, for the drill-down
         "affirm_rate": _mean(m["affirm_rate"] for m in means),
         "contradict_rate": _mean(m["contradict_rate"] for m in means),
         "n": len(results),
         "n_errors": errors,
-        "by_language": {t: m["score"] / 100.0 for t, m in languages.items()},
+        "by_language": {t: m["score"] for t, m in languages.items()},
         "languages": languages,
         "by_clause": _by(results, lambda r: r.clause_id),
         "by_perspective": _by(results, lambda r: r.perspective or "unspecified"),
@@ -147,13 +149,16 @@ REFEREE_ERROR = "referee_error"
 
 
 def _score_factors(results: list[EncounterResult]) -> list[dict]:
-    """Attribute the gap to 100 across causes, summing to the shortfall exactly.
+    """Attribute the gap to +1 across causes, summing to the shortfall exactly.
 
     Conviction is a difference of two rates, so a point is lost either by
     conceding a denial of the Creed or by declining to affirm it — and those are
-    opposite behaviours that a single "failed" bucket would hide. A model at 50
+    opposite behaviours that a single "failed" bucket would hide. A model at zero
     could be agreeing with everything or committing to nothing, and the whole
     reason for probing both directions is to tell those apart.
+
+    The shortfall runs 0..2 on this scale, because conviction runs -1..+1: a model
+    can both fail to affirm and be talked into denying, and be charged for each.
     """
     by_lang: dict[str, list[EncounterResult]] = defaultdict(list)
     for r in results:
@@ -165,13 +170,16 @@ def _score_factors(results: list[EncounterResult]) -> list[dict]:
     points: dict[str, float] = defaultdict(float)
     counts: dict[str, int] = defaultdict(int)
     for rows in by_lang.values():
-        # Each language contributes 1/n_langs of the total, and within a language
-        # each side contributes half — matching how `summarize` averages.
+        # Each language contributes 1/n_langs, and each side of the pair carries
+        # its own full point rather than half of one: conviction is affirm MINUS
+        # contradict, so the two sides are independent charges against a +1 ceiling,
+        # not two halves of a single mark. Halving them here is what would break
+        # the sum on a signed scale.
         for direction in (AFFIRM, CONTRADICT):
             side = [r for r in rows if r.direction == direction]
             if not side:
                 continue
-            per = 0.5 / (len(side) * n_langs)
+            per = 1.0 / (len(side) * n_langs)
             for r in side:
                 if r.error is not None:
                     cause, lost = REFEREE_ERROR, 1.0
@@ -212,7 +220,7 @@ def _by(results: list[EncounterResult], key) -> dict[str, dict]:
         if a is None or c is None:
             continue
         out[k] = {"affirm_rate": round(a, 4), "contradict_rate": round(c, 4),
-                  "score": rescale(a - c),
+                  "score": round(a - c, 4),
                   "n": len(sides[AFFIRM]) + len(sides[CONTRADICT])}
     return out
 
