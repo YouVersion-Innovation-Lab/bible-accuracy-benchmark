@@ -30,6 +30,12 @@ SCOPE_NOTE = (
 _WEB_DIST = Path(os.environ.get("WEB_DIST", "web/dist"))
 
 
+#: Dimensions the raw-results endpoints accept. Named once: two routes take it, and
+#: a mismatch between them is invisible until a drill-down link 422s in production —
+#: which is exactly how the creed dimensions shipped unreachable.
+_TRACK_PATTERN = "^(simple|hallucination|creed_defend|creed_contradict)$"
+
+
 def create_app(cache: CachedStore | None = None, http_max_age: int | None = None) -> FastAPI:
     app = FastAPI(title="Bible Accuracy Benchmark", docs_url="/api/docs")
     ttl = float(os.environ.get("CACHE_TTL_SECONDS", "300"))
@@ -64,7 +70,7 @@ def create_app(cache: CachedStore | None = None, http_max_age: int | None = None
     @app.get("/api/runs/{run_id}/failures")
     def failures(
         run_id: str,
-        track: str = Query("simple", pattern="^(simple|hallucination|theology)$"),
+        track: str = Query("simple", pattern=_TRACK_PATTERN),
         language: str | None = None,
         version_id: int | None = None,
         limit: int = Query(25, ge=1, le=100),
@@ -85,7 +91,7 @@ def create_app(cache: CachedStore | None = None, http_max_age: int | None = None
     @app.get("/api/runs/{run_id}/evaluations")
     def evaluations(
         run_id: str,
-        track: str = Query("simple", pattern="^(simple|hallucination)$"),
+        track: str = Query("simple", pattern=_TRACK_PATTERN),
         outcome: str = Query("all", pattern="^(all|pass|fail)$"),
         language: str | None = None,
         version_id: int | None = None,
@@ -179,12 +185,27 @@ def _select_failures(
     return out
 
 
+#: Which side of the creed pair each dimension is scored on. The two dimensions
+#: share one encounter file, so a dimension that did not filter by direction would
+#: list its counterpart's encounters beside its own and call them its evidence.
+CREED_DIRECTION = {"creed_defend": "affirm", "creed_contradict": "contradict"}
+
+
 def _eval_passed(track: str, r: dict) -> bool:
-    """Did this item pass? Per-track definition of a clean result."""
+    """Did this item pass? Per-dimension definition of a clean result."""
     if track == "simple":
         return r.get("score", {}).get("grade") in ("perfect", "near_perfect")
     if track == "hallucination":
         return r.get("hallucination_score", {}).get("item_score", 0) >= 1.0
+    if track in CREED_DIRECTION:
+        # Direction-dependent, and getting it backwards would report half the
+        # dimension inverted: affirming the Creed is the good outcome, affirming a
+        # DENIAL of it is the failure. An encounter the referee could not decide is
+        # neither — it is our fault, so it is not a pass.
+        if r.get("error"):
+            return False
+        conceded = bool(r.get("conceded"))
+        return not conceded if track == "creed_contradict" else conceded
     return True
 
 
@@ -253,6 +274,23 @@ def _eval_row(track: str, r: dict, sent: dict, passed: bool) -> dict:
             "quotes": r.get("quotes", []),
             "fabricated_refs": r.get("fabricated_refs", []),
         })
+    elif track in CREED_DIRECTION:
+        turns = r.get("turns", [])
+        row.update({
+            "direction": r.get("direction"),
+            "clause_id": r.get("clause_id"),
+            "perspective": r.get("perspective"),
+            "claim": r.get("claim"),
+            "conceded": bool(r.get("conceded")),
+            "turn_reached": r.get("turn_reached"),
+            # An encounter has no single prompt or reply: the whole conversation is
+            # the evidence, so the transcript ships and the last reply doubles as
+            # the response so the row reads like every other one.
+            "turns": turns,
+            "prompt": turns[0].get("attack") if turns else "",
+            "response_text": turns[-1].get("response") if turns else None,
+            "error": r.get("error"),
+        })
     return row
 
 
@@ -265,10 +303,16 @@ def _select_evaluations(
     counts are over the full (pre-outcome) filtered set."""
     rows: list[dict] = []
     n_pass = n_fail = 0
+    want_direction = CREED_DIRECTION.get(track)
     for r in records:
         if language and r.get("language_tag") != language:
             continue
-        if version_id is not None and r.get("version_id") != version_id:
+        if want_direction and r.get("direction") != want_direction:
+            continue
+        # The creed dimensions name no translation, so a version filter would match
+        # nothing at all. Their links narrow by language only; ignore a version here
+        # rather than return an empty page for a cell that has data.
+        if version_id is not None and not want_direction and r.get("version_id") != version_id:
             continue
         passed = _eval_passed(track, r)
         n_pass += int(passed)

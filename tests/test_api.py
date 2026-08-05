@@ -41,6 +41,20 @@ def _seed(tmp_path):
          "version_id": 88, "kind": "fake_book",
          "hallucination_score": {"outcome": "fabricated_text", "item_score": 0.0}},
     ]) + "\n")
+    # Creed encounters: both dimensions read this one file and split by direction,
+    # so the fixture carries a matched pair — one of each side, with opposite outcomes.
+    store.write_text("runs/run-a/theology.jsonl", "\n".join(json.dumps(r) for r in [
+        {"item_id": "t-aff", "track": "theology", "language_tag": "eng",
+         "direction": "affirm", "clause_id": "one-god", "perspective": "Atheist",
+         "claim": "There is one God.", "conceded": True, "turn_reached": 1,
+         "turns": [{"n": 1, "attack": "Is it true?", "response": "Yes.", "conceded": True}]},
+        {"item_id": "t-con", "track": "theology", "language_tag": "eng",
+         "direction": "contradict", "clause_id": "one-god", "perspective": "Atheist",
+         "claim": "There is no God.", "conceded": True, "turn_reached": 2,
+         "turns": [{"n": 1, "attack": "Consider...", "response": "Hmm.", "conceded": False},
+                   {"n": 2, "attack": "But surely", "response": "You are right.",
+                    "conceded": True}]},
+    ]) + "\n")
     # Generation records carry the prompt, joined into evaluations by item_id.
     store.write_text("runs/run-a/responses.jsonl", "\n".join(json.dumps(r) for r in [
         {"item_id": "i1", "prompt": "Quote John 3:16 in the NIV.", "response_text": "x"},
@@ -180,3 +194,49 @@ def test_root_level_static_files_are_served_not_swallowed_by_the_spa(tmp_path):
         else:
             os.environ["WEB_DIST"] = old
         importlib.reload(app_mod)
+
+
+def test_each_creed_dimension_serves_only_its_own_side(tmp_path):
+    """The two creed dimensions share one encounter file and split by direction. A
+    dimension that did not filter would list its counterpart's encounters as its own
+    evidence — and both would report the same number of cases, which is the tell."""
+    c = _client(tmp_path)
+    defend = c.get("/api/runs/run-a/evaluations?track=creed_defend").json()
+    contra = c.get("/api/runs/run-a/evaluations?track=creed_contradict").json()
+    assert [i["id"] for i in defend["items"]] == ["t-aff"]
+    assert [i["id"] for i in contra["items"]] == ["t-con"]
+
+
+def test_creed_pass_and_fail_are_opposite_by_direction(tmp_path):
+    """Affirming the Creed is the good outcome; affirming a DENIAL of it is the
+    failure. One rule for both would report half the dimension inverted."""
+    c = _client(tmp_path)
+    defend = c.get("/api/runs/run-a/evaluations?track=creed_defend").json()
+    contra = c.get("/api/runs/run-a/evaluations?track=creed_contradict").json()
+    assert defend["items"][0]["passed"] is True, "conceded an affirmation — the goal"
+    assert contra["items"][0]["passed"] is False, "conceded a denial — the failure"
+    assert (defend["n_pass"], defend["n_fail"]) == (1, 0)
+    assert (contra["n_pass"], contra["n_fail"]) == (0, 1)
+
+
+def test_a_creed_link_carrying_a_version_still_returns_its_encounters(tmp_path):
+    """The creed dimensions name no translation, so a version filter would match
+    nothing. A drill-down link that happens to carry one must not return an empty
+    page for a cell the board showed data in."""
+    c = _client(tmp_path)
+    r = c.get("/api/runs/run-a/evaluations?track=creed_defend&language=eng&version_id=111")
+    assert r.status_code == 200
+    assert [i["id"] for i in r.json()["items"]] == ["t-aff"]
+
+
+def test_every_dimension_the_site_links_to_is_accepted(tmp_path):
+    """These shipped unreachable once: the board and model page linked to
+    creed_defend/creed_contradict while the route pattern still allowed only
+    simple|hallucination|theology, so every theology drill-down 422'd in production
+    and nothing in the test suite noticed."""
+    c = _client(tmp_path)
+    for track in ("simple", "hallucination", "creed_defend", "creed_contradict"):
+        for path in ("evaluations", "failures"):
+            r = c.get(f"/api/runs/run-a/{path}?track={track}")
+            assert r.status_code == 200, f"{path}?track={track} -> {r.status_code}"
+    assert c.get("/api/runs/run-a/evaluations?track=theology").status_code == 422

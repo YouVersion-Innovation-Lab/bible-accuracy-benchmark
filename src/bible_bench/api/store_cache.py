@@ -86,7 +86,10 @@ class CachedStore:
     def items(self, run_id: str, kind: str) -> list[dict]:
         fname = {"simple": "items.jsonl",
                  "hallucination": "items_hallucination.jsonl",
-                 "theology": "theology.jsonl"}[kind]
+                 # Both creed dimensions are aggregated from the same encounters;
+                 # they split by direction at read time, not by file.
+                 "creed_defend": "theology.jsonl",
+                 "creed_contradict": "theology.jsonl"}[kind]
 
         def load() -> list[dict]:
             return self._store.read_jsonl(f"runs/{run_id}/{fname}")
