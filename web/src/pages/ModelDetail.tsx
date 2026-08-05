@@ -74,8 +74,9 @@ export function Report({ section }: { section: Section }) {
         above. Columns narrow it to{" "}
         {section.sliceKind === "version" ? "a single Bible translation" : "a single language"}.{" "}
         <strong className="text-slate-300">Every cell opens the test cases behind it.</strong>{" "}
-        A blank cell means that dimension wasn't measured there: seven of the eighteen editions
-        carry no hallucination items, because those prompts are built from one named Bible.
+        Both dimensions ask every edition the same way — one asks for verses that exist and one
+        for verses that don't — so a blank cell means the run skipped that dimension, not that
+        the design has a hole there.
       </p>
 
       <div className="overflow-x-auto rounded-xl border border-white/10">

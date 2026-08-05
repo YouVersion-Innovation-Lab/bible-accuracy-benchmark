@@ -33,20 +33,28 @@ declare -A KEYVAR=(
   [openrouter]="OPENROUTER_API_KEY" [xai]="XAI_API_KEY" [deepseek]="DEEPSEEK_API_KEY"
 )
 
-# Launch lineup: "provider|model-id|Display Label". Confirm exact model IDs.
+# Launch lineup: "provider|model-id|Display Label". Read off the run manifests of
+# the last published board, so these are the IDs that actually answered.
+# Set MODELS_FILTER to a comma-separated list of model ids to run a subset.
 MODELS=(
-  "openai|gpt-5.2|GPT-5.2"
-  "anthropic|claude-opus-4-8|Claude Opus 4.8"
-  "gemini|gemini-3-pro|Gemini 3 Pro"
-  "openrouter|meta-llama/llama-3.3-70b-instruct|Llama 3.3 70B"
-  "openrouter|deepseek/deepseek-chat-v3.1|DeepSeek V3.1"
-  "xai|grok-4|Grok 4"
+  "openai|gpt-5.6-terra|GPT-5.6 Terra"
+  "anthropic|claude-sonnet-5|Claude Sonnet 5"
+  "gemini|gemini-3.6-flash|Gemini 3.6 Flash"
+  "openrouter|x-ai/grok-4.5|Grok 4.5"
+  "openrouter|deepseek/deepseek-v4-pro|DeepSeek V4 Pro"
+  "openrouter|z-ai/glm-5.2|GLM-5.2"
+  "openrouter|qwen/qwen3.7-max|Qwen3.7 Max"
+  "openrouter|tencent/hy3|Tencent Hy3"
+  "openrouter|minimax/minimax-m3|MiniMax M3"
 )
 
 set -a; [ -f .env ] && . ./.env; set +a
 
 for entry in "${MODELS[@]}"; do
   IFS='|' read -r provider model label <<< "$entry"
+  if [ -n "${MODELS_FILTER:-}" ] && [[ ",${MODELS_FILTER}," != *",${model},"* ]]; then
+    continue
+  fi
   keyvar="${KEYVAR[$provider]}"
   if [ -z "${!keyvar:-}" ]; then
     echo ">> skip ${label} (${keyvar} not set)"; continue

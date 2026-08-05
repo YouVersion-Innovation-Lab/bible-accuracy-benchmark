@@ -79,26 +79,6 @@ def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
-def _thin_per_language(items: list, scale: float) -> list:
-    """Keep ``scale`` of the items WITHIN EACH language.
-
-    A global prefix would not do: the item lists are built language by language,
-    so items[:10%] covers the first language or two and nothing else. Track scores
-    are macro-averages over languages, so that would produce a "benchmark" scored
-    on English and Spanish while reporting it as eleven languages. Thinning inside
-    each language keeps a fast run the same SHAPE as a full one, just smaller.
-    """
-    if scale >= 1.0:
-        return items
-    by_lang: dict[str, list] = {}
-    for it in items:
-        by_lang.setdefault(it.language_tag, []).append(it)
-    out: list = []
-    for group in by_lang.values():
-        out.extend(group[: max(1, round(len(group) * scale))])
-    return out
-
-
 def _cache_dir(args) -> str | None:
     """Local Bible-text cache dir: --cache-dir, else BENCH_CACHE_DIR env, else
     none (in-memory only)."""
@@ -309,15 +289,22 @@ async def cmd_run(args) -> int:
                 lang: cfg_l.get("versions") or [cfg_l["primary"]]
                 for lang, cfg_l in spec_langs.items()
             }
+            # Scale goes INTO the draw, not onto the finished items: the list is
+            # built edition by edition and kind by kind, so thinning it afterwards
+            # drops whole editions and whole kinds instead of shrinking each.
             hallucination_items = await build_hallucination_items(
                 client, pcfg, languages=hallucination_langs,
                 versions_by_language=hallucination_versions,
                 template_by_language=simple_quote_templates(),
+                counts_scale=args.scale,
             )
-            hallucination_items = _thin_per_language(hallucination_items, args.scale)
-            console.print(f"Built [bold]{len(hallucination_items)}[/bold] hallucination items "
-                          f"across "
-                          f"{len({i.language_tag for i in hallucination_items})} languages.")
+            cells = {(i.language_tag, i.version_id) for i in hallucination_items}
+            console.print(
+                f"Built [bold]{len(hallucination_items)}[/bold] hallucination items "
+                f"across {len({i.language_tag for i in hallucination_items})} languages, "
+                f"{len(cells)} translations "
+                f"({len({i.kind for i in hallucination_items})} reference kinds)."
+            )
         manifest = {
             "run_key": run_key,
             "run_version": run_version,
@@ -813,7 +800,8 @@ def main(argv: list[str] | None = None) -> int:
                         "dimensions: a slow model can take minutes on a single turn.")
     r.add_argument("--fast", action="store_true",
                    help=f"Run a fast pass: about {int(FAST_SCALE * 100)}%% of the items, "
-                        f"thinned within every language so the result keeps the same shape. "
+                        f"thinned before they are asked of the translations so every "
+                        f"language, translation and question type survives. "
                         f"Recorded as its own generation ('{BENCHMARK_VERSION}{FAST_SUFFIX}') "
                         f"so it never mixes with full results, but seeded by "
                         f"{BENCHMARK_VERSION} so its questions are a subset of the full "

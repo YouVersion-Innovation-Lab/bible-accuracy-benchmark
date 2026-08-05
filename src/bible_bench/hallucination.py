@@ -34,11 +34,20 @@ score to any response a provider blocked.
 Chapter counts below are canonical across translations, so count+offset is
 guaranteed out of range in every version; the localized book name is taken from
 the version's own metadata so the reference reads naturally in each language.
+
+Structurally this dimension is the Direct Quotation dimension with impossible
+references: one reference list is drawn once and asked of every edition, exactly
+as `DatasetSampler.sample` does, so a fast run is a smaller benchmark rather than
+a differently-shaped one. Thinning therefore happens to the *reference list*,
+before it meets the translation matrix — thinning afterwards silently drops whole
+editions and whole reference kinds, because the item list is built edition by
+edition and kind by kind.
 """
 
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -69,6 +78,124 @@ _OOR_VERSE_REFS = [
     ("ROM", "Romans", 8, 99),
 ]
 _CHAPTER_OFFSETS = [3, 29]  # count+offset → plausible but impossible chapters
+
+#: Numbered series whose next number exists in no canon, as (usfm of the highest
+#: real volume, that volume's number). "3 Corinthians" and "4 John" are safe;
+#: Kings, Samuel, Chronicles, Esdras and Maccabees are deliberately absent
+#: because 3–4 Kings and 4 Maccabees are real books in some canons, and a
+#: "fake" book that some tradition actually has is not a hallucination probe.
+_FAKE_SERIES = [
+    ("2CO", 2),  # → 3 Corinthians
+    ("2TI", 2),  # → 3 Timothy
+    ("2PE", 2),  # → 3 Peter
+    ("3JN", 3),  # → 4 John
+    ("2TH", 2),  # → 3 Thessalonians
+]
+
+
+@dataclass(frozen=True)
+class PhantomRef:
+    """One impossible reference, stated independently of language and edition.
+
+    Rendering is deferred on purpose: the same spec becomes "Psalm 153:1" or
+    "Salmos 153:1" depending on the edition's own localized book names, which is
+    what lets one drawn list be asked of all of them.
+    """
+
+    kind: str
+    usfm: str           # book supplying the localized name
+    english_name: str   # fallback when an edition publishes no localized name
+    chapter: int
+    verse: int
+    #: fake_book only: the series number to render instead of the book's own, so
+    #: ("2CO", 2) renders the edition's "2 Corinthians" as "3 Corinthians".
+    real_number: int = 0
+
+    def render(self, names: dict[str, str]) -> str:
+        """This reference as a reader of `names`'s edition would see it."""
+        name = names.get(self.usfm, self.english_name)
+        if self.kind == "fake_book":
+            name = _bump_number(name, self.real_number)
+            if not name:
+                return ""
+        return f"{name} {self.chapter}:{self.verse}"
+
+
+def _book_of(display: str) -> str:
+    """"3 Corinthians 1:1" → "3 Corinthians" (the chapter:verse tail removed)."""
+    return display.rsplit(" ", 1)[0]
+
+
+#: CJK numerals for the series numbers this module uses. Numerals are part of a
+#: script, not a language's vocabulary, so translating them is mechanical in the
+#: same way `\d` already covers Arabic-Indic digits — and it is where the line is
+#: drawn: Russian "Второе послание" and Arabic "ٱلثَّانِيةُ" spell the number as a
+#: WORD, which cannot be bumped without native-speaker input, so those editions
+#: get no fake-book probes rather than a machine-guessed reference.
+_CJK_NUMERALS = {2: "二", 3: "三", 4: "四"}
+
+
+def _bump_number(name: str, real: int) -> str:
+    """"2 Corinthians" → "3 Corinthians", in whatever script the name is written.
+
+    The number may lead ("2 Corinthians"), run straight into the name
+    ("2Coríntios"), or sit inside it (Korean "요한3서" — John-3-book); it may be a
+    Latin digit, an Arabic-Indic digit, or a CJK numeral. Whichever it is, it is
+    only bumped when it equals the number the series is known to top out at, so a
+    name carrying no number — or a different one — yields nothing rather than a
+    silently malformed reference.
+    """
+    # Every series here tops out in the single digits, so the bump never carries
+    # and the next digit is the next code point — which keeps an Arabic-Indic or
+    # Devanagari numeral in its own script instead of turning it into a Latin "3".
+    d = re.search(r"\d", name)
+    if d and int(d.group()) == real:
+        return name[: d.start()] + chr(ord(d.group()) + 1) + name[d.end():]
+    cjk = _CJK_NUMERALS.get(real)
+    if cjk and cjk in name:
+        return name.replace(cjk, _CJK_NUMERALS[real + 1], 1)
+    return ""
+
+
+def draw_phantom_references(counts_scale: float = 1.0) -> list[PhantomRef]:
+    """Every impossible reference the dimension asks, before it meets an edition.
+
+    Stratified by kind, and thinned within each kind, for the same reason
+    `draw_references` thins within each tier: a prefix of the whole list is a
+    different benchmark, not a smaller one. At any scale every kind keeps at
+    least one reference, so a fast run still reports on all of them.
+
+    The draw is deterministic and needs no seed — these references are chosen to
+    be impossible, not sampled from a canon, so there is nothing to randomize and
+    nothing a model could gain by knowing the list in advance. Knowing that
+    "Psalm 153" does not exist is the whole skill being measured.
+    """
+    def scale(xs: list) -> list:
+        return xs[: max(1, round(len(xs) * counts_scale))] if counts_scale < 1 else xs
+
+    refs: list[PhantomRef] = []
+    refs += [
+        PhantomRef("out_of_range_chapter", usfm, name,
+                   count + _CHAPTER_OFFSETS[i % len(_CHAPTER_OFFSETS)], 1)
+        for i, (usfm, name, count) in enumerate(scale(_OOR_CHAPTER_BOOKS))
+    ]
+    refs += [
+        PhantomRef("out_of_range_verse", usfm, name, ch, verse)
+        for usfm, name, ch, verse in scale(_OOR_VERSE_REFS)
+    ]
+    refs += [
+        PhantomRef("fake_book", usfm, _FAKE_ENGLISH_NAMES[usfm], 1, 1, real_number=real)
+        for usfm, real in scale(_FAKE_SERIES)
+    ]
+    return refs
+
+
+#: Fallback names for the fake-book series, used only when an edition publishes
+#: no localized name for the book the series is built from.
+_FAKE_ENGLISH_NAMES = {
+    "2CO": "2 Corinthians", "2TI": "2 Timothy", "2PE": "2 Peter",
+    "3JN": "3 John", "2TH": "2 Thessalonians",
+}
 
 
 @dataclass(frozen=True)
@@ -130,6 +257,18 @@ async def _localized_book_names(client: BibleClient, version_id: int) -> dict[st
 # How many "real verse, wrong canon" items to build per language, and how the
 # books are chosen: the largest extra books, which are the best known.
 _ABSENT_PER_LANGUAGE = 2
+
+
+def _scale_absent(absent: list, counts_scale: float) -> list:
+    """Thin the canon items, keeping one wherever the edition has any at all.
+
+    Scaled here rather than in `draw_phantom_references` because these references
+    are not drawn once for everyone — which book is absent is a fact about the
+    individual edition.
+    """
+    if counts_scale >= 1.0 or not absent:
+        return absent
+    return absent[: max(1, round(len(absent) * counts_scale))]
 
 
 async def _absent_from_version_refs(
@@ -214,25 +353,30 @@ async def build_hallucination_items(
     languages: list[str] | None = None,
     versions_by_language: dict[str, list[int]] | None = None,
     template_by_language: dict[str, str] | None = None,
+    counts_scale: float = 1.0,
 ) -> list[HallucinationItem]:
-    """Generate impossible references for every (language, translation) tested.
+    """Ask one drawn list of impossible references of every translation tested.
 
-    Every prompt names the translation it is asking, in the same words the Direct
-    Quotation track uses — so the only difference between the two dimensions is
-    whether the reference exists. That makes the pair a clean controlled
-    comparison, and it makes this dimension scoreable per translation, which is
-    what versification differences will eventually need: "Psalm 23:6" is a real
-    verse in one versification and past the end of the psalm in another, and you
-    cannot ask that question of a prompt that names no translation.
+    The Direct Quotation dimension with the references inverted: same drawn-once
+    list, same translation matrix, same per-language prompt wording, so the only
+    difference between the two dimensions is whether the reference exists. That
+    makes the pair a controlled comparison, and it makes this dimension scoreable
+    per translation — which versification requires: "Psalm 23:6" is a real verse
+    in one versification and past the end of the psalm in another, and you cannot
+    ask that of a prompt that names no translation.
 
-    Out-of-range references use each version's own localized book names.
-    Fake-book references are config-supplied display strings, English-only by
-    default since a plausible fake book in one language may be a real book in
-    another. ``absent_from_version`` references are real verses the named
-    translation happens not to carry (Tobit from the NIV) — derived per
-    translation by comparing book lists, never from a curated list.
+    Every reference is rendered in the edition's own localized book names, so all
+    editions are asked the same thing in their own words — including fake books,
+    which are derived by bumping the number on a series that tops out
+    ("2 Corinthians" → "3 Corinthians") rather than curated per language.
+
+    One kind is deliberately not uniform: ``absent_from_version`` asks for a book
+    the named edition's canon lacks, so a wider-canon edition has fewer of them,
+    and an edition with no sibling to compare against has none. That is the probe
+    working, not a gap — for the NABRE, Sirach is not an impossible reference.
     """
     langs = languages or list(cfg.languages)
+    drawn = draw_phantom_references(counts_scale)
     items: list[HallucinationItem] = []
     for lang in langs:
         block = cfg.languages.get(lang)
@@ -255,27 +399,27 @@ async def build_hallucination_items(
             title = meta.get("title") or meta.get("local_title") or abbrev
             local_abbrev = (meta.get("local_abbreviation") or abbrev).upper()
             names = await _localized_book_names(client, vid)
+            own_names = {n.casefold() for n in names.values()}
 
             # (kind, display, absent_usfm, source_version_id, source_abbrev)
             refs: list[tuple[str, str, str, int | None, str]] = []
-            for i, (usfm, en_name, count) in enumerate(_OOR_CHAPTER_BOOKS):
-                name = names.get(usfm, en_name)
-                offset = _CHAPTER_OFFSETS[i % len(_CHAPTER_OFFSETS)]
-                refs.append(
-                    ("out_of_range_chapter", f"{name} {count + offset}:1", "", None, "")
-                )
-            for usfm, en_name, ch, verse in _OOR_VERSE_REFS:
-                name = names.get(usfm, en_name)
-                refs.append(("out_of_range_verse", f"{name} {ch}:{verse}", "", None, ""))
-            for fake in block.get("fake_refs", []):
-                refs.append(("fake_book", fake, "", None, ""))
+            for ref in drawn:
+                display = ref.render(names)
+                if not display:
+                    continue  # unnumbered localized name — nothing to bump
+                # Only fake books can collide: out-of-range references are
+                # SUPPOSED to name a book this edition carries — that is what
+                # makes the chapter, and not the book, the impossible part.
+                if ref.kind == "fake_book" and _book_of(display).casefold() in own_names:
+                    continue
+                refs.append((ref.kind, display, "", None, ""))
             # A translation with no sibling edition to compare against simply
             # yields no "real verse, wrong canon" items; it is not an error.
             try:
                 absent = await _absent_from_version_refs(client, lang, vid)
             except Exception:  # noqa: BLE001 — can't enumerate this language's editions
                 absent = []
-            for usfm, display, src_vid, src_abbrev in absent:
+            for usfm, display, src_vid, src_abbrev in _scale_absent(absent, counts_scale):
                 refs.append(("absent_from_version", display, usfm, src_vid, src_abbrev))
 
             for kind, display, absent_usfm, src_vid, src_abbrev in refs:

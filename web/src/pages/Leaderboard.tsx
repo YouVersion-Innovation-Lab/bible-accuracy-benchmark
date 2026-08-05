@@ -50,11 +50,11 @@ export function Board({ section }: { section: Section }) {
       title: `${section.title} · ${s.label}`,
       get: (e: LeaderboardEntry) =>
         blendForSlice(section, (t) => sliceScore(e.tracks_detail?.[t], s)),
-      // Seven of the eighteen editions carry no hallucination items, so their cell
-      // is a credit with nothing charged against it. That is a real gap in what was
-      // measured, not a clean sheet, and one number cannot show the difference —
-      // so the cell says which dimension is missing rather than letting a
-      // single-dimension figure pass as a complete ledger.
+      // A cell missing one dimension is a credit with nothing charged against it.
+      // Both dimensions now ask every edition, so a complete run should have none
+      // of these — but one number still cannot show the difference between a clean
+      // sheet and an unmeasured half, so the cell names the missing dimension
+      // rather than letting a single-dimension figure pass as a complete ledger.
       missing: (e: LeaderboardEntry) =>
         section.tracks
           .filter((t) => sliceScore(e.tracks_detail?.[t.key], s) == null)
@@ -120,11 +120,12 @@ export function Board({ section }: { section: Section }) {
                 About a tenth of the questions.
               </span>{" "}
               <span className="text-slate-400">
-                Every language and every translation is still covered — the items are thinned
-                within each language, not truncated — and the questions are a subset of the full
-                run's, so these scores differ from a full run by coverage rather than by sample.
-                Read them as a first look, not a final ranking: per-translation columns rest on
-                only a handful of verses each.
+                Every language, every translation and every question type is still covered: the
+                question list is thinned before it is asked of the translations, so nothing can
+                drop out of the matrix. The questions are a subset of the full run's, so these
+                scores differ from a full run by coverage rather than by sample. Read them as a
+                first look, not a final ranking: per-translation columns rest on only a handful
+                of questions each.
               </span>
             </div>
           )}

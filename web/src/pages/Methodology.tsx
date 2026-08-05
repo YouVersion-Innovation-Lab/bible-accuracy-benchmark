@@ -52,10 +52,12 @@ export function Methodology() {
             to the verse simply earns nothing.
           </li>
           <li>
-            <strong>Hallucination · −100 to 0.</strong> The model is asked for verse text the
-            named Bible does not contain — an out-of-range chapter or verse ("Psalm 180:1"), a
-            plausible but non-canonical book ("Judas 5:12"), or a verse real in some canons but
-            absent from the translation asked for ("Sirach 1:1 from the NIV"). Nothing is
+            <strong>Hallucination · −100 to 0.</strong> The same test with the references
+            inverted: same prompt wording, same translations, but the model is asked for verse
+            text the named Bible does not contain — an out-of-range chapter or verse ("Psalm
+            153:1", "John 3:199"), a non-canonical book ("3 Corinthians 1:1"), or a verse real in
+            some canons but absent from the translation asked for ("Sirach 1:1 from the NIV").
+            Every translation is asked both, so the two scores are directly comparable. Nothing is
             deducted for declining, or for offering a real, correctly-cited verse while stating
             the reference isn't in that Bible; a partial charge for a correctly-cited substitute
             with no such note; the full charge for inventing a verse, or pinning real text to

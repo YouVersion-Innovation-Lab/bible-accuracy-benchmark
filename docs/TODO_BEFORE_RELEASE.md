@@ -57,6 +57,16 @@ Status legend: ☐ open · ☑ done
     "deuterocanonical", "apocrypha" and "Protestant canon" are counted as denial
     signals in every language, because a model naming the canon situation has
     answered correctly. Those were drafted, not reviewed.
+
+    **Also needed here: an ordinal form for Russian and Arabic.** Non-canonical
+    book references are derived, not curated — the number on a series that tops
+    out is bumped in the edition's own name ("2 Corinthians" → "3 Corinthians",
+    Korean "요한3서" → "요한4서"), which covers 9 of the 11 languages including
+    every numeral script. Russian ("Второе послание к Коринфянам") and Arabic
+    ("كُورِنْثُوسَ ٱلثَّانِيةُ") spell the number as a *word*, which cannot be bumped
+    mechanically, so those two editions currently get no non-canonical-book
+    probes — they are still tested on out-of-range chapters and verses. A native
+    speaker supplying the ordinal form ("Третье…", "ٱلثَّالِثَةُ") closes the gap.
   (Until reviewed, run English + reviewed languages only.)
 - ☐ **Localize the benchmark system prompt, then A/B it.** The global system
   prompt (`bible_bench.prompts.BENCHMARK_SYSTEM_PROMPT` — "quote one verse per
