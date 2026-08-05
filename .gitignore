@@ -42,3 +42,13 @@ web-review-results/
 
 # Internal whitepapers/reviews — kept locally, deliberately not published
 docs/WHITEPAPER-*
+
+# Decks and leadership material. This repo is public, so anything written for an
+# internal audience lives on the Notion project page instead:
+# https://app.notion.com/p/341f1f2d1b9281858939ffe8fc430d9b
+# These patterns exist so such a file can never be swept into a commit by accident.
+*.pptx
+*.key
+docs/*.pdf
+docs/.*.src.html
+docs/OPEN-QUESTIONS-*

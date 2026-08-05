@@ -6,6 +6,13 @@ engine, deploy pipeline, and a live **beta** site are all done; these are the
 remaining launch gates, most of which need a human decision or an external
 sign-off.
 
+This file tracks launch **chores**. The launch **judgements** — which languages
+and versions to include, whether to publish results sliced by version, and which
+dimensions the initial board carries — need a leadership call, not an engineering
+one. They are written up in *Open questions for leadership*, attached to the
+[Bible Accuracy Benchmark Notion page](https://app.notion.com/p/341f1f2d1b9281858939ffe8fc430d9b)
+rather than kept here: this repo is public, and those are internal decisions.
+
 Status legend: ☐ open · ☑ done
 
 ---
