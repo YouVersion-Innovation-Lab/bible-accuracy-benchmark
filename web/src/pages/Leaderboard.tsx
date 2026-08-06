@@ -50,11 +50,14 @@ export function Board({ section }: { section: Section }) {
       title: `${section.title} · ${s.label}`,
       get: (e: LeaderboardEntry) =>
         blendForSlice(section, (t) => sliceScore(e.tracks_detail?.[t], s)),
-      // A cell missing one dimension is a credit with nothing charged against it.
-      // Both dimensions now ask every edition, so a complete run should have none
-      // of these — but one number still cannot show the difference between a clean
-      // sheet and an unmeasured half, so the cell names the missing dimension
-      // rather than letting a single-dimension figure pass as a complete ledger.
+      // A cell missing one dimension is a credit with nothing charged against it,
+      // which looks identical to a clean sheet and is not the same claim. From
+      // v0.6 both dimensions ask every edition, so a current run has none of
+      // these — but the version selector still reaches v0.5 and earlier, where
+      // seven of the eighteen editions genuinely carry no hallucination items.
+      // Kept in the cell's tooltip rather than marked in the table: the marker
+      // was noise on a board where it no longer fires, and a silent gap on the
+      // older ones would be worse than either.
       missing: (e: LeaderboardEntry) =>
         section.tracks
           .filter((t) => sliceScore(e.tracks_detail?.[t.key], s) == null)
@@ -202,7 +205,6 @@ export function Board({ section }: { section: Section }) {
                             `${e.model_label} · ${c.label}` +
                             (gaps.length ? ` — not measured: ${gaps.join(", ")}` : "")
                           }
-                          partial={gaps.length > 0}
                         />
                       );
                     })}
@@ -211,15 +213,6 @@ export function Board({ section }: { section: Section }) {
               </tbody>
             </table>
           </div>
-
-          {section.sliceKind === "version" && (
-            <p className="text-xs text-slate-500 mt-2">
-              <sup>†</sup> Quoting Accuracy only — this edition carries no hallucination items,
-              because those prompts ask a named Bible for a reference it does not contain, and
-              only eleven of the eighteen editions have a set of their own. Nothing is charged
-              against these figures, so they are not comparable with a full column.
-            </p>
-          )}
 
           <CrossLink section={section} />
         </>

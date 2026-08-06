@@ -309,7 +309,6 @@ async def cmd_run(args) -> int:
             "run_key": run_key,
             "run_version": run_version,
             "dataset_spec": args.spec,
-            "topics_file": args.topics,
             "creed_file": "dataset/creed/nicene-v1",
             "hallucination_file": args.hallucination,
             "tracks": sorted(tracks),
@@ -754,12 +753,14 @@ def _add_store_args(p) -> None:
     p.add_argument("--gcs-bucket", help="Write results to a GCS bucket (prod mode)")
 
 
-def main(argv: list[str] | None = None) -> int:
-    # Load a local .env from the directory the command is run in (BENCH_CACHE_DIR,
-    # Bible API headers, harness config, etc.). Explicit + cwd-based so it works
-    # regardless of how the package is installed.
-    load_dotenv(find_dotenv(usecwd=True))
+def build_parser() -> argparse.ArgumentParser:
+    """Every command's arguments, separate from `main` so tests can parse argv.
 
+    Extracted for the same reason `_carry_forward` was: a dimension retired from
+    the run path leaves its flag deleted but its reader behind, and that reader
+    runs before any model is called. Nothing could catch it while the parser was
+    only reachable through `main`.
+    """
     parser = argparse.ArgumentParser(prog="bible-bench")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
@@ -861,7 +862,16 @@ def main(argv: list[str] | None = None) -> int:
     pf.add_argument("--hallucination", default="dataset/hallucination-v1.json")
     _add_cache_arg(pf)
 
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    # Load a local .env from the directory the command is run in (BENCH_CACHE_DIR,
+    # Bible API headers, harness config, etc.). Explicit + cwd-based so it works
+    # regardless of how the package is installed.
+    load_dotenv(find_dotenv(usecwd=True))
+
+    args = build_parser().parse_args(argv)
     if args.cmd == "run":
         return asyncio.run(cmd_run(args))
     if args.cmd == "score":

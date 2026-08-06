@@ -35,16 +35,11 @@ export function HeatCell({
   value,
   title,
   href,
-  partial,
   polarity = "signed",
 }: {
   value: number | undefined;
   title?: string;
   href?: string;
-  /** Some dimension has no data here, so the figure covers less than it appears
-   *  to. Marked rather than hidden: a credit with nothing charged against it looks
-   *  identical to a clean sheet, and they are not the same claim. */
-  partial?: boolean;
   polarity?: Polarity;
 }) {
   const { bg, fg } = scoreColor(value, polarity);
@@ -62,13 +57,9 @@ export function HeatCell({
           style={{ color: fg }}
         >
           {value.toFixed(0)}
-          {partial && <sup className="text-[9px] opacity-60">†</sup>}
         </Link>
       ) : (
-        <span className="block px-3 py-3">
-          {value == null ? "—" : value.toFixed(0)}
-          {value != null && partial && <sup className="text-[9px] opacity-60">†</sup>}
-        </span>
+        <span className="block px-3 py-3">{value == null ? "—" : value.toFixed(0)}</span>
       )}
     </td>
   );

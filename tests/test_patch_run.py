@@ -93,3 +93,28 @@ def test_patched_tracks_accumulate():
         {"hallucination"},
     )
     assert m["patched_tracks"] == ["hallucination", "theology"]
+
+
+def test_cmd_run_touches_no_argument_that_was_deleted():
+    """Every `args.X` on the run path must exist on the parsed Namespace.
+
+    Retiring a dimension deletes its CLI flag but easily leaves a reader behind,
+    and the reader is reached before any model is called — so the run dies at
+    once, having built the whole item set. It has happened twice: `args.goals`
+    outlived the adversarial track, `args.topics` outlived the topical one, and
+    the second survived a full green suite because nothing parses real argv and
+    walks `cmd_run`. This is a static check on purpose: it needs no network, no
+    keys and no model, which is why it can run in CI on every commit.
+    """
+    import inspect
+    import re
+
+    from bible_bench import cli
+
+    args = cli.build_parser().parse_args(
+        ["run", "--base-url", "http://x/v1", "--api-key-env", "K",
+         "--model", "m", "--label", "L", "--local-dir", "d"]
+    )
+    referenced = set(re.findall(r"args\.([a-z_]+)", inspect.getsource(cli.cmd_run)))
+    missing = sorted(a for a in referenced if not hasattr(args, a))
+    assert not missing, f"cmd_run reads arguments the parser does not define: {missing}"
